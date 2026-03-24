@@ -1,12 +1,50 @@
-/node_modules
-/oh_modules
+# Dependencies
+/node_modules/
+/oh_modules/
 /local.properties
-/.idea
-**/build
-/.hvigor
-.cxx
+
+# IDE / editor
+/.idea/
+/*.iml
+/pet_care_harmony.iml
 /.clangd
 /.clang-format
 /.clang-tidy
-**/.test
-/.appanalyzer
+
+# Flutter / Dart / Harmony build outputs
+/.dart_tool/
+/.hvigor/
+/.appanalyzer/
+/**/build/
+/**/.test/
+/.cxx/
+/.packages
+/.flutter-plugins
+/.flutter-plugins-dependencies
+/.pub/
+/build/
+
+# Local SDK mirrors
+/.flutter_ohos_sdk/
+/.flutter_ohos_sdk_gitcode/
+
+# Local signing material
+/.signing-temp/
+/ohos/sign/material/
+/ohos/sign/*.p12
+/ohos/sign/*.cer
+/ohos/sign/*.p7b
+/ohos/sign/debug-profile.json
+
+# Local backups / disabled legacy trees
+/.legacy_arkui_disabled/
+
+# Logs / temp captures
+/flutter_*.log
+/tmp-*.jpeg
+/tmp-*.jpg
+/tmp-*.png
+
+# OS junk
+Thumbs.db
+.DS_Store
