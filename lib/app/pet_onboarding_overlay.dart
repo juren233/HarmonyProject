@@ -105,7 +105,7 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
     super.dispose();
   }
 
-  bool get _showSkipButton => _stepIndex >= 5 && _stepIndex <= 8;
+  bool get _showSkipButton => _stepIndex >= 5 && _stepIndex <= 7;
 
   bool get _canContinue {
     switch (_stepIndex) {

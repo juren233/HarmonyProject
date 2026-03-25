@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pet_care_harmony/app/app_theme.dart';
 import 'package:pet_care_harmony/app/common_widgets.dart';
 import 'package:pet_care_harmony/app/layout_metrics.dart';
+import 'package:pet_care_harmony/state/app_settings_controller.dart';
 import 'package:pet_care_harmony/state/pet_care_store.dart';
 
 class ChecklistPage extends StatelessWidget {
@@ -195,7 +197,7 @@ class OverviewPage extends StatelessWidget {
             Text(
               snapshot.disclaimer,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF6C7280),
+                    color: context.petCareTokens.secondaryText,
                     height: 1.6,
                   ),
             ),
@@ -439,7 +441,14 @@ class PetsPage extends StatelessWidget {
 }
 
 class MePage extends StatelessWidget {
-  const MePage({super.key});
+  const MePage({
+    super.key,
+    required this.themePreference,
+    required this.onThemePreferenceChanged,
+  });
+
+  final AppThemePreference themePreference;
+  final ValueChanged<AppThemePreference> onThemePreferenceChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -456,6 +465,43 @@ class MePage extends StatelessWidget {
           title: 'Pet Care',
           subtitle: '把提醒、记录和照护总结收在一个更轻盈的系统式界面里，方便每天顺手管理。',
           child: SizedBox.shrink(),
+        ),
+        SectionCard(
+          title: 'Theme & Appearance',
+          children: [
+            ListRow(
+              title: 'Current theme',
+              subtitle: switch (themePreference) {
+                AppThemePreference.system => 'Follow system',
+                AppThemePreference.light => 'Light mode',
+                AppThemePreference.dark => 'Dark mode',
+              },
+            ),
+            _ThemePreferenceTile(
+              key: const ValueKey('theme_option_system'),
+              title: 'Follow system',
+              subtitle: 'Use the device appearance setting automatically.',
+              value: AppThemePreference.system,
+              groupValue: themePreference,
+              onChanged: onThemePreferenceChanged,
+            ),
+            _ThemePreferenceTile(
+              key: const ValueKey('theme_option_light'),
+              title: 'Light mode',
+              subtitle: 'Keep the current bright interface style.',
+              value: AppThemePreference.light,
+              groupValue: themePreference,
+              onChanged: onThemePreferenceChanged,
+            ),
+            _ThemePreferenceTile(
+              key: const ValueKey('theme_option_dark'),
+              title: 'Dark mode',
+              subtitle: 'Reduce glare for low-light usage.',
+              value: AppThemePreference.dark,
+              groupValue: themePreference,
+              onChanged: onThemePreferenceChanged,
+            ),
+          ],
         ),
         SectionCard(
           title: '通知与提醒',
@@ -479,6 +525,55 @@ class MePage extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _ThemePreferenceTile extends StatelessWidget {
+  const _ThemePreferenceTile({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final AppThemePreference value;
+  final AppThemePreference groupValue;
+  final ValueChanged<AppThemePreference> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.listRowBackground,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: RadioListTile<AppThemePreference>(
+        value: value,
+        groupValue: groupValue,
+        onChanged: (next) {
+          if (next != null) {
+            onChanged(next);
+          }
+        },
+        title: Text(title),
+        subtitle: Text(
+          subtitle,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tokens.secondaryText,
+                height: 1.45,
+              ),
+        ),
+        activeColor: Theme.of(context).colorScheme.primary,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+        dense: true,
+        visualDensity: VisualDensity.compact,
+      ),
     );
   }
 }
