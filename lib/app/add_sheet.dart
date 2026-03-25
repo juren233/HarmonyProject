@@ -19,6 +19,7 @@ class _AddActionSheetState extends State<AddActionSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final isActionGrid = _action == AddAction.none;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -34,21 +35,12 @@ class _AddActionSheetState extends State<AddActionSheet> {
           padding: EdgeInsets.only(
             left: 18,
             right: 18,
-            top: 12,
+            top: 4,
             bottom: MediaQuery.of(context).viewInsets.bottom + 18,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 52,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: const Color(0x22000000),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 18),
               Row(
                 children: [
                   Expanded(
@@ -56,8 +48,13 @@ class _AddActionSheetState extends State<AddActionSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _action == AddAction.none ? '选择新内容' : _sheetTitle(_action),
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          _action == AddAction.none
+                              ? '新增内容'
+                              : _sheetTitle(_action),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: const Color(0xFF17181C),
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: -0.8,
@@ -65,44 +62,61 @@ class _AddActionSheetState extends State<AddActionSheet> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _action == AddAction.none ? '四个入口固定常驻，保持操作路径足够短。' : '保存后会自动回到对应页面。',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF6C7280),
-                              ),
+                          _action == AddAction.none
+                              ? '今天要给小宝加点什么新内容？'
+                              : '保存后会自动跳转详情页面。',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF6C7280),
+                                  ),
                         ),
                       ],
                     ),
                   ),
-                  TextButton(
-                    onPressed: () {
-                      if (_action == AddAction.none) {
-                        Navigator.pop(context);
-                      } else {
-                        setState(() => _action = AddAction.none);
-                      }
-                    },
-                    child: Text(_action == AddAction.none ? '关闭' : '返回'),
-                  ),
+                  if (!isActionGrid)
+                    IconButton(
+                      onPressed: () => setState(() => _action = AddAction.none),
+                      icon:
+                          const Icon(Icons.arrow_forward_ios_rounded, size: 18),
+                      color: const Color(0xFF7A7F8A),
+                      splashRadius: 18,
+                      tooltip: '返回',
+                    ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: switch (_action) {
-                      AddAction.none => _ActionGrid(
-                          key: const ValueKey('actions'),
-                          onSelect: (action) => setState(() => _action = action),
-                        ),
-                      AddAction.todo => _TodoForm(key: const ValueKey('todo'), store: widget.store),
-                      AddAction.reminder => _ReminderForm(key: const ValueKey('reminder'), store: widget.store),
-                      AddAction.record => _RecordForm(key: const ValueKey('record'), store: widget.store),
-                      AddAction.pet => _PetForm(key: const ValueKey('pet'), store: widget.store),
-                    },
+              const SizedBox(height: 14),
+              if (isActionGrid)
+                RepaintBoundary(
+                  key: const ValueKey('add_actions_boundary'),
+                  child: _ActionGrid(
+                    key: const ValueKey('actions'),
+                    onSelect: (action) => setState(() => _action = action),
+                  ),
+                )
+              else
+                Flexible(
+                  child: RepaintBoundary(
+                    key: const ValueKey('add_form_boundary'),
+                    child: SingleChildScrollView(
+                      child: KeyedSubtree(
+                        key: ValueKey(_action),
+                        child: switch (_action) {
+                          AddAction.todo => _TodoForm(
+                              key: const ValueKey('todo'), store: widget.store),
+                          AddAction.reminder => _ReminderForm(
+                              key: const ValueKey('reminder'),
+                              store: widget.store),
+                          AddAction.record => _RecordForm(
+                              key: const ValueKey('record'),
+                              store: widget.store),
+                          AddAction.pet => _PetForm(
+                              key: const ValueKey('pet'), store: widget.store),
+                          AddAction.none => const SizedBox.shrink(),
+                        },
+                      ),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -256,11 +270,21 @@ class _TodoFormState extends State<_TodoForm> {
   final _note = TextEditingController();
   late String _petId;
   final _dueAt = DateTime.parse('2026-03-25T09:00:00+08:00');
+  late final TextEditingController _dueAtText;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _dueAtText = TextEditingController(text: formatDate(_dueAt));
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _note.dispose();
+    _dueAtText.dispose();
+    super.dispose();
   }
 
   @override
@@ -275,16 +299,24 @@ class _TodoFormState extends State<_TodoForm> {
               const SectionLabel(text: '标题'),
               HyperTextField(controller: _title, hintText: '例如：补货主粮'),
               const SectionLabel(text: '关联爱宠'),
-              _PetSelector(pets: widget.store.pets, value: _petId, onChanged: (value) => setState(() => _petId = value)),
+              _PetSelector(
+                  pets: widget.store.pets,
+                  value: _petId,
+                  onChanged: (value) => setState(() => _petId = value)),
               const SectionLabel(text: '时间'),
-              HyperTextField(controller: TextEditingController(text: formatDate(_dueAt)), readOnly: true),
+              HyperTextField(controller: _dueAtText, readOnly: true),
               const SectionLabel(text: '备注'),
-              HyperTextField(controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
+              HyperTextField(
+                  controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
             ],
           ),
           FilledButton(
             onPressed: () {
-              widget.store.addTodo(title: _title.text.trim(), petId: _petId, dueAt: _dueAt, note: _note.text.trim());
+              widget.store.addTodo(
+                  title: _title.text.trim(),
+                  petId: _petId,
+                  dueAt: _dueAt,
+                  note: _note.text.trim());
               Navigator.pop(context);
             },
             child: const Text('保存待办'),
@@ -311,11 +343,22 @@ class _ReminderFormState extends State<_ReminderForm> {
   late String _petId;
   ReminderKind _kind = ReminderKind.custom;
   final _scheduledAt = DateTime.parse('2026-03-25T20:00:00+08:00');
+  late final TextEditingController _scheduledAtText;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _scheduledAtText = TextEditingController(text: formatDate(_scheduledAt));
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _note.dispose();
+    _recurrence.dispose();
+    _scheduledAtText.dispose();
+    super.dispose();
   }
 
   @override
@@ -330,7 +373,10 @@ class _ReminderFormState extends State<_ReminderForm> {
               const SectionLabel(text: '标题'),
               HyperTextField(controller: _title, hintText: '例如：体内驱虫'),
               const SectionLabel(text: '关联爱宠'),
-              _PetSelector(pets: widget.store.pets, value: _petId, onChanged: (value) => setState(() => _petId = value)),
+              _PetSelector(
+                  pets: widget.store.pets,
+                  value: _petId,
+                  onChanged: (value) => setState(() => _petId = value)),
               const SectionLabel(text: '提醒类型'),
               _ChoiceWrap<ReminderKind>(
                 values: ReminderKind.values,
@@ -339,7 +385,7 @@ class _ReminderFormState extends State<_ReminderForm> {
                 onChanged: (value) => setState(() => _kind = value),
               ),
               const SectionLabel(text: '时间'),
-              HyperTextField(controller: TextEditingController(text: formatDate(_scheduledAt)), readOnly: true),
+              HyperTextField(controller: _scheduledAtText, readOnly: true),
               const SectionLabel(text: '重复规则'),
               HyperTextField(controller: _recurrence),
               const SectionLabel(text: '备注'),
@@ -382,11 +428,22 @@ class _RecordFormState extends State<_RecordForm> {
   late String _petId;
   PetRecordType _type = PetRecordType.other;
   final _recordDate = DateTime.parse('2026-03-24T19:00:00+08:00');
+  late final TextEditingController _recordDateText;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _recordDateText = TextEditingController(text: formatDate(_recordDate));
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _summary.dispose();
+    _note.dispose();
+    _recordDateText.dispose();
+    super.dispose();
   }
 
   @override
@@ -399,7 +456,10 @@ class _RecordFormState extends State<_RecordForm> {
             title: '资料信息',
             children: [
               const SectionLabel(text: '关联爱宠'),
-              _PetSelector(pets: widget.store.pets, value: _petId, onChanged: (value) => setState(() => _petId = value)),
+              _PetSelector(
+                  pets: widget.store.pets,
+                  value: _petId,
+                  onChanged: (value) => setState(() => _petId = value)),
               const SectionLabel(text: '记录类型'),
               _ChoiceWrap<PetRecordType>(
                 values: PetRecordType.values,
@@ -410,7 +470,7 @@ class _RecordFormState extends State<_RecordForm> {
               const SectionLabel(text: '标题'),
               HyperTextField(controller: _title, hintText: '例如：体检结果'),
               const SectionLabel(text: '时间'),
-              HyperTextField(controller: TextEditingController(text: formatDate(_recordDate)), readOnly: true),
+              HyperTextField(controller: _recordDateText, readOnly: true),
               const SectionLabel(text: '摘要'),
               HyperTextField(controller: _summary, maxLines: 3),
               const SectionLabel(text: '备注'),
@@ -455,6 +515,19 @@ class _PetFormState extends State<_PetForm> {
   final _feeding = TextEditingController();
   final _allergies = TextEditingController();
   final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _breed.dispose();
+    _sex.dispose();
+    _birthday.dispose();
+    _weight.dispose();
+    _feeding.dispose();
+    _allergies.dispose();
+    _note.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -552,15 +625,20 @@ class _PetSelector extends StatelessWidget {
               onTap: () => onChanged(pet.id),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: value == pet.id ? const Color(0xFF17181C) : const Color(0xFFF6F7FA),
+                  color: value == pet.id
+                      ? const Color(0xFF17181C)
+                      : const Color(0xFFF6F7FA),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   pet.name,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: value == pet.id ? Colors.white : const Color(0xFF6C7280),
+                        color: value == pet.id
+                            ? Colors.white
+                            : const Color(0xFF6C7280),
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -596,15 +674,20 @@ class _ChoiceWrap<T> extends StatelessWidget {
               onTap: () => onChanged(value),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: selected == value ? const Color(0xFFEAF0FF) : const Color(0xFFF6F7FA),
+                  color: selected == value
+                      ? const Color(0xFFEAF0FF)
+                      : const Color(0xFFF6F7FA),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   labelBuilder(value),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: selected == value ? const Color(0xFF416EDA) : const Color(0xFF6C7280),
+                        color: selected == value
+                            ? const Color(0xFF416EDA)
+                            : const Color(0xFF6C7280),
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -621,7 +704,7 @@ String _sheetTitle(AddAction action) => switch (action) {
       AddAction.reminder => '新增提醒',
       AddAction.record => '新增记录',
       AddAction.pet => '新增爱宠',
-      AddAction.none => '选择新内容',
+      AddAction.none => '新增内容',
     };
 
 String _reminderKindLabel(ReminderKind kind) => switch (kind) {
