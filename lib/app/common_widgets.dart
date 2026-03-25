@@ -1,15 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:pet_care_harmony/app/app_theme.dart';
 import 'package:pet_care_harmony/state/pet_care_store.dart';
-
-const Color _pageText = Color(0xFF17181C);
-const Color _mutedText = Color(0xFF6C7280);
-const Color _panelBorder = Color(0xFFF7F8FB);
-const Color _surfaceTop = Color(0xFFF8F4EF);
-const Color _surfaceBottom = Color(0xFFF3F4F8);
-const Color _accentBlue = Color(0xFF5B8CFF);
-const Color _softBlue = Color(0xFFE9F0FF);
-const Color _softRed = Color(0xFFFDEBE8);
-const Color _softGold = Color(0xFFFFF3D8);
 
 class HyperPageBackground extends StatelessWidget {
   const HyperPageBackground({super.key, required this.child});
@@ -18,12 +9,13 @@ class HyperPageBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [_surfaceTop, _surfaceBottom],
+          colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
         ),
       ),
       child: Stack(
@@ -40,7 +32,7 @@ class HyperPageBackground extends StatelessWidget {
                     center: const Alignment(0, -0.7),
                     radius: 0.9,
                     colors: [
-                      const Color(0x66FFFFFF),
+                      tokens.pageGlow,
                       Colors.white.withValues(alpha: 0),
                     ],
                   ),
@@ -69,6 +61,7 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 18),
       child: Row(
@@ -81,7 +74,7 @@ class PageHeader extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: _pageText,
+                        color: tokens.primaryText,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -1.2,
                       ),
@@ -90,7 +83,7 @@ class PageHeader extends StatelessWidget {
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _mutedText,
+                        color: tokens.secondaryText,
                         fontWeight: FontWeight.w500,
                         letterSpacing: -0.2,
                       ),
@@ -111,39 +104,40 @@ class FrostedPanel extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(18),
     this.margin,
-    this.backgroundColor = const Color(0xF7FFFFFF),
+    this.backgroundColor,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry? margin;
-  final Color backgroundColor;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return RepaintBoundary(
       child: Container(
         margin: margin,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(30),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-              color: Color(0x12000000),
+              color: tokens.panelShadow,
               blurRadius: 30,
-              offset: Offset(0, 12),
+              offset: const Offset(0, 12),
             ),
             BoxShadow(
-              color: Color(0x08FFFFFF),
+              color: tokens.panelHighlightShadow,
               blurRadius: 10,
-              offset: Offset(0, -2),
+              offset: const Offset(0, -2),
             ),
           ],
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: backgroundColor,
+            color: backgroundColor ?? tokens.panelBackground,
             borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: _panelBorder, width: 1.2),
+            border: Border.all(color: tokens.panelBorder, width: 1.2),
           ),
           child: Padding(
             padding: padding,
@@ -169,17 +163,18 @@ class HeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return FrostedPanel(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-      backgroundColor: const Color(0xF2FFFFFF),
+      backgroundColor: tokens.panelStrongBackground,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: _pageText,
+                  color: tokens.primaryText,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
                 ),
@@ -188,7 +183,7 @@ class HeroPanel extends StatelessWidget {
           Text(
             subtitle,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedText,
+                  color: tokens.secondaryText,
                   height: 1.45,
                 ),
           ),
@@ -279,6 +274,7 @@ class HyperSegmentedControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -295,8 +291,8 @@ class HyperSegmentedControl extends StatelessWidget {
                         horizontal: 16, vertical: 11),
                     decoration: BoxDecoration(
                       color: selectedKey == item.key
-                          ? const Color(0xFFF2A65A)
-                          : const Color(0xFFF4F5F8),
+                          ? tokens.segmentedSelectedBackground
+                          : tokens.segmentedIdleBackground,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
@@ -304,7 +300,7 @@ class HyperSegmentedControl extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: selectedKey == item.key
                                 ? Colors.white
-                                : _mutedText,
+                                : tokens.secondaryText,
                             fontWeight: FontWeight.w700,
                           ),
                     ),
@@ -339,6 +335,7 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     final spaced = <Widget>[];
     for (var index = 0; index < children.length; index += 1) {
       spaced.add(children[index]);
@@ -357,7 +354,7 @@ class SectionCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _pageText,
+                        color: tokens.primaryText,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
                       ),
@@ -390,6 +387,7 @@ class EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return FrostedPanel(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -399,17 +397,17 @@ class EmptyCard extends StatelessWidget {
           Container(
             width: 56,
             height: 56,
-            decoration: const BoxDecoration(
-              color: _softBlue,
+            decoration: BoxDecoration(
+              color: tokens.emptyStateBackground,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.pets_rounded, color: _accentBlue),
+            child: Icon(Icons.pets_rounded, color: tokens.emptyStateForeground),
           ),
           const SizedBox(height: 16),
           Text(
             title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: _pageText,
+                  color: tokens.primaryText,
                   fontWeight: FontWeight.w800,
                 ),
             textAlign: TextAlign.center,
@@ -418,7 +416,7 @@ class EmptyCard extends StatelessWidget {
           Text(
             subtitle,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedText,
+                  color: tokens.secondaryText,
                   height: 1.5,
                 ),
             textAlign: TextAlign.center,
@@ -452,8 +450,9 @@ class ChecklistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final overdue = item.statusLabel == '已逾期';
-    final reminder = item.kindLabel == '提醒';
+    final tokens = context.petCareTokens;
+    final overdue = item.statusLabel == '宸查€炬湡';
+    final reminder = item.kindLabel == '鎻愰啋';
     return FrostedPanel(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
@@ -467,14 +466,16 @@ class ChecklistCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: reminder ? _softBlue : _softGold,
+                  color: reminder
+                      ? tokens.badgeBlueBackground
+                      : tokens.badgeGoldBackground,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
                   child: Text(
                     item.petAvatarText,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: _pageText,
+                          color: tokens.primaryText,
                           fontWeight: FontWeight.w800,
                         ),
                   ),
@@ -488,16 +489,16 @@ class ChecklistCard extends StatelessWidget {
                     Text(
                       item.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: _pageText,
+                            color: tokens.primaryText,
                             fontWeight: FontWeight.w800,
                             letterSpacing: -0.3,
                           ),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '${item.petName} · ${item.kindLabel} · ${item.dueLabel}',
+                      '${item.petName} 路 ${item.kindLabel} 路 ${item.dueLabel}',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: _mutedText,
+                            color: tokens.secondaryText,
                             fontWeight: FontWeight.w500,
                           ),
                     ),
@@ -506,7 +507,7 @@ class ChecklistCard extends StatelessWidget {
                       Text(
                         item.note,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: _mutedText,
+                              color: tokens.secondaryText,
                               height: 1.45,
                             ),
                         maxLines: 2,
@@ -519,8 +520,12 @@ class ChecklistCard extends StatelessWidget {
               const SizedBox(width: 10),
               HyperBadge(
                 text: item.statusLabel,
-                foreground: overdue ? const Color(0xFFC7533E) : _accentBlue,
-                background: overdue ? _softRed : _softBlue,
+                foreground: overdue
+                    ? tokens.badgeRedForeground
+                    : tokens.badgeBlueForeground,
+                background: overdue
+                    ? tokens.badgeRedBackground
+                    : tokens.badgeBlueBackground,
               ),
             ],
           ),
@@ -530,18 +535,18 @@ class ChecklistCard extends StatelessWidget {
               Expanded(
                 child: FilledButton(
                   onPressed: onComplete,
-                  child: const Text('完成'),
+                  child: const Text('瀹屾垚'),
                 ),
               ),
               const SizedBox(width: 10),
               TextButton(
                 onPressed: onPostpone,
-                child: const Text('延后'),
+                child: const Text('寤跺悗'),
               ),
               const SizedBox(width: 4),
               TextButton(
                 onPressed: onSkip,
-                child: const Text('跳过'),
+                child: const Text('璺宠繃'),
               ),
             ],
           ),
@@ -589,6 +594,7 @@ class BulletText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -596,8 +602,8 @@ class BulletText extends StatelessWidget {
           width: 7,
           height: 7,
           margin: const EdgeInsets.only(top: 8),
-          decoration: const BoxDecoration(
-            color: _accentBlue,
+          decoration: BoxDecoration(
+            color: tokens.badgeBlueForeground,
             shape: BoxShape.circle,
           ),
         ),
@@ -606,7 +612,7 @@ class BulletText extends StatelessWidget {
           child: Text(
             text,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _pageText,
+                  color: tokens.primaryText,
                   height: 1.55,
                 ),
           ),
@@ -624,6 +630,7 @@ class InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -632,7 +639,7 @@ class InfoRow extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedText,
+                  color: tokens.secondaryText,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -641,7 +648,7 @@ class InfoRow extends StatelessWidget {
           child: Text(
             value,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _pageText,
+                  color: tokens.primaryText,
                   fontWeight: FontWeight.w600,
                   height: 1.5,
                 ),
@@ -668,10 +675,11 @@ class ListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FB),
+        color: tokens.listRowBackground,
         borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
@@ -688,7 +696,7 @@ class ListRow extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: _pageText,
+                        color: tokens.primaryText,
                         fontWeight: FontWeight.w700,
                         letterSpacing: -0.2,
                       ),
@@ -697,7 +705,7 @@ class ListRow extends StatelessWidget {
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedText,
+                        color: tokens.secondaryText,
                         height: 1.5,
                       ),
                 ),
@@ -751,7 +759,7 @@ class SectionLabel extends StatelessWidget {
       child: Text(
         text,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: _mutedText,
+              color: context.petCareTokens.secondaryText,
               fontWeight: FontWeight.w700,
             ),
       ),

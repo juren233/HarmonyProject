@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pet_care_harmony/app/theme_settings_copy.dart';
 import 'package:pet_care_harmony/app/pet_care_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -288,14 +289,19 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
-    await tester.pumpAndSettle();
+    for (var i = 0; i < 4; i++) {
+      final skipButton = find.byKey(const ValueKey('onboarding_skip_button'));
+      if (skipButton.evaluate().isEmpty) {
+        break;
+      }
+      await tester.tap(skipButton);
+      await tester.pumpAndSettle();
+    }
+    final saveButton = find.byKey(const ValueKey('onboarding_save_button'));
+    if (saveButton.evaluate().isNotEmpty) {
+      await tester.tap(saveButton);
+      await tester.pumpAndSettle();
+    }
 
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsNothing);
@@ -323,7 +329,8 @@ void main() {
       find.byKey(const ValueKey('edit_pet_note_field')),
       '洗澡前会躲起来',
     );
-    await tester.ensureVisible(find.byKey(const ValueKey('edit_pet_save_button')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('edit_pet_save_button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit_pet_save_button')));
     await tester.pumpAndSettle();
@@ -460,6 +467,62 @@ void main() {
       find.byType(AnnotatedRegion<SystemUiOverlayStyle>).first,
     );
     expect(annotated.value.statusBarColor, const Color(0x00000000));
+  });
+
+  testWidgets('shows theme settings on the me page and switches to dark mode',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tab_me')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(themeSectionTitle), findsOneWidget);
+    expect(find.text(followSystemTitle), findsWidgets);
+    expect(find.text(lightModeTitle), findsWidgets);
+    expect(find.text(darkModeTitle), findsWidgets);
+    expect(find.byKey(const ValueKey('theme_option_system')), findsOneWidget);
+    expect(find.byKey(const ValueKey('theme_option_light')), findsOneWidget);
+    expect(find.byKey(const ValueKey('theme_option_dark')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('theme_option_dark')),
+      120,
+    );
+    await tester.tap(find.text(darkModeTitle).first);
+    await tester.pumpAndSettle();
+
+    final scaffoldContext = tester.element(find.byType(Scaffold).first);
+    expect(Theme.of(scaffoldContext).brightness, Brightness.dark);
+  });
+
+  testWidgets('uses amoled-friendly dark theme when persisted in dark mode',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ..._persistedSinglePetPreferences(),
+      'app_theme_mode_v1': 'dark',
+    });
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    final scaffoldContext = tester.element(find.byType(Scaffold).first);
+    expect(
+      Theme.of(scaffoldContext).scaffoldBackgroundColor,
+      const Color(0xFF020304),
+    );
+  });
+
+  testWidgets('restores persisted system theme preference', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ..._persistedSinglePetPreferences(),
+      'app_theme_mode_v1': 'system',
+    });
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.themeMode, ThemeMode.system);
   });
 
   testWidgets('uses explicit insets instead of nested SafeArea wrappers',

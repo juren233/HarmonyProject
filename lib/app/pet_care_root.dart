@@ -1,17 +1,26 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pet_care_harmony/app/add_sheet.dart';
+import 'package:pet_care_harmony/app/app_theme.dart';
 import 'package:pet_care_harmony/app/common_widgets.dart';
 import 'package:pet_care_harmony/app/layout_metrics.dart';
+import 'package:pet_care_harmony/app/me_page.dart';
 import 'package:pet_care_harmony/app/navigation_palette.dart';
-import 'package:pet_care_harmony/app/pet_care_pages.dart';
+import 'package:pet_care_harmony/app/pet_care_pages.dart' hide MePage;
 import 'package:pet_care_harmony/app/pet_edit_sheet.dart';
 import 'package:pet_care_harmony/app/pet_onboarding_overlay.dart';
+import 'package:pet_care_harmony/state/app_settings_controller.dart';
 import 'package:pet_care_harmony/state/pet_care_store.dart';
 
 class PetCareRoot extends StatefulWidget {
-  const PetCareRoot({super.key});
+  const PetCareRoot({
+    super.key,
+    this.settingsController,
+  });
+
+  final AppSettingsController? settingsController;
 
   @override
   State<PetCareRoot> createState() => _PetCareRootState();
@@ -60,137 +69,156 @@ class _PetCareRootState extends State<PetCareRoot> {
       builder: (context, _) {
         final insets = MediaQuery.viewPaddingOf(context);
         final dockLayout = dockLayoutForInsets(insets);
-        return Scaffold(
-          extendBody: true,
-          body: RepaintBoundary(
-            key: const ValueKey('page_content_boundary'),
-            child: Stack(
-              children: [
-                HyperPageBackground(
-                  child:
-                      // keep lazy tab construction via switch (_store.activeTab)
-                      switch (store.activeTab) {
-                    AppTab.checklist => ChecklistPage(
-                        store: store,
-                        activeSectionKey: _activeChecklistKey,
-                        onSectionChanged: (value) =>
-                            setState(() => _activeChecklistKey = value),
-                        onAddFirstPet: _openManualOnboarding,
-                      ),
-                    AppTab.overview => OverviewPage(
-                        store: store,
-                        onAddFirstPet: _openManualOnboarding,
-                      ),
-                    AppTab.pets => PetsPage(
-                        store: store,
-                        onAddFirstPet: _openManualOnboarding,
-                        onEditPet: (pet) =>
-                            _openEditPetSheet(context, store, pet),
-                      ),
-                    AppTab.me => const MePage(),
-                  },
-                ),
-                if (_showOnboarding)
-                  PetOnboardingOverlay(
-                    onSubmit: _submitOnboarding,
+        final overlayStyle = petCareOverlayStyleForTheme(Theme.of(context));
+        final tokens = context.petCareTokens;
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlayStyle,
+          child: Scaffold(
+            extendBody: true,
+            body: RepaintBoundary(
+              key: const ValueKey('page_content_boundary'),
+              child: Stack(
+                children: [
+                  HyperPageBackground(
+                    // keep lazy tab construction via switch (_store.activeTab)
+                    child: switch (store.activeTab) {
+                      AppTab.checklist => ChecklistPage(
+                          store: store,
+                          activeSectionKey: _activeChecklistKey,
+                          onSectionChanged: (value) =>
+                              setState(() => _activeChecklistKey = value),
+                          onAddFirstPet: _openManualOnboarding,
+                        ),
+                      AppTab.overview => OverviewPage(
+                          store: store,
+                          onAddFirstPet: _openManualOnboarding,
+                        ),
+                      AppTab.pets => PetsPage(
+                          store: store,
+                          onAddFirstPet: _openManualOnboarding,
+                          onEditPet: (pet) =>
+                              _openEditPetSheet(context, store, pet),
+                        ),
+                      AppTab.me => MePage(
+                          themePreference:
+                              widget.settingsController?.themePreference ??
+                                  AppThemePreference.system,
+                          onThemePreferenceChanged: (value) => widget
+                              .settingsController
+                              ?.setThemePreference(value),
+                        ),
+                    },
                   ),
-              ],
+                  if (_showOnboarding)
+                    PetOnboardingOverlay(
+                      onSubmit: _submitOnboarding,
+                    ),
+                ],
+              ),
             ),
-          ),
-          bottomNavigationBar: _showOnboarding
-              ? null
-              : RepaintBoundary(
-                  key: const ValueKey('bottom_nav_boundary'),
-                  child: Padding(
-                    padding: dockLayout.outerMargin,
-                    child: SizedBox(
-                      height: dockLayout.shellHeight,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(28),
-                        child: BackdropFilter(
-                          key: const ValueKey('bottom_nav_blur'),
-                          filter: ImageFilter.blur(
-                            sigmaX: dockBlurSigma,
-                            sigmaY: dockBlurSigma,
-                          ),
-                          child: Container(
-                            key: const ValueKey('bottom_nav_panel'),
-                            height: dockLayout.panelHeight,
-                            padding: dockLayout.innerPadding,
-                            decoration: BoxDecoration(
-                              color: const Color(0xCCFFFFFF),
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(
-                                color: const Color(0xD9FFFFFF),
-                                width: 1.1,
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x12000000),
-                                  blurRadius: 26,
-                                  offset: Offset(0, 10),
-                                ),
-                              ],
+            bottomNavigationBar: _showOnboarding
+                ? null
+                : RepaintBoundary(
+                    key: const ValueKey('bottom_nav_boundary'),
+                    child: Padding(
+                      padding: dockLayout.outerMargin,
+                      child: SizedBox(
+                        height: dockLayout.shellHeight,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: BackdropFilter(
+                            key: const ValueKey('bottom_nav_blur'),
+                            filter: ImageFilter.blur(
+                              sigmaX: dockBlurSigma,
+                              sigmaY: dockBlurSigma,
                             ),
-                            child: Row(
-                              children: [
-                                _TabButton(
-                                  accent: tabAccentFor(AppTab.checklist),
-                                  icon: Icons.checklist_rounded,
-                                  label: '清单',
-                                  selected: store.activeTab == AppTab.checklist,
-                                  onTap: () =>
-                                      store.setActiveTab(AppTab.checklist),
+                            child: Container(
+                              key: const ValueKey('bottom_nav_panel'),
+                              height: dockLayout.panelHeight,
+                              padding: dockLayout.innerPadding,
+                              decoration: BoxDecoration(
+                                color: tokens.navBackground,
+                                borderRadius: BorderRadius.circular(28),
+                                border: Border.all(
+                                  color: tokens.navBorder,
+                                  width: 1.1,
                                 ),
-                                _TabButton(
-                                  accent: tabAccentFor(AppTab.overview),
-                                  icon: Icons.auto_awesome_rounded,
-                                  label: '总览',
-                                  selected: store.activeTab == AppTab.overview,
-                                  onTap: () =>
-                                      store.setActiveTab(AppTab.overview),
-                                ),
-                                SizedBox(
-                                  width: 56,
-                                  child: Center(
-                                    child: SizedBox(
-                                      key: const ValueKey('dock_add_button'),
-                                      width: 48,
-                                      height: 48,
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            colors: [
-                                              Color(0xFF90CE9B),
-                                              Color(0xFF6AB57A),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
-                                          shape: BoxShape.circle,
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Color(0x226AB57A),
-                                              blurRadius: 18,
-                                              offset: Offset(0, 8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: tokens.panelShadow,
+                                    blurRadius: 26,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  _TabButton(
+                                    key: const ValueKey('tab_checklist'),
+                                    accent:
+                                        tabAccentFor(context, AppTab.checklist),
+                                    icon: Icons.checklist_rounded,
+                                    label: '清单',
+                                    selected:
+                                        store.activeTab == AppTab.checklist,
+                                    onTap: () =>
+                                        store.setActiveTab(AppTab.checklist),
+                                  ),
+                                  _TabButton(
+                                    key: const ValueKey('tab_overview'),
+                                    accent:
+                                        tabAccentFor(context, AppTab.overview),
+                                    icon: Icons.auto_awesome_rounded,
+                                    label: '总览',
+                                    selected:
+                                        store.activeTab == AppTab.overview,
+                                    onTap: () =>
+                                        store.setActiveTab(AppTab.overview),
+                                  ),
+                                  SizedBox(
+                                    width: 56,
+                                    child: Center(
+                                      child: SizedBox(
+                                        key: const ValueKey('dock_add_button'),
+                                        width: 48,
+                                        height: 48,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                tokens.navAddGradientStart,
+                                                tokens.navAddGradientEnd,
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
                                             ),
-                                          ],
-                                          border: Border.all(
-                                            color: const Color(0xAAFFFFFF),
-                                            width: 1.4,
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: tokens.navAddShadow,
+                                                blurRadius: 18,
+                                                offset: const Offset(0, 8),
+                                              ),
+                                            ],
+                                            border: Border.all(
+                                              color: const Color(0xAAFFFFFF),
+                                              width: 1.4,
+                                            ),
                                           ),
-                                        ),
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            customBorder: const CircleBorder(),
-                                            onTap: () =>
-                                                _openAddSheet(context, store),
-                                            child: const Center(
-                                              child: Icon(
-                                                Icons.add,
-                                                size: 24,
-                                                color: Colors.white,
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              customBorder:
+                                                  const CircleBorder(),
+                                              onTap: () =>
+                                                  _openAddSheet(context, store),
+                                              child: const Center(
+                                                child: Icon(
+                                                  Icons.add,
+                                                  size: 24,
+                                                  color: Colors.white,
+                                                ),
                                               ),
                                             ),
                                           ),
@@ -198,29 +226,32 @@ class _PetCareRootState extends State<PetCareRoot> {
                                       ),
                                     ),
                                   ),
-                                ),
-                                _TabButton(
-                                  accent: tabAccentFor(AppTab.pets),
-                                  icon: Icons.pets_rounded,
-                                  label: '爱宠',
-                                  selected: store.activeTab == AppTab.pets,
-                                  onTap: () => store.setActiveTab(AppTab.pets),
-                                ),
-                                _TabButton(
-                                  accent: tabAccentFor(AppTab.me),
-                                  icon: Icons.person_rounded,
-                                  label: '我的',
-                                  selected: store.activeTab == AppTab.me,
-                                  onTap: () => store.setActiveTab(AppTab.me),
-                                ),
-                              ],
+                                  _TabButton(
+                                    key: const ValueKey('tab_pets'),
+                                    accent: tabAccentFor(context, AppTab.pets),
+                                    icon: Icons.pets_rounded,
+                                    label: '爱宠',
+                                    selected: store.activeTab == AppTab.pets,
+                                    onTap: () =>
+                                        store.setActiveTab(AppTab.pets),
+                                  ),
+                                  _TabButton(
+                                    key: const ValueKey('tab_me'),
+                                    accent: tabAccentFor(context, AppTab.me),
+                                    icon: Icons.person_rounded,
+                                    label: '我的',
+                                    selected: store.activeTab == AppTab.me,
+                                    onTap: () => store.setActiveTab(AppTab.me),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
+          ),
         );
       },
     );
@@ -285,6 +316,7 @@ class _PetCareRootState extends State<PetCareRoot> {
 
 class _TabButton extends StatelessWidget {
   const _TabButton({
+    super.key,
     required this.accent,
     required this.icon,
     required this.label,
@@ -300,6 +332,7 @@ class _TabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -320,7 +353,7 @@ class _TabButton extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 17,
-                color: selected ? Colors.white : const Color(0xFF7E8492),
+                color: selected ? Colors.white : tokens.navIconInactive,
               ),
             ),
             const SizedBox(height: 2),
@@ -329,7 +362,7 @@ class _TabButton extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? accent.label : const Color(0xFF7E8492),
+                color: selected ? accent.label : tokens.navLabelInactive,
               ),
             ),
           ],
