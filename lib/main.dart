@@ -3,8 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:pet_care_harmony/app/pet_care_app.dart';
 import 'package:pet_care_harmony/app/system_ui_policy.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await configureStartupSystemUi();
+  configureStartupSystemUi();
   runApp(const PetCareApp());
 }

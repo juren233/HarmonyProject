@@ -57,6 +57,14 @@ void main() {
     expect(addButtonRect.bottom, lessThanOrEqualTo(panelRect.bottom));
   });
 
+  testWidgets('keeps blur only on the bottom dock and not on content panels', (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BackdropFilter), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_blur')), findsOneWidget);
+  });
+
   testWidgets('uses the warm pet orange theme for primary actions', (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();

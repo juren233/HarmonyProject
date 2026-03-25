@@ -35,19 +35,16 @@ class _PetCareRootState extends State<PetCareRoot> {
         return Scaffold(
           extendBody: true,
           body: HyperPageBackground(
-            child: IndexedStack(
-              index: AppTab.values.indexOf(_store.activeTab),
-              children: [
-                ChecklistPage(
+            child: switch (_store.activeTab) {
+              AppTab.checklist => ChecklistPage(
                   store: _store,
                   activeSectionKey: _activeChecklistKey,
                   onSectionChanged: (value) => setState(() => _activeChecklistKey = value),
                 ),
-                OverviewPage(store: _store),
-                PetsPage(store: _store),
-                const MePage(),
-              ],
-            ),
+              AppTab.overview => OverviewPage(store: _store),
+              AppTab.pets => PetsPage(store: _store),
+              AppTab.me => const MePage(),
+            },
           ),
           bottomNavigationBar: Padding(
             padding: dockLayout.outerMargin,

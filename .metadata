@@ -15,7 +15,7 @@ migration:
     - platform: root
       create_revision: aeb9e1296b0bfd188d153572f2441ab97cfea33b
       base_revision: aeb9e1296b0bfd188d153572f2441ab97cfea33b
-    - platform: ohos
+    - platform: android
       create_revision: aeb9e1296b0bfd188d153572f2441ab97cfea33b
       base_revision: aeb9e1296b0bfd188d153572f2441ab97cfea33b
 

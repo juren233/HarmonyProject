@@ -142,18 +142,15 @@ class FrostedPanel extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(30),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: _panelBorder, width: 1.2),
-            ),
-            child: Padding(
-              padding: padding,
-              child: child,
-            ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: _panelBorder, width: 1.2),
+          ),
+          child: Padding(
+            padding: padding,
+            child: child,
           ),
         ),
       ),
