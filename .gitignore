@@ -23,6 +23,7 @@ entry/.preview/
 entry/build/
 ohos/build/
 *.har
+oh_modules/
 
 # DevTools
 devtools_options.yaml
@@ -33,7 +34,17 @@ package-lock.json
 
 # Signing
 ohos/sign/
+.signing-temp/
 
 # Temporary files
 *.log
 *.tmp
+tmp-*.jpeg
+tmp-*.jpg
+tmp-*.png
+
+# Local Harmony build/cache
+.hvigor/
+
+# Local legacy backup project
+.legacy_arkui_disabled/
