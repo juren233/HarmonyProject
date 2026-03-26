@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pet_care_harmony/app/app_theme.dart';
 import 'package:pet_care_harmony/app/theme_settings_copy.dart';
 import 'package:pet_care_harmony/app/pet_care_app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -664,6 +665,57 @@ void main() {
       Theme.of(scaffoldContext).scaffoldBackgroundColor,
       const Color(0xFF020304),
     );
+  });
+
+  testWidgets('adapts first-launch onboarding surfaces to dark mode',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'app_theme_mode_v1': 'dark',
+    });
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    final overlayMaterial = tester.widget<Material>(
+      find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+    );
+    expect(
+      overlayMaterial.color,
+      buildPetCareTheme(Brightness.dark)
+          .scaffoldBackgroundColor
+          .withValues(alpha: 0.92),
+    );
+
+    final gradientBox = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final gradient =
+        (gradientBox.decoration as BoxDecoration).gradient! as LinearGradient;
+    expect(gradient.colors, [
+      darkPetCareTokens.pageGradientTop,
+      darkPetCareTokens.pageGradientBottom,
+    ]);
+
+    final title = tester.widget<Text>(find.text('先认识一下'));
+    expect(title.style?.color, darkPetCareTokens.primaryText);
+
+    final subtitle = tester.widget<Text>(find.text('先给爱宠起个名字，并告诉我它是什么类型。'));
+    expect(subtitle.style?.color, darkPetCareTokens.secondaryText);
+
+    final optionChip = tester.widget<AnimatedContainer>(
+      find
+          .ancestor(
+            of: find.text('猫'),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+    final optionDecoration = optionChip.decoration as BoxDecoration;
+    expect(optionDecoration.color, darkPetCareTokens.secondarySurface);
   });
 
   testWidgets('restores persisted system theme preference', (tester) async {

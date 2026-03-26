@@ -1,0 +1,3 @@
+[submodule ".flutter_ohos_sdk_gitcode"]
+	path = .flutter_ohos_sdk_gitcode
+	url = https://gitcode.com/openharmony-tpc/flutter_flutter.git
