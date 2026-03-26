@@ -6,9 +6,14 @@ import 'package:pet_care_harmony/state/pet_care_store.dart';
 enum AddAction { none, todo, reminder, record, pet }
 
 class AddActionSheet extends StatefulWidget {
-  const AddActionSheet({super.key, required this.store});
+  const AddActionSheet({
+    super.key,
+    required this.store,
+    this.onAddPetViaOnboarding,
+  });
 
   final PetCareStore store;
+  final VoidCallback? onAddPetViaOnboarding;
 
   @override
   State<AddActionSheet> createState() => _AddActionSheetState();
@@ -90,7 +95,14 @@ class _AddActionSheetState extends State<AddActionSheet> {
                   key: const ValueKey('add_actions_boundary'),
                   child: _ActionGrid(
                     key: const ValueKey('actions'),
-                    onSelect: (action) => setState(() => _action = action),
+                    onSelect: (action) {
+                      if (action == AddAction.pet &&
+                          widget.onAddPetViaOnboarding != null) {
+                        widget.onAddPetViaOnboarding!.call();
+                        return;
+                      }
+                      setState(() => _action = action);
+                    },
                   ),
                 )
               else

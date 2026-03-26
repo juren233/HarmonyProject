@@ -15,14 +15,118 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('shows first-launch onboarding without a dismiss action',
+  testWidgets('shows first-launch onboarding with a defer action',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsOneWidget);
-    expect(find.text('稍后再说'), findsNothing);
+    expect(
+        find.byKey(const ValueKey('onboarding_defer_button')), findsOneWidget);
+    expect(find.text('稍后'), findsOneWidget);
+  });
+
+  testWidgets(
+      'top progress stays centered, shorter, and aligned on narrow screens',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
+    await tester.tap(find.text('猫'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    final overlayRect = tester.getRect(
+      find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+    );
+    final progressRect = tester.getRect(
+      find.byKey(const ValueKey('onboarding_progress_bar')),
+    );
+    final backRect = tester.getRect(find.byIcon(Icons.arrow_back_rounded));
+    final deferRect = tester.getRect(
+      find.byKey(const ValueKey('onboarding_defer_button')),
+    );
+    final contentWidth = overlayRect.width - 40;
+    final middleWidth = contentWidth - 96;
+
+    expect(find.text('2 / 9'), findsNothing);
+    expect(
+      (progressRect.center.dx - overlayRect.center.dx).abs(),
+      lessThanOrEqualTo(4),
+    );
+    expect(progressRect.width, closeTo(middleWidth * 0.8, 2));
+    expect(
+      (progressRect.center.dy - backRect.center.dy).abs(),
+      lessThanOrEqualTo(2),
+    );
+    expect(
+      (progressRect.center.dy - deferRect.center.dy).abs(),
+      lessThanOrEqualTo(2),
+    );
+  });
+
+  testWidgets('defer action shows confirmation and can be cancelled',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稍后处理首次引导？'), findsOneWidget);
+    expect(
+      find.text('这次先不创建第一只爱宠档案，之后将不再自动弹出首次引导，你仍可在空状态页手动开始。'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('继续填写'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+    expect(
+      SharedPreferences.getInstance()
+          .then((prefs) => prefs.getBool(_onboardingAutoEnabledKey)),
+      completion(isNull),
+    );
+  });
+
+  testWidgets(
+      'confirming defer hides onboarding, persists dismissal, and still allows manual reopen',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '稍后处理'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+    expect(find.text('先添加第一只爱宠'), findsWidgets);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(_onboardingAutoEnabledKey), isFalse);
+
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+
+    await tester.tap(find.text('开始添加宠物').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -136,7 +240,7 @@ void main() {
   });
 
   testWidgets(
-      'birthday step uses orange text for selected dates without filled background',
+      'birthday step does not preselect today and uses orange text for selected current day',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
@@ -158,6 +262,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
+    final calendar = tester.widget<CalendarDatePicker>(
+      find.byType(CalendarDatePicker),
+    );
     final themedCalendar = tester.widget<Theme>(
       find
           .ancestor(
@@ -168,6 +275,7 @@ void main() {
     );
     final datePickerTheme = themedCalendar.data.datePickerTheme;
 
+    expect(calendar.initialDate, isNull);
     expect(
       datePickerTheme.dayForegroundColor?.resolve({WidgetState.selected}),
       const Color(0xFFD9822B),
@@ -177,11 +285,11 @@ void main() {
       Colors.transparent,
     );
     expect(
-      datePickerTheme.todayForegroundColor?.resolve({}),
-      const Color(0xFF17181C),
+      datePickerTheme.todayForegroundColor?.resolve({WidgetState.selected}),
+      const Color(0xFFD9822B),
     );
     expect(
-      datePickerTheme.todayBackgroundColor?.resolve({}),
+      datePickerTheme.todayBackgroundColor?.resolve({WidgetState.selected}),
       Colors.transparent,
     );
   });
@@ -372,6 +480,51 @@ void main() {
     expect(find.text('新增记录'), findsOneWidget);
     expect(find.text('新增爱宠'), findsOneWidget);
     expect(find.text('关闭'), findsNothing);
+  });
+
+  testWidgets('dock add pet action closes sheet and opens onboarding overlay',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsOneWidget);
+
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+  });
+
+  testWidgets(
+      'manual onboarding from dock defer closes overlay without changing auto-show preference',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ..._persistedSinglePetPreferences(),
+      _onboardingAutoEnabledKey: true,
+    });
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('稍后处理首次引导？'), findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(_onboardingAutoEnabledKey), isTrue);
   });
 
   testWidgets('uses immersive dock with compact centered add button',

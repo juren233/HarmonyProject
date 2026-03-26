@@ -33,9 +33,11 @@ class PetOnboardingOverlay extends StatefulWidget {
   const PetOnboardingOverlay({
     super.key,
     required this.onSubmit,
+    required this.onDefer,
   });
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
+  final Future<void> Function() onDefer;
 
   @override
   State<PetOnboardingOverlay> createState() => _PetOnboardingOverlayState();
@@ -222,41 +224,56 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
   }
 
   Widget _buildTopBar(BuildContext context) {
-    return Row(
-      children: [
-        if (_stepIndex > 0)
-          IconButton(
-            onPressed:
-                _isSubmitting ? null : () => setState(() => _stepIndex -= 1),
-            icon: const Icon(Icons.arrow_back_rounded),
-          )
-        else
-          const SizedBox(width: 48),
-        Expanded(
-          child: Column(
-            children: [
-              Text(
-                '${_stepIndex + 1} / ${_steps.length}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: const Color(0xFF17181C),
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: (_stepIndex + 1) / _steps.length,
-                  minHeight: 8,
-                  backgroundColor: const Color(0xFFE9ECF3),
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFFF2A65A)),
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: _stepIndex > 0
+                ? IconButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => setState(() => _stepIndex -= 1),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  )
+                : null,
+          ),
+          Expanded(
+            child: Center(
+              child: FractionallySizedBox(
+                widthFactor: 0.8,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    key: const ValueKey('onboarding_progress_bar'),
+                    value: (_stepIndex + 1) / _steps.length,
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFFE9ECF3),
+                    valueColor:
+                        const AlwaysStoppedAnimation(Color(0xFFF2A65A)),
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-        const SizedBox(width: 48),
-      ],
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: TextButton(
+              key: const ValueKey('onboarding_defer_button'),
+              onPressed: _isSubmitting ? null : widget.onDefer,
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('稍后'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -362,8 +379,18 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
           }
           return Colors.transparent;
         }),
-        todayForegroundColor: const WidgetStatePropertyAll(Color(0xFF17181C)),
-        todayBackgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+        todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const Color(0xFFD9822B);
+          }
+          return const Color(0xFF17181C);
+        }),
+        todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return Colors.transparent;
+          }
+          return Colors.transparent;
+        }),
         todayBorder: BorderSide.none,
       ),
     );
@@ -380,7 +407,8 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
       Theme(
         data: calendarTheme,
         child: CalendarDatePicker(
-          initialDate: _birthday ?? now,
+          initialDate: _birthday,
+          currentDate: now,
           firstDate: DateTime(now.year - 25),
           lastDate: latestBirthday,
           onDateChanged: (value) => setState(() => _birthday = value),

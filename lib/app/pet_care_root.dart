@@ -26,10 +26,13 @@ class PetCareRoot extends StatefulWidget {
   State<PetCareRoot> createState() => _PetCareRootState();
 }
 
+enum _OnboardingEntryPoint { auto, manual }
+
 class _PetCareRootState extends State<PetCareRoot> {
   PetCareStore? _store;
   String _activeChecklistKey = 'today';
   bool _showOnboarding = false;
+  _OnboardingEntryPoint _onboardingEntryPoint = _OnboardingEntryPoint.auto;
 
   @override
   void initState() {
@@ -46,6 +49,7 @@ class _PetCareRootState extends State<PetCareRoot> {
       _store = store;
       _showOnboarding =
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchOnboarding;
+      _onboardingEntryPoint = _OnboardingEntryPoint.auto;
     });
   }
 
@@ -113,6 +117,7 @@ class _PetCareRootState extends State<PetCareRoot> {
                   if (_showOnboarding)
                     PetOnboardingOverlay(
                       onSubmit: _submitOnboarding,
+                      onDefer: _deferOnboarding,
                     ),
                 ],
               ),
@@ -263,7 +268,10 @@ class _PetCareRootState extends State<PetCareRoot> {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => AddActionSheet(store: store),
+      builder: (context) => AddActionSheet(
+        store: store,
+        onAddPetViaOnboarding: _openAddPetOnboardingFromSheet,
+      ),
     );
   }
 
@@ -283,7 +291,18 @@ class _PetCareRootState extends State<PetCareRoot> {
 
   void _openManualOnboarding() {
     setState(() {
+      _onboardingEntryPoint = _OnboardingEntryPoint.manual;
       _showOnboarding = true;
+    });
+  }
+
+  void _openAddPetOnboardingFromSheet() {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _openManualOnboarding();
     });
   }
 
@@ -310,6 +329,55 @@ class _PetCareRootState extends State<PetCareRoot> {
     }
     setState(() {
       _showOnboarding = false;
+      _onboardingEntryPoint = _OnboardingEntryPoint.auto;
+    });
+  }
+
+  Future<void> _deferOnboarding() async {
+    final store = _store;
+    if (store == null) {
+      return;
+    }
+
+    if (_onboardingEntryPoint == _OnboardingEntryPoint.manual) {
+      setState(() {
+        _showOnboarding = false;
+        _onboardingEntryPoint = _OnboardingEntryPoint.auto;
+      });
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('稍后处理首次引导？'),
+        content: const Text(
+          '这次先不创建第一只爱宠档案，之后将不再自动弹出首次引导，你仍可在空状态页手动开始。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('继续填写'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('稍后处理'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await store.dismissFirstLaunchOnboarding();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showOnboarding = false;
+      _onboardingEntryPoint = _OnboardingEntryPoint.auto;
     });
   }
 }
