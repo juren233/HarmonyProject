@@ -1,0 +1,12 @@
+package com.harmony.pet.pet_care_harmony
+
+import android.os.Build
+
+object FrameRateRequestStrategy {
+    fun shouldApplySurfaceFrameRate(
+        sdkInt: Int,
+        requestedRefreshRate: Float,
+    ): Boolean {
+        return sdkInt >= Build.VERSION_CODES.R && requestedRefreshRate > 0f
+    }
+}

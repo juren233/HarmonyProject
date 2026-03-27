@@ -1,12 +1,62 @@
-/node_modules
-/oh_modules
-/local.properties
-/.idea
-**/build
-/.hvigor
-.cxx
-/.clangd
-/.clang-format
-/.clang-tidy
-**/.test
-/.appanalyzer
+# Flutter/Dart
+.dart_tool/
+.flutter_ohos_sdk/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.pub-cache/
+.pub/
+
+# IDE
+.idea/
+.vscode/
+.fleet/
+.history/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# HarmonyOS/Ohos
+entry/.preview/
+entry/build/
+ohos/build/
+*.har
+oh_modules/
+ohos/node_modules/
+ohos/oh_modules/
+ohos/entry/oh_modules/
+ohos/entry/src/main/ets/plugins/
+ohos/entry/src/main/resources/rawfile/flutter_assets/
+
+# DevTools
+devtools_options.yaml
+coverage/
+
+# Node
+node_modules/
+package-lock.json
+
+# Signing
+ohos/sign/
+.signing-temp/
+
+# Temporary files
+*.log
+*.tmp
+*.orig
+tmp-*.jpeg
+tmp-*.jpg
+tmp-*.png
+debug_intro_output.txt
+
+# Local Harmony build/cache
+.hvigor/
+.tooling/flutter-state/
+
+# Local legacy backup project
+.legacy_arkui_disabled/

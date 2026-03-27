@@ -1,0 +1,542 @@
+diff --git a/packages/flutter_tools/hvigor/src/plugin/flutter-hvigor-plugin.ts b/packages/flutter_tools/hvigor/src/plugin/flutter-hvigor-plugin.ts
+index da8bc4f0b5..ca7df6cf2d 100644
+--- a/packages/flutter_tools/hvigor/src/plugin/flutter-hvigor-plugin.ts
++++ b/packages/flutter_tools/hvigor/src/plugin/flutter-hvigor-plugin.ts
+@@ -39,6 +39,165 @@ const localEngineSrcPath = getParameter('FLUTTER_ENGINE') // /xxx/engine/src
+ const localEngine = getParameter('LOCAL_ENGINE') // /xxx/engine/src/out/ohos_debug_unopt_arm64
+ 
+ const FLUTTER_ASSETS_PATH = 'flutter_assets'
++const MANAGED_FLUTTER_STATE_FILES = [
++  'pubspec.lock',
++  '.flutter-plugins',
++  '.flutter-plugins-dependencies',
++  '.dart_tool/package_config.json',
++  '.dart_tool/package_config_subset',
++  '.dart_tool/package_graph.json',
++  '.dart_tool/version',
++  'android/local.properties',
++  'ohos/local.properties',
++]
++
++function ensureParentDirectory(targetPath: string) {
++  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
++}
++
++function removePathIfExists(targetPath: string) {
++  if (fs.existsSync(targetPath)) {
++    fs.rmSync(targetPath, { recursive: true, force: true })
++  }
++}
++
++function copyFilePreservingParent(sourcePath: string, destinationPath: string) {
++  ensureParentDirectory(destinationPath)
++  fs.copyFileSync(sourcePath, destinationPath)
++}
++
++function getFlutterStateRoot(flutterProjectPath: string, stateName: string): string {
++  return path.join(flutterProjectPath, '.tooling', 'flutter-state', stateName)
++}
++
++function backupManagedFlutterState(flutterProjectPath: string): string {
++  const backupRoot = path.join(
++    flutterProjectPath,
++    '.tooling',
++    'flutter-state',
++    '.session-backups',
++    `deveco-${Date.now()}`
++  )
++  fs.mkdirSync(backupRoot, { recursive: true })
++
++  MANAGED_FLUTTER_STATE_FILES.forEach(relativePath => {
++    const sourcePath = path.join(flutterProjectPath, relativePath)
++    if (!fs.existsSync(sourcePath)) {
++      return
++    }
++    copyFilePreservingParent(sourcePath, path.join(backupRoot, relativePath))
++  })
++
++  return backupRoot
++}
++
++function restoreManagedFlutterState(flutterProjectPath: string, restoreRoot: string): boolean {
++  if (!fs.existsSync(restoreRoot)) {
++    return false
++  }
++
++  MANAGED_FLUTTER_STATE_FILES.forEach(relativePath => {
++    const sourcePath = path.join(restoreRoot, relativePath)
++    const targetPath = path.join(flutterProjectPath, relativePath)
++    if (fs.existsSync(sourcePath)) {
++      copyFilePreservingParent(sourcePath, targetPath)
++    } else {
++      removePathIfExists(targetPath)
++    }
++  })
++
++  return true
++}
++
++function cleanupManagedFlutterStateBackup(backupRoot: string) {
++  removePathIfExists(backupRoot)
++}
++
++function restoreNamedFlutterState(flutterProjectPath: string, stateName: string): boolean {
++  return restoreManagedFlutterState(flutterProjectPath, getFlutterStateRoot(flutterProjectPath, stateName))
++}
++
++function normalizeComparablePath(filePath: string): string {
++  return path.normalize(filePath).replace(/\\/g, '/').toLowerCase()
++}
++
++function resolvePackageRootUri(flutterProjectPath: string, rootUri: string): string {
++  if (rootUri.startsWith('file:///')) {
++    return decodeURIComponent(rootUri.replace('file:///', ''))
++  }
++  if (rootUri.startsWith('file://')) {
++    return decodeURIComponent(rootUri.replace('file://', ''))
++  }
++  return path.resolve(flutterProjectPath, rootUri)
++}
++
++function shouldRefreshFlutterPackages(flutterProjectPath: string, sdkPath: string): boolean {
++  const packageConfigPath = path.join(flutterProjectPath, '.dart_tool', 'package_config.json')
++  if (!fs.existsSync(packageConfigPath)) {
++    return true
++  }
++
++  try {
++    const packageConfig = JSON.parse(fs.readFileSync(packageConfigPath, 'utf-8'))
++    const flutterPackage = packageConfig.packages?.find((pkg: { name?: string }) => pkg.name === 'flutter')
++    if (!flutterPackage?.rootUri) {
++      return true
++    }
++
++    const currentFlutterRoot = resolvePackageRootUri(flutterProjectPath, flutterPackage.rootUri)
++    const expectedFlutterRoot = path.join(sdkPath, 'packages', 'flutter')
++    return normalizeComparablePath(currentFlutterRoot) !== normalizeComparablePath(expectedFlutterRoot)
++  } catch (error) {
++    console.warn(`Failed to inspect package_config.json, refresh Flutter packages by default. ${error}`)
++    return true
++  }
++}
++
++function ensureFlutterPackages(flutterExecutablePath: string, flutterProjectPath: string, sdkPath: string) {
++  if (!shouldRefreshFlutterPackages(flutterProjectPath, sdkPath)) {
++    return
++  }
++
++  console.info('Refresh Flutter package config for OHOS IDE run start')
++  execSync(
++    `${flutterExecutablePath} pub get`,
++    {
++      cwd: flutterProjectPath,
++      stdio: 'inherit',
++      encoding: 'utf8',
++    }
++  )
++  console.info('Refresh Flutter package config for OHOS IDE run end')
++}
++
++function switchToOhosFlutterState(
++  flutterExecutablePath: string,
++  flutterProjectPath: string,
++  sdkPath: string,
++): string {
++  console.info('Backup Flutter shared state start')
++  const sessionStateBackupRoot = backupManagedFlutterState(flutterProjectPath)
++  console.info('Backup Flutter shared state end')
++
++  console.info('Switch to OHOS Flutter state start')
++  if (!restoreNamedFlutterState(flutterProjectPath, 'ohos')) {
++    console.warn('OHOS Flutter state snapshot was not found; refresh package config directly.')
++  }
++  ensureFlutterPackages(flutterExecutablePath, flutterProjectPath, sdkPath)
++  console.info('Switch to OHOS Flutter state end')
++
++  return sessionStateBackupRoot
++}
++
++function restoreFlutterSharedState(flutterProjectPath: string, sessionStateBackupRoot: string) {
++  console.info('Restore Flutter shared state start')
++  const restoredSession = restoreManagedFlutterState(flutterProjectPath, sessionStateBackupRoot)
++  if (!restoredSession) {
++    restoreNamedFlutterState(flutterProjectPath, 'official')
++  }
++  cleanupManagedFlutterStateBackup(sessionStateBackupRoot)
++  console.info('Restore Flutter shared state end')
++}
+ 
+ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectType: number = 0): HvigorPlugin {
+   /**
+@@ -265,178 +424,186 @@ function registerFlutterTask(node: HvigorNode, sdkPath: string, buildMode: strin
+         'bin',
+         flutterExecutableName
+       )
+-      let targetNames: string[]
+-      if (buildMode === 'debug') {
+-        targetNames = ['debug_ohos_application']
+-      } else if (buildMode === 'profile') {
+-        targetNames = targetPlatforms.map(it => `ohos_aot_bundle_profile_${it}`)
+-      } else {
+-        targetNames = targetPlatforms.map(it => `ohos_aot_bundle_release_${it}`)
+-      }
+-      const flutterArgs: string[] = []
+-      flutterArgs.push(flutterExecutablePath)
+-      if (localEngineSrcPath) {
+-        flutterArgs.push('--local-engine-src-path', localEngineSrcPath)
+-      }
+-      if (localEngine) {
+-        flutterArgs.push('--local-engine', localEngine)
+-      }
+-      if (localEngineHost) {
+-        flutterArgs.push('--local-engine-host', localEngineHost)
+-      }
+-      if (getParameter('VERBOSE_SCRIPT_LOGGING') === 'true') {
+-        flutterArgs.push('--verbose')
+-      } else {
+-        flutterArgs.push('--quiet')
+-      }
+-      flutterArgs.push('assemble')
+-      flutterArgs.push('--no-version-check')
+-      const intermediateDir = `build/ohos/intermediates/flutter/${toCamelCase([productName, buildMode])}`
+-      flutterArgs.push('--depfile', `${intermediateDir}/flutter_build.d`)
+-      flutterArgs.push('--output', `${intermediateDir}`)
+-      const performanceMeasurementFile = getParameter('PERFORMANCE_MEASUREMENT_FILE')
+-      if (performanceMeasurementFile) {
+-        flutterArgs.push(`--performance-measurement-file=${performanceMeasurementFile}`)
+-      }
+-      const targetPath = getParameter('FLUTTER_TARGET', 'lib/main.dart')
+-      flutterArgs.push(`-dTargetFile=${targetPath}`)
+-      flutterArgs.push('-dTargetPlatform=ohos')
+-      flutterArgs.push(`-dBuildMode=${buildMode}`)
+-      const trackWidgetCreation = getParameter('TRACK_WIDGET_CREATION')
+-      if (trackWidgetCreation) {
+-        flutterArgs.push(`-dTrackWidgetCreation=${trackWidgetCreation}`)
+-      }
+-      const splitDebugInfo = getParameter('SPLIT_DEBUG_INFO')
+-      if (splitDebugInfo) {
+-        flutterArgs.push(`-dSplitDebugInfo=${splitDebugInfo}`)
+-      }
+-      const treeShakeIcons = getParameter('TREE_SHAKE_ICONS')
+-      if (treeShakeIcons === 'true') {
+-        flutterArgs.push('-dTreeShakeIcons=true')
+-      }
+-      const dartObfuscation = getParameter('DART_OBFUSCATION')
+-      if (dartObfuscation === 'true') {
+-        flutterArgs.push('-dDartObfuscation=true')
+-      }
+-      const dartDefines = getParameter('DART_DEFINES')
+-      if (dartDefines) {
+-        flutterArgs.push(`--DartDefines=${dartDefines}`)
+-      }
+-      const bundleSkSLPath = getParameter('BUNDLE_SKSL_PATH')
+-      if (bundleSkSLPath) {
+-        flutterArgs.push(`-dBundleSkSLPath=${bundleSkSLPath}`)
+-      }
+-      const codeSizeDirectory = getParameter('CODE_SIZE_DIRECTORY')
+-      if (codeSizeDirectory) {
+-        flutterArgs.push(`-dCodeSizeDirectory=${codeSizeDirectory}`)
+-      }
+-      if (productName !== 'default') {
+-        flutterArgs.push(`-dFlavor=${productName}`)
+-      }
+-      const extraGenSnapshotOptions = getParameter('EXTRA_GEN_SNAPSHOT_OPTIONS')
+-      if (extraGenSnapshotOptions) {
+-        flutterArgs.push(`--ExtraGenSnapshotOptions=${extraGenSnapshotOptions}`)
+-      }
+-      const frontendServerStarterPath = getParameter('FRONTEND_SERVER_STARTER_PATH')
+-      if (frontendServerStarterPath) {
+-        flutterArgs.push(`-dFrontendServerStarterPath=${frontendServerStarterPath}`)
+-      }
+-      const extraFrontEndOptions = getParameter('EXTRA_FRONT_END_OPTIONS')
+-      if (extraFrontEndOptions) {
+-        flutterArgs.push(`--ExtraFrontEndOptions=${extraFrontEndOptions}`)
+-      }
+-      flutterArgs.push(`-dOhosArchs=${targetPlatforms.join(' ')}`)
+-      flutterArgs.push(...targetNames)
+-      const command = flutterArgs.join(' ')
+-      try {
+-        const result = execSync(
+-          command,
+-          {
+-            cwd: flutterProjectPath,
+-            encoding: 'utf8',
+-          }
+-        ).toString()
+-        console.log(`flutter assemble: ${result}`)
+-      } catch (error) {
+-        console.error(`flutter assemble: ${error.message}`)
+-      }
+-      // copy flutter assets && app.so
+-      console.log('copy flutter assets to project start')
+-      // 1.clean flutter assets
+-      const nodePath = node.getNodePath()
+-      const destFlutterAssetsDir = path.join(
+-        nodePath,
+-        'src',
+-        'main',
+-        'resources',
+-        'rawfile',
+-        FLUTTER_ASSETS_PATH
+-      )
+-      if (fs.existsSync(destFlutterAssetsDir)) {
+-        fs.rmSync(destFlutterAssetsDir, { recursive: true })
+-      }
+-      // 2.copy flutter assets
+-      const srcFlutterAssetsDir = path.join(
++      const sessionStateBackupRoot = switchToOhosFlutterState(
++        flutterExecutablePath,
+         flutterProjectPath,
+-        intermediateDir,
+-        FLUTTER_ASSETS_PATH
++        sdkPath,
+       )
+-      copyDirectory(srcFlutterAssetsDir, destFlutterAssetsDir)
+-      // 3.copy app.so
+-      const libsDir = path.join(nodePath, 'libs')
+-      if (fs.existsSync(libsDir)) {
+-        const files = listFiles(libsDir)
+-        for (const file of files) {
+-          if (path.basename(file) === 'libapp.so') {
+-            fs.unlinkSync(file)
+-          }
++      try {
++        let targetNames: string[]
++        if (buildMode === 'debug') {
++          targetNames = ['debug_ohos_application']
++        } else if (buildMode === 'profile') {
++          targetNames = targetPlatforms.map(it => `ohos_aot_bundle_profile_${it}`)
++        } else {
++          targetNames = targetPlatforms.map(it => `ohos_aot_bundle_release_${it}`)
+         }
+-      }
+-      if (buildMode !== 'debug') {
+-        targetPlatforms?.map(platform => PLATFORM_ARCH_MAP[platform]).forEach(arch => {
+-          const destAppSoPath = path.join(
+-            nodePath,
+-            'libs',
+-            arch,
+-            'libapp.so'
+-          )
+-          const srcAppSoPath = path.join(
+-            flutterProjectPath,
+-            intermediateDir,
+-            arch,
+-            'app.so'
+-          )
+-          if (!fs.existsSync(path.dirname(destAppSoPath))) {
+-            fs.mkdirSync(path.dirname(destAppSoPath), { recursive: true })
++        const flutterArgs: string[] = []
++        flutterArgs.push(flutterExecutablePath)
++        if (localEngineSrcPath) {
++          flutterArgs.push('--local-engine-src-path', localEngineSrcPath)
++        }
++        if (localEngine) {
++          flutterArgs.push('--local-engine', localEngine)
++        }
++        if (localEngineHost) {
++          flutterArgs.push('--local-engine-host', localEngineHost)
++        }
++        if (getParameter('VERBOSE_SCRIPT_LOGGING') === 'true') {
++          flutterArgs.push('--verbose')
++        } else {
++          flutterArgs.push('--quiet')
++        }
++        flutterArgs.push('assemble')
++        flutterArgs.push('--no-version-check')
++        const intermediateDir = `build/ohos/intermediates/flutter/${toCamelCase([productName, buildMode])}`
++        flutterArgs.push('--depfile', `${intermediateDir}/flutter_build.d`)
++        flutterArgs.push('--output', `${intermediateDir}`)
++        const performanceMeasurementFile = getParameter('PERFORMANCE_MEASUREMENT_FILE')
++        if (performanceMeasurementFile) {
++          flutterArgs.push(`--performance-measurement-file=${performanceMeasurementFile}`)
++        }
++        const targetPath = getParameter('FLUTTER_TARGET', 'lib/main.dart')
++        flutterArgs.push(`-dTargetFile=${targetPath}`)
++        flutterArgs.push('-dTargetPlatform=ohos')
++        flutterArgs.push(`-dBuildMode=${buildMode}`)
++        const trackWidgetCreation = getParameter('TRACK_WIDGET_CREATION')
++        if (trackWidgetCreation) {
++          flutterArgs.push(`-dTrackWidgetCreation=${trackWidgetCreation}`)
++        }
++        const splitDebugInfo = getParameter('SPLIT_DEBUG_INFO')
++        if (splitDebugInfo) {
++          flutterArgs.push(`-dSplitDebugInfo=${splitDebugInfo}`)
++        }
++        const treeShakeIcons = getParameter('TREE_SHAKE_ICONS')
++        if (treeShakeIcons === 'true') {
++          flutterArgs.push('-dTreeShakeIcons=true')
++        }
++        const dartObfuscation = getParameter('DART_OBFUSCATION')
++        if (dartObfuscation === 'true') {
++          flutterArgs.push('-dDartObfuscation=true')
++        }
++        const dartDefines = getParameter('DART_DEFINES')
++        if (dartDefines) {
++          flutterArgs.push(`--DartDefines=${dartDefines}`)
++        }
++        const bundleSkSLPath = getParameter('BUNDLE_SKSL_PATH')
++        if (bundleSkSLPath) {
++          flutterArgs.push(`-dBundleSkSLPath=${bundleSkSLPath}`)
++        }
++        const codeSizeDirectory = getParameter('CODE_SIZE_DIRECTORY')
++        if (codeSizeDirectory) {
++          flutterArgs.push(`-dCodeSizeDirectory=${codeSizeDirectory}`)
++        }
++        if (productName !== 'default') {
++          flutterArgs.push(`-dFlavor=${productName}`)
++        }
++        const extraGenSnapshotOptions = getParameter('EXTRA_GEN_SNAPSHOT_OPTIONS')
++        if (extraGenSnapshotOptions) {
++          flutterArgs.push(`--ExtraGenSnapshotOptions=${extraGenSnapshotOptions}`)
++        }
++        const frontendServerStarterPath = getParameter('FRONTEND_SERVER_STARTER_PATH')
++        if (frontendServerStarterPath) {
++          flutterArgs.push(`-dFrontendServerStarterPath=${frontendServerStarterPath}`)
++        }
++        const extraFrontEndOptions = getParameter('EXTRA_FRONT_END_OPTIONS')
++        if (extraFrontEndOptions) {
++          flutterArgs.push(`--ExtraFrontEndOptions=${extraFrontEndOptions}`)
++        }
++        flutterArgs.push(`-dOhosArchs=${targetPlatforms.join(' ')}`)
++        flutterArgs.push(...targetNames)
++        const command = flutterArgs.join(' ')
++        try {
++          const result = execSync(
++            command,
++            {
++              cwd: flutterProjectPath,
++              encoding: 'utf8',
++            }
++          ).toString()
++          console.log(`flutter assemble: ${result}`)
++        } catch (error) {
++          console.error(`flutter assemble: ${error.message}`)
++        }
++        // copy flutter assets && app.so
++        console.log('copy flutter assets to project start')
++        // 1.clean flutter assets
++        const nodePath = node.getNodePath()
++        const destFlutterAssetsDir = path.join(
++          nodePath,
++          'src',
++          'main',
++          'resources',
++          'rawfile',
++          FLUTTER_ASSETS_PATH
++        )
++        if (fs.existsSync(destFlutterAssetsDir)) {
++          fs.rmSync(destFlutterAssetsDir, { recursive: true })
++        }
++        // 2.copy flutter assets
++        const srcFlutterAssetsDir = path.join(
++          flutterProjectPath,
++          intermediateDir,
++          FLUTTER_ASSETS_PATH
++        )
++        copyDirectory(srcFlutterAssetsDir, destFlutterAssetsDir)
++        // 3.copy app.so
++        const libsDir = path.join(nodePath, 'libs')
++        if (fs.existsSync(libsDir)) {
++          const files = listFiles(libsDir)
++          for (const file of files) {
++            if (path.basename(file) === 'libapp.so') {
++              fs.unlinkSync(file)
++            }
++          }
++        }
++        if (buildMode !== 'debug') {
++          targetPlatforms?.map(platform => PLATFORM_ARCH_MAP[platform]).forEach(arch => {
++            const destAppSoPath = path.join(
++              nodePath,
++              'libs',
++              arch,
++              'libapp.so'
++            )
++            const srcAppSoPath = path.join(
++              flutterProjectPath,
++              intermediateDir,
++              arch,
++              'app.so'
++            )
++            if (!fs.existsSync(path.dirname(destAppSoPath))) {
++              fs.mkdirSync(path.dirname(destAppSoPath), { recursive: true })
++            }
++            fs.copyFileSync(srcAppSoPath, destAppSoPath)
++          })
++        }
++        console.log('copy flutter assets to project end')
++
++        // 4.Copy configuration files in 'profile' to 'rawfile',
++        // such as buildinfo.json5 and framesconfig.json
++        // srcDir: ohos/entry/src/main/resources/base/profile/
++        // destDir: ohos/entry/src/main/resources/rawfile/
++        const srcFlutterConfigsDir = path.join(
++          nodePath,
++          "src",
++          "main",
++          "resources",
++          "base",
++          "profile"
++        )
++
++        const destFlutterConfigsDir = path.join(
++          nodePath,
++          "src",
++          "main",
++          "resources",
++          "rawfile"
++        )
++
++        copyConfigsFile(srcFlutterConfigsDir, destFlutterConfigsDir)
++      } finally {
++        restoreFlutterSharedState(flutterProjectPath, sessionStateBackupRoot)
++      }
+-          }
+-          fs.copyFileSync(srcAppSoPath, destAppSoPath)
+-        })
+-      }
+-      console.log('copy flutter assets to project end')
+-
+-      // 4.Copy configuration files in 'profile' to 'rawfile',
+-      // such as buildinfo.json5 and framesconfig.json
+-      // srcDir: ohos/entry/src/main/resources/base/profile/
+-      // destDir: ohos/entry/src/main/resources/rawfile/
+-      const srcFlutterConfigsDir = path.join(
+-        nodePath,
+-        "src",
+-        "main",
+-        "resources",
+-        "base",
+-        "profile"
+-      )
+-
+-      const destFlutterConfigsDir = path.join(
+-        nodePath,
+-        "src",
+-        "main",
+-        "resources",
+-        "rawfile"
+-      )
+-
+-      copyConfigsFile(srcFlutterConfigsDir, destFlutterConfigsDir)
+-
+     },
+   })
+ }
+@@ -446,8 +613,9 @@ function findFlutterPlugins(flutterPluginsDependenciesPath: string): JSON[] {
+     return []
+   }
+   const fileContent = fs.readFileSync(flutterPluginsDependenciesPath, 'utf-8')
+-  const ohosPlugins = JSON.parse(fileContent).plugins.ohos
+-  const filteredPlugins =
+-    ohosPlugins.filter(plugin => plugin.native_build !== false)
+-  return filteredPlugins
+-}
+\ No newline at end of file
++  const pluginsByPlatform = JSON.parse(fileContent).plugins ?? {}
++  const ohosPlugins = Array.isArray(pluginsByPlatform.ohos)
++    ? pluginsByPlatform.ohos
++    : []
++  return ohosPlugins.filter(plugin => plugin.native_build !== false)
++}
