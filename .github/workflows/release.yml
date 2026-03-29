@@ -24,7 +24,7 @@ jobs:
       release_exists: ${{ steps.duplicate.outputs.exists || 'false' }}
     steps:
       - name: Check Out Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Parse Release Config
         id: parse
@@ -159,7 +159,7 @@ jobs:
       - name: Check Existing Release Or Tag
         id: duplicate
         if: steps.parse.outputs.should_publish_release == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           TAG_NAME: ${{ steps.parse.outputs.tag }}
         with:
@@ -227,10 +227,10 @@ jobs:
         include: ${{ fromJson(needs.resolve-release-plan.outputs.android_matrix_json) }}
     steps:
       - name: Check Out Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set Up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -360,7 +360,7 @@ jobs:
           Copy-Item -Path $sourcePath -Destination (Join-Path 'release-assets' $fileName) -Force
 
       - name: Upload Matrix APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: apk-${{ matrix.abi }}
           path: release-assets/*.apk
@@ -376,7 +376,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Built APKs
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: downloaded-artifacts
 
@@ -437,21 +437,54 @@ jobs:
           PUBLISH_MODE: ${{ needs.resolve-release-plan.outputs.publish_mode }}
 
       - name: Create GitHub Release
+        id: create_release
         if: needs.resolve-release-plan.outputs.should_publish_release == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.resolve-release-plan.outputs.tag }}
-          target_commitish: ${{ needs.resolve-release-plan.outputs.branch_name }}
-          name: ${{ needs.resolve-release-plan.outputs.tag }}
-          body_path: release-body-initial.md
-          draft: false
-          prerelease: ${{ needs.resolve-release-plan.outputs.publish_mode == 'pre-release' }}
-          fail_on_unmatched_files: true
-          files: downloaded-artifacts/**/*.apk
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.resolve-release-plan.outputs.tag }}
+          TARGET_BRANCH: ${{ needs.resolve-release-plan.outputs.branch_name }}
+          PUBLISH_MODE: ${{ needs.resolve-release-plan.outputs.publish_mode }}
+        run: |
+          set -euo pipefail
+
+          echo "created=false" >> "${GITHUB_OUTPUT}"
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Release ${TAG_NAME} already exists. Skipping create step."
+            exit 0
+          fi
+
+          shopt -s globstar nullglob
+          apk_files=(downloaded-artifacts/**/*.apk)
+
+          if [[ ${#apk_files[@]} -eq 0 ]]; then
+            echo "No APK files found under downloaded-artifacts." >&2
+            exit 1
+          fi
+
+          cmd=(
+            gh release create
+            "${TAG_NAME}"
+          )
+
+          cmd+=("${apk_files[@]}")
+          cmd+=(
+            --target "${TARGET_BRANCH}"
+            --title "${TAG_NAME}"
+            --notes-file release-body-initial.md
+          )
+
+          if [[ "${PUBLISH_MODE}" == "pre-release" ]]; then
+            cmd+=(--prerelease)
+          fi
+
+          "${cmd[@]}"
+          echo "created=true" >> "${GITHUB_OUTPUT}"
 
       - name: Update Release Notes With Download Links
-        if: needs.resolve-release-plan.outputs.should_publish_release == 'true'
-        uses: actions/github-script@v7
+        if: needs.resolve-release-plan.outputs.should_publish_release == 'true' && steps.create_release.outputs.created == 'true'
+        uses: actions/github-script@v8
         env:
           TAG_NAME: ${{ needs.resolve-release-plan.outputs.tag }}
         with:
@@ -511,7 +544,7 @@ jobs:
 
       - name: Upload Grouped Workflow Artifact
         if: needs.resolve-release-plan.outputs.publish_mode == 'artifacts-only'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.artifact_name.outputs.name }}
           path: downloaded-artifacts/**/*.apk
