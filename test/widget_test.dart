@@ -891,7 +891,10 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('first_launch_transition_intro_to_home')),
         findsOneWidget);
+    expect(find.byKey(const ValueKey('root_body_dock_layer')), findsOneWidget);
     expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_blur')), findsNothing);
     final introPushTransform = tester.widget<Transform>(
       find.byKey(const ValueKey('first_launch_transition_intro_to_home')),
     );
@@ -912,6 +915,40 @@ void main() {
   });
 
   testWidgets(
+      'choosing explore first on iOS native dock shows the live dock before home fully settles',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetCareTheme(Brightness.light)
+            .copyWith(platform: TargetPlatform.iOS),
+        home: PetCareRoot(
+          iosDockBuilder: (context, selectedTab, onTabSelected, onAddTap) {
+            return Container(
+              key: const ValueKey('fake_ios_native_dock'),
+              height: 84,
+              color: Colors.black12,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_secondary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_intro_to_home')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('root_body_dock_layer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ios_native_dock_snapshot')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('fake_ios_native_dock')), findsOneWidget);
+  });
+
+  testWidgets(
       'deferring onboarding entered from intro closes to shell without reopening intro',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
@@ -920,7 +957,7 @@ void main() {
     await _enterOnboardingFromIntro(tester);
     await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pump(const Duration(milliseconds: 320));
 
     expect(find.byKey(const ValueKey('first_launch_transition_host')),
         findsOneWidget);
@@ -931,6 +968,21 @@ void main() {
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsOneWidget);
     expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_blur')), findsNothing);
+    expect(
+      tester
+          .widget<InkWell>(
+            find
+                .descendant(
+                  of: find.byKey(const ValueKey('tab_overview')),
+                  matching: find.byType(InkWell),
+                )
+                .first,
+          )
+          .onTap,
+      isNull,
+    );
     expect(
       tester
           .widget<IgnorePointer>(
@@ -941,15 +993,259 @@ void main() {
           .ignoring,
       isTrue,
     );
+    expect(find.byKey(const ValueKey('onboarding_defer_button')),
+        findsOneWidget);
 
     await tester.pumpAndSettle();
 
-    expect(find.text('稍后处理首次引导？'), findsNothing);
+    expect(find.byKey(const ValueKey('onboarding_defer_button')), findsNothing);
     expect(
         find.byKey(const ValueKey('first_launch_intro_overlay')), findsNothing);
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsNothing);
     expect(find.text('先添加第一只爱宠'), findsWidgets);
+  });
+
+  testWidgets(
+      'deferring onboarding entered from intro keeps the fan reveal active deep into the slower transition',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _enterOnboardingFromIntro(tester);
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1180));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_defer_reveal_clip')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding_defer_button')),
+        findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+  });
+
+  testWidgets('checklist empty state enters manual onboarding with a push-up transition',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    final hostHeight = tester
+        .getSize(find.byKey(const ValueKey('first_launch_transition_host')))
+        .height;
+    await tester.tap(find.text('开始添加宠物').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(
+        find.byKey(
+          const ValueKey('first_launch_transition_incoming_manual_onboarding'),
+        ),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsNothing);
+    final manualPushTransform = tester.widget<Transform>(
+      find.byKey(
+        const ValueKey('first_launch_transition_home_to_manual_onboarding'),
+      ),
+    );
+    expect(manualPushTransform.transform.storage[13], greaterThan(0));
+    expect(manualPushTransform.transform.storage[13], lessThan(hostHeight));
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+  });
+
+  testWidgets('overview empty state keeps the overview tab behind manual onboarding push-up',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tab_overview')));
+    await tester.pumpAndSettle();
+
+    final hostHeight = tester
+        .getSize(find.byKey(const ValueKey('first_launch_transition_host')))
+        .height;
+    await tester.tap(find.text('开始添加宠物'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.text('等第一份档案建立后再开始总结'), findsOneWidget);
+    final manualPushTransform = tester.widget<Transform>(
+      find.byKey(
+        const ValueKey('first_launch_transition_home_to_manual_onboarding'),
+      ),
+    );
+    expect(manualPushTransform.transform.storage[13], greaterThan(0));
+    expect(manualPushTransform.transform.storage[13], lessThan(hostHeight));
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+  });
+
+  testWidgets('pets empty state keeps the pets tab behind manual onboarding push-up',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tab_pets')));
+    await tester.pumpAndSettle();
+
+    final hostHeight = tester
+        .getSize(find.byKey(const ValueKey('first_launch_transition_host')))
+        .height;
+    await tester.tap(find.text('开始添加宠物'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.text('管理你的宠物档案'), findsOneWidget);
+    final manualPushTransform = tester.widget<Transform>(
+      find.byKey(
+        const ValueKey('first_launch_transition_home_to_manual_onboarding'),
+      ),
+    );
+    expect(manualPushTransform.transform.storage[13], greaterThan(0));
+    expect(manualPushTransform.transform.storage[13], lessThan(hostHeight));
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+  });
+
+  testWidgets('checklist empty state defer uses fan reveal and returns to checklist shell',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('开始添加宠物').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_defer_reveal_clip')),
+        findsOneWidget);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding_defer_button')),
+        findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+  });
+
+  testWidgets('overview empty state defer uses fan reveal and stays on overview',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tab_overview')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始添加宠物'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.text('等第一份档案建立后再开始总结'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+    expect(find.text('等第一份档案建立后再开始总结'), findsOneWidget);
+  });
+
+  testWidgets('pets empty state defer uses fan reveal and stays on pets',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedPetlessPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tab_pets')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始添加宠物'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.text('管理你的宠物档案'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('bottom_nav_blur')), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+    expect(find.text('管理你的宠物档案'), findsOneWidget);
+  });
+
+  testWidgets('fan defer on iOS native dock shows the live native dock before animation completes',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetCareTheme(Brightness.light)
+            .copyWith(platform: TargetPlatform.iOS),
+        home: PetCareRoot(
+          iosDockBuilder: (context, selectedTab, onTabSelected, onAddTap) {
+            return Container(
+              key: const ValueKey('fake_ios_native_dock'),
+              height: 84,
+              color: Colors.black12,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _enterOnboardingFromIntro(tester);
+    await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('root_body_dock_layer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ios_native_dock_snapshot')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('fake_ios_native_dock')), findsOneWidget);
   });
 
   testWidgets('intro-entered onboarding returns with the reverse page flip',
@@ -2199,6 +2495,41 @@ void main() {
   });
 
   testWidgets(
+      'pet onboarding return does not show Flutter overflow warnings on compact iPhone heights',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsOneWidget);
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'manual onboarding from dock defer closes sheet without changing auto-show preference',
       (tester) async {
     SharedPreferences.setMockInitialValues({
@@ -2766,6 +3097,12 @@ Map<String, Object> _persistedSinglePetPreferences() {
         'note': '未填写',
       },
     ]),
+  };
+}
+
+Map<String, Object> _persistedPetlessPreferences() {
+  return {
+    _firstLaunchIntroAutoEnabledKey: false,
   };
 }
 

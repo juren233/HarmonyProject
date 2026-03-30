@@ -40,7 +40,7 @@ class PetCareRoot extends StatefulWidget {
   State<PetCareRoot> createState() => _PetCareRootState();
 }
 
-enum _OnboardingEntryPoint { intro, manual }
+enum _OnboardingEntryPoint { intro, homeEmptyState, manual }
 
 enum _DockPresentationMode { liveNative, frozenSnapshot }
 
@@ -50,13 +50,15 @@ enum _FirstLaunchTransition {
   onboardingToIntro,
   introToHome,
   deferToHome,
+  homeToManualOnboarding,
 }
 
 class _PetCareRootState extends State<PetCareRoot>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const _firstLaunchFlipDuration = Duration(milliseconds: 520);
   static const _firstLaunchPushUpDuration = Duration(milliseconds: 720);
-  static const _firstLaunchDeferRevealDuration = Duration(milliseconds: 680);
+  static const _firstLaunchDeferRevealDuration = Duration(milliseconds: 1300);
+  static const _manualOnboardingPushUpDuration = Duration(milliseconds: 620);
   static const _introFinalPageIndex = 2;
 
   PetCareStore? _store;
@@ -78,6 +80,10 @@ class _PetCareRootState extends State<PetCareRoot>
 
   bool get _isTransitioning =>
       _firstLaunchTransition != _FirstLaunchTransition.idle;
+
+  bool get _shouldShowDockDuringHomeRevealTransition =>
+      _firstLaunchTransition == _FirstLaunchTransition.deferToHome ||
+      _firstLaunchTransition == _FirstLaunchTransition.introToHome;
 
   @override
   void initState() {
@@ -169,14 +175,26 @@ class _PetCareRootState extends State<PetCareRoot>
 
     final overlayStyle = petCareOverlayStyleForTheme(Theme.of(context));
     final platform = Theme.of(context).platform;
+    final showDockDuringHomeRevealTransition =
+        _shouldShowDockDuringHomeRevealTransition;
+    final supportsNativeDock = supportsIosNativeDock(platform);
     final canUseIosNativeDock = !_showFirstLaunchIntro &&
         !_showOnboarding &&
         !_isTransitioning &&
-        supportsIosNativeDock(platform);
-    final useNativeIosDock = canUseIosNativeDock &&
-        _dockPresentationMode == _DockPresentationMode.liveNative;
+        supportsNativeDock;
+    final useNativeIosDock =
+            (canUseIosNativeDock &&
+                _dockPresentationMode == _DockPresentationMode.liveNative) ||
+            (showDockDuringHomeRevealTransition && supportsNativeDock);
     final useIosDockSnapshot = canUseIosNativeDock &&
         _dockPresentationMode == _DockPresentationMode.frozenSnapshot;
+    final dockLayer = _buildRootDockLayer(
+      context,
+      store,
+      showDockDuringTransition: showDockDuringHomeRevealTransition,
+      useNativeIosDock: useNativeIosDock,
+      useIosDockSnapshot: useIosDockSnapshot,
+    );
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
@@ -207,18 +225,41 @@ class _PetCareRootState extends State<PetCareRoot>
           introSkipLaunchAnimation: _introSkipLaunchAnimation,
           retainIntroSurface: _retainIntroSurface,
           introSurfaceKey: _firstLaunchIntroSurfaceKey,
+          dockLayer: dockLayer,
         ),
-        bottomNavigationBar: _showFirstLaunchIntro || _showOnboarding
-            ? null
-            : useIosDockSnapshot
-                ? _buildIosDockSnapshot(store)
-                : useNativeIosDock
-                ? _buildIosNativeDock(context, store)
-                : _PetCareBottomNav(
-                    store: store,
-                    onAdd: () => _openAddSheet(context, store),
-                  ),
       ),
+    );
+  }
+
+  Widget? _buildRootDockLayer(
+    BuildContext context,
+    PetCareStore store, {
+    required bool showDockDuringTransition,
+    required bool useNativeIosDock,
+    required bool useIosDockSnapshot,
+  }) {
+    if ((_showFirstLaunchIntro && !showDockDuringTransition) ||
+        (_showOnboarding && !showDockDuringTransition) ||
+        (_isTransitioning && !showDockDuringTransition)) {
+      return null;
+    }
+
+    if (useIosDockSnapshot) {
+      return _buildIosDockSnapshot(store);
+    }
+
+    if (useNativeIosDock) {
+      return IgnorePointer(
+        ignoring: showDockDuringTransition,
+        child: _buildIosNativeDock(context, store),
+      );
+    }
+
+    return _PetCareBottomNav(
+      store: store,
+      onAdd: () => _openAddSheet(context, store),
+      interactive: !showDockDuringTransition,
+      enableBlur: !showDockDuringTransition,
     );
   }
 
@@ -302,14 +343,22 @@ class _PetCareRootState extends State<PetCareRoot>
   }
 
   void _openManualOnboarding() {
+    if (_isTransitioning) {
+      return;
+    }
+
     _resetFirstLaunchTransition();
     setState(() {
+      _firstLaunchTransitionController.duration = _manualOnboardingPushUpDuration;
       _showFirstLaunchIntro = false;
-      _onboardingEntryPoint = _OnboardingEntryPoint.manual;
-      _showOnboarding = true;
+      _onboardingEntryPoint = _OnboardingEntryPoint.homeEmptyState;
+      _showOnboarding = false;
       _introInitialPage = 0;
       _introSkipLaunchAnimation = false;
+      _retainIntroSurface = false;
+      _firstLaunchTransition = _FirstLaunchTransition.homeToManualOnboarding;
     });
+    _firstLaunchTransitionController.forward(from: 0);
   }
 
   Future<void> _openOnboardingFromIntro() async {
@@ -401,16 +450,16 @@ class _PetCareRootState extends State<PetCareRoot>
   }
 
   Future<void> _deferOnboarding() async {
-    if (_onboardingEntryPoint != _OnboardingEntryPoint.intro) {
+    if (_onboardingEntryPoint == _OnboardingEntryPoint.manual) {
       _resetFirstLaunchTransition();
       setState(() {
-      _showOnboarding = false;
-      _onboardingEntryPoint = _OnboardingEntryPoint.manual;
-      _introInitialPage = 0;
-      _introSkipLaunchAnimation = false;
-      _retainIntroSurface = false;
-      _dockPresentationMode = _DockPresentationMode.liveNative;
-    });
+        _showOnboarding = false;
+        _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+        _introInitialPage = 0;
+        _introSkipLaunchAnimation = false;
+        _retainIntroSurface = false;
+        _dockPresentationMode = _DockPresentationMode.liveNative;
+      });
       return;
     }
 
@@ -419,11 +468,13 @@ class _PetCareRootState extends State<PetCareRoot>
       return;
     }
 
-    await store.dismissFirstLaunchIntro();
-    if (!mounted) {
-      return;
+    if (_onboardingEntryPoint == _OnboardingEntryPoint.intro) {
+      await store.dismissFirstLaunchIntro();
+      if (!mounted) {
+        return;
+      }
+      store.setActiveTab(AppTab.checklist);
     }
-    store.setActiveTab(AppTab.checklist);
     setState(() {
       _firstLaunchTransitionController.duration =
           _firstLaunchDeferRevealDuration;
@@ -513,6 +564,15 @@ class _PetCareRootState extends State<PetCareRoot>
           _retainIntroSurface = false;
           _dockPresentationMode = _DockPresentationMode.liveNative;
           break;
+        case _FirstLaunchTransition.homeToManualOnboarding:
+          _showFirstLaunchIntro = false;
+          _showOnboarding = true;
+          _onboardingEntryPoint = _OnboardingEntryPoint.homeEmptyState;
+          _introInitialPage = 0;
+          _introSkipLaunchAnimation = false;
+          _retainIntroSurface = false;
+          _dockPresentationMode = _DockPresentationMode.liveNative;
+          break;
       }
       _firstLaunchTransition = _FirstLaunchTransition.idle;
     });
@@ -576,6 +636,7 @@ class _PetCareBody extends StatelessWidget {
     required this.introSkipLaunchAnimation,
     required this.retainIntroSurface,
     required this.introSurfaceKey,
+    required this.dockLayer,
   });
 
   final PetCareStore store;
@@ -599,6 +660,7 @@ class _PetCareBody extends StatelessWidget {
   final bool introSkipLaunchAnimation;
   final bool retainIntroSurface;
   final GlobalKey introSurfaceKey;
+  final Widget? dockLayer;
 
   @override
   Widget build(BuildContext context) {
@@ -668,6 +730,14 @@ class _PetCareBody extends StatelessWidget {
                     ),
                 },
               ),
+              if (dockLayer != null)
+                Positioned(
+                  key: const ValueKey('root_body_dock_layer'),
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: dockLayer!,
+                ),
               Positioned.fill(
                 key: const ValueKey('first_launch_transition_host'),
                 child: Stack(
@@ -689,6 +759,19 @@ class _PetCareBody extends StatelessWidget {
                         _FirstLaunchTransition.deferToHome)
                       _buildDeferredOnboardingExit(
                         progress: firstLaunchTransitionProgress,
+                      ),
+                    if (firstLaunchTransition ==
+                        _FirstLaunchTransition.homeToManualOnboarding)
+                      _FirstLaunchTransitionSurface(
+                        key: const ValueKey(
+                          'first_launch_transition_incoming_manual_onboarding',
+                        ),
+                        mode: _FirstLaunchSurfaceMotion.pushInFromBottom,
+                        progress: firstLaunchTransitionProgress,
+                        motionKey: const ValueKey(
+                          'first_launch_transition_home_to_manual_onboarding',
+                        ),
+                        child: _buildOnboardingOverlay(),
                       ),
                     if (shouldRenderIntroSurface)
                       _FirstLaunchTransitionSurface(
@@ -807,6 +890,7 @@ enum _FirstLaunchSurfaceMotion {
   flipOutToRight,
   flipInFromLeft,
   pushUp,
+  pushInFromBottom,
 }
 
 class _FirstLaunchTransitionSurface extends StatelessWidget {
@@ -830,6 +914,8 @@ class _FirstLaunchTransitionSurface extends StatelessWidget {
     final translationY = switch (mode) {
       _FirstLaunchSurfaceMotion.pushUp =>
         -MediaQuery.sizeOf(context).height * curvedProgress,
+      _FirstLaunchSurfaceMotion.pushInFromBottom =>
+        MediaQuery.sizeOf(context).height * (1 - curvedProgress),
       _ => 0.0,
     };
     final angle = switch (mode) {
@@ -914,7 +1000,7 @@ class _TopRightFanRevealClipper extends CustomClipper<Path> {
 
   @override
   Path getClip(Size size) {
-    final curvedProgress = Curves.easeOutCubic.transform(progress);
+    final curvedProgress = Curves.easeInOutCubic.transform(progress);
     final radius = math.max(size.width, size.height) * 1.6 * curvedProgress;
     final origin = Offset(size.width, 0);
     final sectorRect = Rect.fromCircle(center: origin, radius: radius);

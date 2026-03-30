@@ -30,7 +30,9 @@ class _AddSheetState extends State<AddActionSheet>
   static const _sheetRadius = 36.0;
   static const _expandedTransitionDuration = Duration(milliseconds: 360);
   static const _actionsRevealStart = 0.24;
-  static const _sharedHeaderHeight = 128.0;
+  static const _headerOverlayHeight = 112.0;
+  static const _actionsContentTopInset = 74.0;
+  static const _expandedContentTopInset = 112.0;
 
   late final AnimationController _transitionController;
   AddAction _action = AddAction.none;
@@ -132,11 +134,16 @@ class _AddSheetState extends State<AddActionSheet>
     if (_stage == _AddSheetStage.petOnboarding) {
       return _buildBody();
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        _buildHeaderTransition(context),
-        Expanded(child: _buildBody()),
+        _buildBody(),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          child: _buildHeaderTransition(context),
+        ),
       ],
     );
   }
@@ -151,7 +158,7 @@ class _AddSheetState extends State<AddActionSheet>
 
     return SizedBox(
       key: const ValueKey('add_sheet_header_transition'),
-      height: _sharedHeaderHeight,
+      height: _headerOverlayHeight,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -270,14 +277,20 @@ class _AddSheetState extends State<AddActionSheet>
             child: SingleChildScrollView(
               key: const ValueKey('add_sheet_actions_content'),
               physics: const NeverScrollableScrollPhysics(),
-              child: const _ActionGridPreview(),
+              child: const Padding(
+                padding: EdgeInsets.only(top: _actionsContentTopInset),
+                child: _ActionGridPreview(),
+              ),
             ),
           )
         : SingleChildScrollView(
             key: const ValueKey('add_sheet_actions_content'),
-            child: _ActionGrid(
-              key: const ValueKey('actions'),
-              onSelect: _selectAction,
+            child: Padding(
+              padding: const EdgeInsets.only(top: _actionsContentTopInset),
+              child: _ActionGrid(
+                key: const ValueKey('actions'),
+                onSelect: _selectAction,
+              ),
             ),
           );
 
@@ -622,8 +635,6 @@ class _ActionsHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 48),
-          const SizedBox(height: 10),
           Text(
             '新增内容',
             style: theme.textTheme.headlineSmall?.copyWith(
@@ -1362,7 +1373,11 @@ class _ExpandedFormShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return child;
+    return Padding(
+      padding:
+          const EdgeInsets.only(top: _AddSheetState._expandedContentTopInset),
+      child: child,
+    );
   }
 }
 

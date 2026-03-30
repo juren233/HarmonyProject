@@ -354,9 +354,11 @@ final class IosNativeDockPlatformView: NSObject, FlutterPlatformView, UITabBarCo
 
   private func configureRootView() {
     rootView.backgroundColor = .clear
+    rootView.isOpaque = false
     let controllerView = tabBarController.view!
     controllerView.translatesAutoresizingMaskIntoConstraints = false
     controllerView.backgroundColor = .clear
+    controllerView.isOpaque = false
     controllerView.clipsToBounds = false
 
     rootView.addSubview(controllerView)
@@ -394,6 +396,7 @@ final class IosNativeDockPlatformView: NSObject, FlutterPlatformView, UITabBarCo
       tabBar.scrollEdgeAppearance = appearance
     }
     tabBar.backgroundColor = .clear
+    tabBar.isOpaque = false
   }
 
   private func makeViewControllers() -> [UIViewController] {
