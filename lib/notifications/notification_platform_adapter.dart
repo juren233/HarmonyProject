@@ -17,5 +17,5 @@ abstract class NotificationPlatformAdapter {
 
   Future<String?> registerPushToken();
 
-  Future<void> openNotificationSettings();
+  Future<NotificationSettingsOpenResult> openNotificationSettings();
 }

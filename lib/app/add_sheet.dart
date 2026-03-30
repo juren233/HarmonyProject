@@ -29,7 +29,8 @@ class _AddSheetState extends State<AddActionSheet>
   static const _compactSheetHeight = 448.0;
   static const _sheetRadius = 36.0;
   static const _expandedTransitionDuration = Duration(milliseconds: 360);
-  static const _actionsRevealStart = 0.28;
+  static const _actionsRevealStart = 0.24;
+  static const _sharedHeaderHeight = 128.0;
 
   late final AnimationController _transitionController;
   AddAction _action = AddAction.none;
@@ -128,39 +129,49 @@ class _AddSheetState extends State<AddActionSheet>
   }
 
   Widget _buildSheetContent(BuildContext context) {
-    return _buildBody();
+    if (_stage == _AddSheetStage.petOnboarding) {
+      return _buildBody();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildHeaderTransition(context),
+        Expanded(child: _buildBody()),
+      ],
+    );
   }
 
-  Widget _buildActionsHeaderContent(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
-    return Padding(
-      key: const ValueKey('add_actions_header_boundary'),
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
+  Widget _buildHeaderTransition(BuildContext context) {
+    final showExpandedHeader = _hasExpandedStage || _isCollapsing;
+    final showActionsHeader = !_hasExpandedStage || _shouldRevealActions;
+    final expandedOpacity =
+        _isCollapsing ? (1 - _actionsRevealOpacity).clamp(0.0, 1.0) : 1.0;
+    final actionsOpacity =
+        _hasExpandedStage ? _actionsRevealOpacity.clamp(0.0, 1.0) : 1.0;
+
+    return SizedBox(
+      key: const ValueKey('add_sheet_header_transition'),
+      height: _sharedHeaderHeight,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '新增内容',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: tokens.primaryText,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.8,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '今天要给毛孩子加点什么新内容？',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: tokens.secondaryText,
-                  ),
-                ),
-              ],
+          if (showActionsHeader)
+            _HeaderTransitionLayer(
+              key: const ValueKey('add_sheet_actions_header_transition'),
+              opacity: actionsOpacity,
+              translateY: 10 * (1 - actionsOpacity),
+              child: _ActionsHeader(),
             ),
-          ),
+          if (showExpandedHeader)
+            _HeaderTransitionLayer(
+              key: const ValueKey('add_sheet_expanded_header_transition'),
+              opacity: expandedOpacity,
+              translateY: -8 * _actionsRevealOpacity,
+              child: _ExpandedHeader(
+                title: _sheetTitle(_transitionAction),
+                onBack: _beginCollapseToActions,
+              ),
+            ),
         ],
       ),
     );
@@ -184,8 +195,6 @@ class _AddSheetState extends State<AddActionSheet>
       child: RepaintBoundary(
         key: const ValueKey('add_form_boundary'),
         child: _ExpandedFormShell(
-          title: _sheetTitle(_transitionAction),
-          onBack: _beginCollapseToActions,
           child: KeyedSubtree(
             key: ValueKey(
                 '${_transitionAction.name}_${widget.store.pets.isEmpty}'),
@@ -255,6 +264,23 @@ class _AddSheetState extends State<AddActionSheet>
     ValueKey<String>? opacityKey,
     ValueKey<String>? ignorePointerKey,
   }) {
+    final useReducedEffects = !interactive;
+    final actionsContent = useReducedEffects
+        ? ClipRect(
+            child: SingleChildScrollView(
+              key: const ValueKey('add_sheet_actions_content'),
+              physics: const NeverScrollableScrollPhysics(),
+              child: const _ActionGridPreview(),
+            ),
+          )
+        : SingleChildScrollView(
+            key: const ValueKey('add_sheet_actions_content'),
+            child: _ActionGrid(
+              key: const ValueKey('actions'),
+              onSelect: _selectAction,
+            ),
+          );
+
     return IgnorePointer(
       key: ignorePointerKey,
       ignoring: !interactive,
@@ -266,19 +292,7 @@ class _AddSheetState extends State<AddActionSheet>
             key: const ValueKey('add_actions_boundary'),
             alignment: Alignment.topCenter,
             child: RepaintBoundary(
-              child: SingleChildScrollView(
-                key: const ValueKey('add_sheet_actions_content'),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildActionsHeaderContent(context),
-                    _ActionGrid(
-                      key: const ValueKey('actions'),
-                      onSelect: _selectAction,
-                    ),
-                  ],
-                ),
-              ),
+              child: actionsContent,
             ),
           ),
         ),
@@ -317,9 +331,7 @@ class _AddSheetState extends State<AddActionSheet>
       builder: (context, expandedChild) {
         final progress = _sheetMotionProgress;
         final tokens = context.petCareTokens;
-        final foregroundOffset = 48.0 * (1 - progress);
-        final foregroundScale = 0.97 + (0.03 * progress);
-        final foregroundOpacity = progress;
+        final foregroundOffset = 40.0 * (1 - progress);
         final foregroundSurfaceOpacity =
             _isCollapsing ? 1 - _actionsRevealOpacity : 1.0;
 
@@ -330,32 +342,22 @@ class _AddSheetState extends State<AddActionSheet>
               ignoring: _isCollapsing || progress < 0.999,
               child: Transform.translate(
                 offset: Offset(0, foregroundOffset),
-                child: Transform.scale(
-                  key: const ValueKey('add_sheet_foreground_scale'),
-                  scale: foregroundScale,
-                  alignment: Alignment.topCenter,
-                  child: Opacity(
-                    key: const ValueKey('add_sheet_foreground_surface_opacity'),
-                    opacity: foregroundSurfaceOpacity.clamp(0.0, 1.0),
-                    child: DecoratedBox(
-                      key: const ValueKey('add_sheet_foreground_surface'),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            tokens.pageGradientTop,
-                            tokens.pageGradientBottom,
-                          ],
-                        ),
-                      ),
-                      child: Opacity(
-                        key: const ValueKey(
-                            'add_sheet_foreground_content_opacity'),
-                        opacity: foregroundOpacity,
-                        child: expandedChild,
+                child: Opacity(
+                  key: const ValueKey('add_sheet_foreground_surface_opacity'),
+                  opacity: foregroundSurfaceOpacity.clamp(0.0, 1.0),
+                  child: DecoratedBox(
+                    key: const ValueKey('add_sheet_foreground_surface'),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          tokens.pageGradientTop,
+                          tokens.pageGradientBottom,
+                        ],
                       ),
                     ),
+                    child: expandedChild,
                   ),
                 ),
               ),
@@ -515,6 +517,181 @@ class _ActionGrid extends StatelessWidget {
   }
 }
 
+class _ActionGridPreview extends StatelessWidget {
+  const _ActionGridPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petCareTokens;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增待办',
+                subtitle: '补货、清洁和轻任务',
+                icon: Icons.check_circle_outline_rounded,
+                color: tokens.badgeBlueBackground,
+                iconColor: tokens.badgeBlueForeground,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增提醒',
+                subtitle: '疫苗、驱虫和复诊',
+                icon: Icons.notifications_active_rounded,
+                color: tokens.badgeGoldBackground,
+                iconColor: tokens.badgeGoldForeground,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增记录',
+                subtitle: '病历、票据和照片',
+                icon: Icons.description_rounded,
+                color:
+                    isDark ? const Color(0xFF271F3B) : const Color(0xFFF4EEFF),
+                iconColor:
+                    isDark ? const Color(0xFFD2BEFF) : const Color(0xFF7250D0),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增爱宠',
+                subtitle: '新建宠物完整档案',
+                icon: Icons.pets_rounded,
+                color:
+                    isDark ? const Color(0xFF173126) : const Color(0xFFEAF8EF),
+                iconColor:
+                    isDark ? const Color(0xFF9EDBBC) : const Color(0xFF2F8B63),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HeaderTransitionLayer extends StatelessWidget {
+  const _HeaderTransitionLayer({
+    super.key,
+    required this.opacity,
+    required this.translateY,
+    required this.child,
+  });
+
+  final double opacity;
+  final double translateY;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: opacity < 0.999,
+      child: Transform.translate(
+        offset: Offset(0, translateY),
+        child: Opacity(
+          opacity: opacity,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionsHeader extends StatelessWidget {
+  const _ActionsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petCareTokens;
+    return Padding(
+      key: const ValueKey('add_actions_header_boundary'),
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 48),
+          const SizedBox(height: 10),
+          Text(
+            '新增内容',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: tokens.primaryText,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.8,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '今天要给毛孩子加点什么新内容？',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: tokens.secondaryText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpandedHeader extends StatelessWidget {
+  const _ExpandedHeader({
+    required this.title,
+    required this.onBack,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petCareTokens;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: IconButton(
+                  key: const ValueKey('expanded_form_back_button'),
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  color: tokens.secondaryText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          title,
+          style: theme.textTheme.displaySmall?.copyWith(
+            color: tokens.primaryText,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.8,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ActionCard extends StatelessWidget {
   const _ActionCard({
     required this.title,
@@ -577,6 +754,69 @@ class _ActionCard extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionPreviewCard extends StatelessWidget {
+  const _ActionPreviewCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.iconColor,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petCareTokens;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.panelBackground,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: tokens.panelBorder, width: 1.0),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, color: iconColor),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: tokens.primaryText,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: tokens.secondaryText,
+                height: 1.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1115,54 +1355,14 @@ class _FormShell extends StatelessWidget {
 
 class _ExpandedFormShell extends StatelessWidget {
   const _ExpandedFormShell({
-    required this.title,
-    required this.onBack,
     required this.child,
   });
 
-  final String title;
-  final VoidCallback onBack;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: 48,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: IconButton(
-                  key: const ValueKey('expanded_form_back_button'),
-                  onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  color: tokens.secondaryText,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          title,
-          style: theme.textTheme.displaySmall?.copyWith(
-            color: tokens.primaryText,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.8,
-          ),
-        ),
-        const SizedBox(height: 18),
-        Expanded(
-          child: child,
-        ),
-      ],
-    );
+    return child;
   }
 }
 

@@ -9,6 +9,7 @@ import 'package:pet_care_harmony/app/common_widgets.dart';
 import 'package:pet_care_harmony/app/ios_native_dock.dart';
 import 'package:pet_care_harmony/app/pet_care_app.dart';
 import 'package:pet_care_harmony/app/pet_care_pages.dart';
+import 'package:pet_care_harmony/app/pet_first_launch_intro.dart';
 import 'package:pet_care_harmony/app/pet_onboarding_overlay.dart';
 import 'package:pet_care_harmony/app/pet_care_root.dart';
 import 'package:pet_care_harmony/app/theme_settings_copy.dart';
@@ -598,6 +599,39 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('intro primary CTA flips into onboarding before settling',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_outgoing_intro')),
+        findsOneWidget);
+    expect(
+        find.byKey(
+          const ValueKey('first_launch_transition_incoming_onboarding'),
+        ),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('first_launch_intro_overlay')), findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+  });
+
   testWidgets('final page footer reveals sequentially like the first page',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
@@ -839,6 +873,45 @@ void main() {
   });
 
   testWidgets(
+      'choosing explore first pushes the intro upward before revealing home',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    final hostHeight = tester
+        .getSize(find.byKey(const ValueKey('first_launch_transition_host')))
+        .height;
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_secondary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_intro_to_home')),
+        findsOneWidget);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    final introPushTransform = tester.widget<Transform>(
+      find.byKey(const ValueKey('first_launch_transition_intro_to_home')),
+    );
+    expect(
+      introPushTransform.transform.storage[13],
+      lessThan(0),
+    );
+    expect(
+      introPushTransform.transform.storage[13],
+      greaterThan(-hostHeight * 0.5),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('first_launch_intro_overlay')), findsNothing);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+  });
+
+  testWidgets(
       'deferring onboarding entered from intro closes to shell without reopening intro',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
@@ -846,6 +919,29 @@ void main() {
 
     await _enterOnboardingFromIntro(tester);
     await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_defer_reveal_clip')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+    expect(find.text('欢迎来到日常照护清单'), findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(
+              const ValueKey('first_launch_transition_defer_ignore_pointer'),
+            ),
+          )
+          .ignoring,
+      isTrue,
+    );
+
     await tester.pumpAndSettle();
 
     expect(find.text('稍后处理首次引导？'), findsNothing);
@@ -854,6 +950,75 @@ void main() {
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsNothing);
     expect(find.text('先添加第一只爱宠'), findsWidgets);
+  });
+
+  testWidgets('intro-entered onboarding returns with the reverse page flip',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    final introState = tester.state<State>(
+      find.byType(PetFirstLaunchIntro),
+    );
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_intro_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_host')),
+        findsOneWidget);
+    expect(
+        find.byKey(
+          const ValueKey('first_launch_transition_outgoing_onboarding'),
+        ),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
+        findsOneWidget);
+    expect(
+      tester.state<State>(find.byType(PetFirstLaunchIntro)),
+      same(introState),
+    );
+    expect(
+      tester
+          .widget<Transform>(
+            find.byKey(
+              const ValueKey(
+                  'first_launch_transition_outgoing_onboarding_motion'),
+            ),
+          )
+          .transform
+          .storage[2],
+      lessThan(0),
+    );
+    expect(
+      tester
+          .widget<Transform>(
+            find.byKey(
+              const ValueKey('first_launch_transition_incoming_intro_motion'),
+            ),
+          )
+          .transform
+          .storage[2],
+      greaterThan(0),
+    );
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
+        findsOneWidget);
+    expect(
+      tester.state<State>(find.byType(PetFirstLaunchIntro)),
+      same(introState),
+    );
+    expect(find.text('先认识一下你的毛孩子吧'), findsOneWidget);
   });
 
   testWidgets(
@@ -1466,6 +1631,71 @@ void main() {
   });
 
   testWidgets(
+      'expanded record back crossfades the shared header without overflow warnings',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    SharedPreferences.setMockInitialValues({
+      _firstLaunchIntroAutoEnabledKey: false,
+    });
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('expanded_form_back_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('add_sheet_header_transition')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_expanded_header_transition')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_actions_header_transition')),
+        findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('add_sheet_expanded_header_transition')),
+        matching: find.text('新增记录'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('add_sheet_actions_header_transition')),
+        matching: find.text('新增内容'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('add_sheet_expanded_header_transition')),
+        matching: find.text('新增记录'),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'opening add sheet from iOS dock does not throw Flutter layout exceptions',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));
@@ -1933,7 +2163,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
 
-    expect(find.text('新增内容'), findsOneWidget);
     expect(find.text('新增爱宠'), findsOneWidget);
     expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
         findsOneWidget);
@@ -1985,6 +2214,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+
+    expect(find.byKey(const ValueKey('first_launch_transition_defer_to_home')),
+        findsNothing);
+
     await tester.pumpAndSettle();
 
     expect(find.text('稍后处理首次引导？'), findsNothing);
@@ -2081,6 +2316,52 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+  });
+
+  testWidgets('opening add sheet from iOS native dock swaps the live dock host for a frozen snapshot',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetCareTheme(Brightness.light)
+            .copyWith(platform: TargetPlatform.iOS),
+        home: PetCareRoot(
+          iosDockBuilder: (context, selectedTab, onTabSelected, onAddTap) {
+            return Container(
+              key: const ValueKey('fake_ios_native_dock'),
+              height: 84,
+              color: Colors.black12,
+              child: IconButton(
+                key: const ValueKey('fake_ios_add_for_snapshot_test'),
+                onPressed: onAddTap,
+                icon: const Icon(Icons.add),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('fake_ios_native_dock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ios_native_dock_snapshot')),
+        findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('fake_ios_add_for_snapshot_test')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('fake_ios_native_dock')), findsNothing);
+    expect(find.byKey(const ValueKey('ios_native_dock_snapshot')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+
+    Navigator.of(tester.element(find.byKey(const ValueKey('add_sheet_shell'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('fake_ios_native_dock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ios_native_dock_snapshot')),
+        findsNothing);
   });
 
   testWidgets('gives the iOS native dock enough height for a floating layout',

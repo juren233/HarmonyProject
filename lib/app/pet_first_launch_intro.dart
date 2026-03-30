@@ -10,11 +10,15 @@ class PetFirstLaunchIntro extends StatefulWidget {
     required this.onStartOnboarding,
     required this.onExploreFirst,
     this.fillParent = true,
+    this.initialPage = 0,
+    this.skipLaunchAnimation = false,
   });
 
   final Future<void> Function() onStartOnboarding;
   final Future<void> Function() onExploreFirst;
   final bool fillParent;
+  final int initialPage;
+  final bool skipLaunchAnimation;
 
   @override
   State<PetFirstLaunchIntro> createState() => _PetFirstLaunchIntroState();
@@ -131,7 +135,8 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _pageIndex = widget.initialPage;
+    _pageController = PageController(initialPage: widget.initialPage);
     _launchController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 980),
@@ -153,6 +158,25 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       vsync: this,
       duration: _finalPageFooterTimelineDuration,
     );
+    if (widget.skipLaunchAnimation) {
+      _showLaunchPaw = false;
+      _revealedPages.add(widget.initialPage);
+      if (widget.initialPage == 0) {
+        _firstPageFooterController.value = 1;
+      }
+      if (widget.initialPage == _pages.length - 1) {
+        _finalPageFooterController.value = 1;
+      }
+      return;
+    }
+    if (widget.initialPage != 0) {
+      _showLaunchPaw = false;
+      _revealedPages.add(widget.initialPage);
+      if (widget.initialPage == _pages.length - 1) {
+        _finalPageFooterController.value = 1;
+      }
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;

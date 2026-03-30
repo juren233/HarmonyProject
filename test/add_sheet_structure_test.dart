@@ -29,9 +29,17 @@ void main() {
     expect(sheetSource, contains('_actionsRevealStart'));
     expect(sheetSource, contains('_actionsRevealOpacity'));
     expect(sheetSource, contains('_buildActionsContent('));
+    expect(sheetSource, contains('_buildHeaderTransition('));
+    expect(sheetSource, contains('add_sheet_header_transition'));
+    expect(sheetSource, contains('add_sheet_actions_header_transition'));
+    expect(sheetSource, contains('add_sheet_expanded_header_transition'));
+    expect(sheetSource, contains('_ActionGridPreview'));
+    expect(sheetSource, contains('ClipRect('));
+    expect(sheetSource, contains('NeverScrollableScrollPhysics()'));
     expect(sheetSource, contains('add_sheet_actions_content'));
     expect(sheetSource, contains('add_sheet_actions_reveal_opacity'));
     expect(sheetSource, isNot(contains('add_sheet_actions_header_reveal')));
     expect(sheetSource, isNot(contains('add_sheet_push_back_layer')));
+    expect(sheetSource, isNot(contains('add_sheet_foreground_scale')));
   });
 }

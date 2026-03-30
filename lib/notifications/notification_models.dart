@@ -10,6 +10,12 @@ enum NotificationPermissionState {
   unsupported,
 }
 
+enum NotificationSettingsOpenResult {
+  opened,
+  failed,
+  unsupported,
+}
+
 class NotificationPayload {
   const NotificationPayload({
     required this.sourceType,
@@ -120,5 +126,15 @@ NotificationPermissionState notificationPermissionStateFromName(String? value) {
     'provisional' => NotificationPermissionState.provisional,
     'unsupported' => NotificationPermissionState.unsupported,
     _ => NotificationPermissionState.unknown,
+  };
+}
+
+NotificationSettingsOpenResult notificationSettingsOpenResultFromName(
+  String? value,
+) {
+  return switch (value) {
+    'opened' => NotificationSettingsOpenResult.opened,
+    'failed' => NotificationSettingsOpenResult.failed,
+    _ => NotificationSettingsOpenResult.unsupported,
   };
 }

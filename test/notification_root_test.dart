@@ -86,7 +86,9 @@ class _RootFakeNotificationPlatformAdapter implements NotificationPlatformAdapte
   Future<void> initialize() async {}
 
   @override
-  Future<void> openNotificationSettings() async {}
+  Future<NotificationSettingsOpenResult> openNotificationSettings() async {
+    return NotificationSettingsOpenResult.opened;
+  }
 
   @override
   Future<String?> registerPushToken() async => null;

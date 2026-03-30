@@ -124,8 +124,7 @@ final class PetCareNotificationPlugin: NSObject, FlutterPlugin, UNUserNotificati
       UIApplication.shared.registerForRemoteNotifications()
       result(pushToken)
     case "openNotificationSettings":
-      openSettings()
-      result(nil)
+      openSettings(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -196,11 +195,25 @@ final class PetCareNotificationPlugin: NSObject, FlutterPlugin, UNUserNotificati
     center.removeDeliveredNotifications(withIdentifiers: [key])
   }
 
-  private func openSettings() {
-    guard let url = URL(string: UIApplication.openSettingsURLString) else {
+  private func openSettings(result: @escaping FlutterResult) {
+    let urlString: String
+    if #available(iOS 16.0, *) {
+      urlString = UIApplication.openNotificationSettingsURLString
+    } else if #available(iOS 15.4, *) {
+      urlString = UIApplicationOpenNotificationSettingsURLString
+    } else {
+      urlString = UIApplication.openSettingsURLString
+    }
+
+    guard let url = URL(string: urlString) else {
+      result("failed")
       return
     }
-    UIApplication.shared.open(url)
+    UIApplication.shared.open(url, options: [:], completionHandler: { opened in
+      DispatchQueue.main.async {
+        result(opened ? "opened" : "failed")
+      }
+    })
   }
 
   private func permissionLabel(from status: UNAuthorizationStatus) -> String {
