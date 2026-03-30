@@ -13,12 +13,25 @@ void main() {
     expect(sheetSource, isNot(contains('height: 5,')));
   });
 
-  test('add sheet avoids default close text and unnecessary switch animations',
+  test(
+      'add sheet avoids default close text and reuses one transition controller for collapse',
       () {
     expect(
       sheetSource,
       isNot(contains("child: Text(_action == AddAction.none ? '关闭' : '返回')")),
     );
     expect(sheetSource, isNot(contains('AnimatedSwitcher(')));
+    expect(sheetSource, isNot(contains('enum _CollapsePhase')));
+    expect(sheetSource, isNot(contains('_collapseContentController')));
+    expect(sheetSource, contains('_transitionController.reverse('));
+    expect(sheetSource,
+        contains('status == AnimationStatus.dismissed && _isCollapsing'));
+    expect(sheetSource, contains('_actionsRevealStart'));
+    expect(sheetSource, contains('_actionsRevealOpacity'));
+    expect(sheetSource, contains('_buildActionsContent('));
+    expect(sheetSource, contains('add_sheet_actions_content'));
+    expect(sheetSource, contains('add_sheet_actions_reveal_opacity'));
+    expect(sheetSource, isNot(contains('add_sheet_actions_header_reveal')));
+    expect(sheetSource, isNot(contains('add_sheet_push_back_layer')));
   });
 }

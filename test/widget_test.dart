@@ -41,7 +41,8 @@ void main() {
     );
   });
 
-  testWidgets('checklist card uses readable Chinese action labels and separators',
+  testWidgets(
+      'checklist card uses readable Chinese action labels and separators',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -116,8 +117,8 @@ void main() {
         findsNothing);
   });
 
-
-  testWidgets('intro-entered onboarding shows a back button that returns to intro',
+  testWidgets(
+      'intro-entered onboarding shows a back button that returns to intro',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
@@ -134,8 +135,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('first_launch_intro_overlay')), findsOneWidget);
-    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')), findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
   });
 
   testWidgets('todo and reminder cards use distinct primary action colors',
@@ -186,9 +189,11 @@ void main() {
       ),
     );
 
-    final buttons = tester.widgetList<FilledButton>(find.byType(FilledButton)).toList();
+    final buttons =
+        tester.widgetList<FilledButton>(find.byType(FilledButton)).toList();
     expect(buttons, hasLength(2));
-    expect(buttons[0].style?.backgroundColor?.resolve({}), isNot(equals(buttons[1].style?.backgroundColor?.resolve({}))));
+    expect(buttons[0].style?.backgroundColor?.resolve({}),
+        isNot(equals(buttons[1].style?.backgroundColor?.resolve({}))));
   });
 
   testWidgets('intro keeps a single paw during launch without a handoff icon',
@@ -363,7 +368,7 @@ void main() {
     final pageView = tester.widget<PageView>(
       find.byKey(const ValueKey('first_launch_intro_page_view')),
     );
-    final controller = pageView.controller! as PageController;
+    final controller = pageView.controller!;
 
     expect(controller.viewportFraction, 1.0);
   });
@@ -465,7 +470,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('intro_fixed_hero_host')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
 
     final before = tester.getCenter(
       find.byKey(const ValueKey('intro_fixed_hero_host')),
@@ -491,7 +497,8 @@ void main() {
     );
     expect(after.dx, closeTo(before.dx, 0.5));
     expect(after.dy, closeTo(before.dy, 0.5));
-    expect(find.byKey(const ValueKey('intro_page_1_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_1_hero_icon')), findsOneWidget);
     expect(_introHeroIconFinder(), findsOneWidget);
   });
 
@@ -529,7 +536,8 @@ void main() {
     expect(settledHigh, isTrue);
   });
 
-  testWidgets('intro hero stays matched when quickly returning to the previous page',
+  testWidgets(
+      'intro hero stays matched when quickly returning to the previous page',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
@@ -541,7 +549,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 280));
 
     expect(find.byKey(const ValueKey('intro_page_1_content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
 
     await tester.fling(
       find.byKey(const ValueKey('first_launch_intro_page_view')),
@@ -552,7 +561,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_1_hero_icon')), findsNothing);
   });
 
@@ -783,9 +793,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 280));
     await tester.pump(const Duration(milliseconds: 80));
 
-    while (find.byKey(const ValueKey('privacy_lock_0_scale'))
-        .evaluate()
-        .isEmpty) {
+    while (
+        find.byKey(const ValueKey('privacy_lock_0_scale')).evaluate().isEmpty) {
       await tester.pump(const Duration(milliseconds: 40));
     }
 
@@ -1265,6 +1274,198 @@ void main() {
   });
 
   testWidgets(
+      'expanded todo form back keeps the expanded page visible while the whole sheet reverses',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增待办'));
+    await tester.pumpAndSettle();
+
+    final expandedHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+
+    await tester.tap(find.byKey(const ValueKey('expanded_form_back_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('manual_expanded_form_transition')),
+        findsOneWidget);
+    expect(find.text('保存待办'), findsOneWidget);
+    expect(find.text('新增内容'), findsNothing);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      lessThan(expandedHeight),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      greaterThan(448),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增提醒'), findsOneWidget);
+  });
+
+  testWidgets(
+      'expanded todo form back keeps the action grid hidden during the middle of the collapse',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增待办'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('expanded_form_back_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+    expect(find.text('新增提醒'), findsNothing);
+    expect(find.text('保存待办'), findsOneWidget);
+  });
+
+  testWidgets(
+      'expanded todo form back fades in the actions layer during the tail of reverse animation',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增待办'));
+    await tester.pumpAndSettle();
+
+    final expandedHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+
+    await tester.tap(find.byKey(const ValueKey('expanded_form_back_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('manual_expanded_form_transition')),
+        findsOneWidget);
+    expect(find.text('保存待办'), findsOneWidget);
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增提醒'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      lessThan(1),
+    );
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(
+              const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+            ),
+          )
+          .ignoring,
+      isTrue,
+    );
+    final tailTop = tester
+        .getTopLeft(find.byKey(const ValueKey('add_sheet_actions_content')))
+        .dy;
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      lessThan(expandedHeight),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      greaterThan(448),
+    );
+
+    await tester.pump(const Duration(milliseconds: 40));
+
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    final lateTailTop = tester
+        .getTopLeft(find.byKey(const ValueKey('add_sheet_actions_content')))
+        .dy;
+    expect((lateTailTop - tailTop).abs(), lessThan(8));
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    final settledTop = tester
+        .getTopLeft(find.byKey(const ValueKey('add_sheet_actions_content')))
+        .dy;
+    expect((settledTop - tailTop).abs(), lessThan(8));
+  });
+
+  testWidgets(
+      'expanded reminder back fades in the actions layer during the tail of reverse animation',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增提醒'));
+    await tester.pumpAndSettle();
+
+    final expandedHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+
+    await tester.tap(find.byKey(const ValueKey('expanded_form_back_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('manual_expanded_form_transition')),
+        findsOneWidget);
+    expect(find.text('保存提醒'), findsOneWidget);
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增待办'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      lessThan(1),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      lessThan(expandedHeight),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      greaterThan(448),
+    );
+  });
+
+  testWidgets(
       'opening add sheet from iOS dock does not throw Flutter layout exceptions',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));
@@ -1297,7 +1498,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_sheet_test')));
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_add_button_for_sheet_test')));
     await tester.pump();
     await tester.pumpAndSettle();
 
@@ -1338,10 +1540,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_layout_test')));
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_add_button_for_layout_test')));
     await tester.pumpAndSettle();
 
-    final shellRect = tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
     final lastActionCardRect = tester.getRect(find.text('新增爱宠'));
 
     expect(shellRect.height, greaterThanOrEqualTo(448));
@@ -1369,7 +1573,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
-    expect(find.text('补货主粮'), findsOneWidget);
   });
 
   testWidgets(
@@ -1431,7 +1634,8 @@ void main() {
               child: Row(
                 children: [
                   IconButton(
-                    key: const ValueKey('fake_ios_add_button_for_cupertino_picker'),
+                    key: const ValueKey(
+                        'fake_ios_add_button_for_cupertino_picker'),
                     onPressed: onAddTap,
                     icon: const Icon(Icons.add),
                   ),
@@ -1444,7 +1648,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_cupertino_picker')));
+    await tester.tap(
+        find.byKey(const ValueKey('fake_ios_add_button_for_cupertino_picker')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增提醒'));
     await tester.pumpAndSettle();
@@ -1452,7 +1657,8 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('reminder_scheduled_date_field')),
     );
-    await tester.tap(find.byKey(const ValueKey('reminder_scheduled_date_field')));
+    await tester
+        .tap(find.byKey(const ValueKey('reminder_scheduled_date_field')));
     await tester.pumpAndSettle();
 
     expect(find.byType(CupertinoDatePicker), findsOneWidget);
@@ -1476,7 +1682,8 @@ void main() {
               child: Row(
                 children: [
                   IconButton(
-                    key: const ValueKey('fake_ios_add_button_for_expanded_layout'),
+                    key: const ValueKey(
+                        'fake_ios_add_button_for_expanded_layout'),
                     onPressed: onAddTap,
                     icon: const Icon(Icons.add),
                   ),
@@ -1489,12 +1696,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_expanded_layout')));
+    await tester.tap(
+        find.byKey(const ValueKey('fake_ios_add_button_for_expanded_layout')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增提醒'));
     await tester.pumpAndSettle();
 
-    final shellRect = tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
     final saveRect = tester.getRect(find.widgetWithText(FilledButton, '保存提醒'));
 
     expect(saveRect.bottom, lessThanOrEqualTo(shellRect.bottom - 8));
@@ -1546,8 +1755,8 @@ void main() {
     expect(find.byKey(const ValueKey('onboarding_return_to_actions_button')),
         findsOneWidget);
 
-    await tester.tap(
-        find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
     await tester.pumpAndSettle();
 
     expect(find.text('新增内容'), findsOneWidget);
@@ -1555,7 +1764,7 @@ void main() {
   });
 
   testWidgets(
-      'dock add pet transition keeps the action grid in a push-back background while onboarding settles',
+      'dock add pet transition stays single-layer while onboarding settles',
       (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
     await tester.pumpWidget(const PetCareApp());
@@ -1564,14 +1773,15 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增爱宠'));
-    await tester.pump(const Duration(milliseconds: 90));
+    await tester.pump(const Duration(milliseconds: 70));
 
-    expect(find.byKey(const ValueKey('add_sheet_push_back_layer')),
-        findsOneWidget);
-    expect(find.text('新增待办'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+    expect(find.text('新增待办'), findsNothing);
     expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
         findsOneWidget);
-    expect(find.text('先认识一下'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_foreground_surface')),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -1584,13 +1794,179 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增提醒'));
-    await tester.pump(const Duration(milliseconds: 180));
+    await tester.pumpAndSettle();
 
     expect(find.text('保存提醒'), findsOneWidget);
     expect(find.byKey(const ValueKey('add_sheet_foreground_surface')),
         findsOneWidget);
-    expect(find.byKey(const ValueKey('add_sheet_push_back_layer')),
-        findsNothing);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+  });
+
+  testWidgets(
+      'dock add pet transition keeps the foreground settling without revealing the grid',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pump(const Duration(milliseconds: 220));
+
+    expect(find.text('新增待办'), findsNothing);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+    final midRect = tester
+        .getRect(find.byKey(const ValueKey('add_sheet_foreground_surface')));
+
+    await tester.pumpAndSettle();
+
+    final settledRect = tester
+        .getRect(find.byKey(const ValueKey('add_sheet_foreground_surface')));
+    expect(midRect.top, greaterThan(settledRect.top + 24));
+  });
+
+  testWidgets(
+      'expanded reminder transition keeps the form settling without revealing the grid',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增提醒'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.byKey(const ValueKey('add_sheet_foreground_surface')),
+        findsOneWidget);
+    expect(find.text('新增待办'), findsNothing);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('保存提醒'), findsOneWidget);
+  });
+
+  testWidgets(
+      'pet onboarding collapse keeps the action grid hidden until the sheet returns to actions',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+    expect(find.text('新增待办'), findsNothing);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增爱宠'), findsOneWidget);
+  });
+
+  testWidgets(
+      'pet onboarding return keeps the onboarding page visible while the whole sheet reverses',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    final expandedHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsOneWidget);
+    expect(find.text('新增内容'), findsNothing);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      lessThan(expandedHeight),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height,
+      greaterThan(448),
+    );
+  });
+
+  testWidgets(
+      'pet onboarding return fades in the actions layer during the tail of reverse animation',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    final expandedHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增爱宠'), findsOneWidget);
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_actions_content')),
+        findsOneWidget);
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('add_sheet_actions_reveal_opacity'),
+      ),
+      lessThan(1),
+    );
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(
+              const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+            ),
+          )
+          .ignoring,
+      isTrue,
+    );
+    final midShellHeight =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell'))).height;
+    expect(midShellHeight, lessThan(expandedHeight));
+    expect(midShellHeight, greaterThan(448));
   });
 
   testWidgets(
@@ -1847,13 +2223,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
-    final shell = tester.widget<AnimatedContainer>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('add_sheet_shell')),
-            matching: find.byType(AnimatedContainer),
-          )
-          .first,
+    final shell = tester.widget<Container>(
+      find.byKey(const ValueKey('add_sheet_surface')),
     );
     final shellGradient =
         (shell.decoration as BoxDecoration).gradient! as LinearGradient;
@@ -1903,10 +2274,8 @@ void main() {
     final settingsSize = tester.getSize(settingsFinder);
     expect(requestSize.height, closeTo(settingsSize.height, 0.1));
 
-    final requestStyle =
-        tester.widget<FilledButton>(requestFinder).style!;
-    final settingsStyle =
-        tester.widget<OutlinedButton>(settingsFinder).style!;
+    final requestStyle = tester.widget<FilledButton>(requestFinder).style!;
+    final settingsStyle = tester.widget<OutlinedButton>(settingsFinder).style!;
 
     final requestShape =
         requestStyle.shape!.resolve({})! as RoundedRectangleBorder;
@@ -1914,8 +2283,7 @@ void main() {
         settingsStyle.shape!.resolve({})! as RoundedRectangleBorder;
 
     expect(requestShape.borderRadius, settingsShape.borderRadius);
-    expect(requestShape.borderRadius,
-        BorderRadius.circular(999));
+    expect(requestShape.borderRadius, BorderRadius.circular(999));
   });
 
   testWidgets('adapts first-launch intro surfaces to dark mode',
@@ -2029,12 +2397,14 @@ double _scaleByKey(WidgetTester tester, ValueKey<String> key) {
 }
 
 Color? _iconColorByKey(WidgetTester tester, ValueKey<String> key) {
-  return tester.widget<Icon>(
-    find.descendant(
-      of: find.byKey(key),
-      matching: find.byType(Icon),
-    ),
-  ).color;
+  return tester
+      .widget<Icon>(
+        find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(Icon),
+        ),
+      )
+      .color;
 }
 
 Color? _selectedIndicatorColor(WidgetTester tester) {
@@ -2065,10 +2435,12 @@ Finder _introHeroIconFinder() {
 
 double _fixedHeroScale(WidgetTester tester) {
   final transform = tester.widget<Transform>(
-    find.descendant(
-      of: find.byKey(const ValueKey('intro_fixed_hero_host')),
-      matching: find.byType(Transform),
-    ).first,
+    find
+        .descendant(
+          of: find.byKey(const ValueKey('intro_fixed_hero_host')),
+          matching: find.byType(Transform),
+        )
+        .first,
   );
   return transform.transform.storage[0];
 }

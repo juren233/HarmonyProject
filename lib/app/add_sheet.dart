@@ -1,4 +1,5 @@
-import 'dart:async';
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:pet_care_harmony/app/app_theme.dart';
@@ -20,102 +21,121 @@ class AddActionSheet extends StatefulWidget {
   final PetCareStore store;
 
   @override
-  State<AddActionSheet> createState() => _AddActionSheetState();
+  State<AddActionSheet> createState() => _AddSheetState();
 }
 
-class _AddActionSheetState extends State<AddActionSheet> {
+class _AddSheetState extends State<AddActionSheet>
+    with SingleTickerProviderStateMixin {
   static const _compactSheetHeight = 448.0;
   static const _sheetRadius = 36.0;
-  static const _expandedTransitionDuration = Duration(milliseconds: 420);
-  static const _gridRetireDelay = Duration(milliseconds: 140);
+  static const _expandedTransitionDuration = Duration(milliseconds: 360);
+  static const _actionsRevealStart = 0.28;
 
+  late final AnimationController _transitionController;
   AddAction _action = AddAction.none;
-  Timer? _transitionTimer;
-  bool _showTransitionGrid = false;
+  bool _isCollapsing = false;
 
-  bool get _isActionGrid => _action == AddAction.none;
-  bool get _isPetOnboarding => _action == AddAction.pet;
+  bool get _hasExpandedStage => _action != AddAction.none;
+  AddAction get _transitionAction => _action;
+  bool get _isPetOnboarding =>
+      _hasExpandedStage && _transitionAction == AddAction.pet;
+  Curve get _sheetMotionCurve =>
+      _isCollapsing ? Curves.easeInCubic : Curves.easeOutCubic;
+  double get _sheetMotionProgress =>
+      _sheetMotionCurve.transform(_transitionController.value);
+  double get _actionsRevealOpacity {
+    if (!_isCollapsing) {
+      return 0;
+    }
+    final progress = _transitionController.value;
+    if (progress >= _actionsRevealStart) {
+      return 0;
+    }
+    final revealProgress = (1 - (progress / _actionsRevealStart)).clamp(0.0, 1.0);
+    return Curves.easeOutQuad.transform(revealProgress);
+  }
+
+  bool get _shouldRevealActions => _actionsRevealOpacity > 0;
   _AddSheetStage get _stage {
     if (_isPetOnboarding) {
       return _AddSheetStage.petOnboarding;
     }
-    if (_isActionGrid) {
+    if (!_hasExpandedStage) {
       return _AddSheetStage.actions;
     }
     return _AddSheetStage.expandedForm;
   }
 
   @override
+  void initState() {
+    super.initState();
+    _transitionController = AnimationController(
+      vsync: this,
+      duration: _expandedTransitionDuration,
+      reverseDuration: _expandedTransitionDuration,
+    )..addStatusListener(_handleTransitionStatus);
+  }
+
+  @override
   void dispose() {
-    _transitionTimer?.cancel();
+    _transitionController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final availableHeight =
-        mediaQuery.size.height - mediaQuery.padding.top - 12;
-    final isPetOnboarding = _isPetOnboarding;
-    final tokens = context.petCareTokens;
-    final sheetHeight = switch (_stage) {
-      _AddSheetStage.actions => _compactSheetHeight,
-      _AddSheetStage.expandedForm => availableHeight,
-      _AddSheetStage.petOnboarding => availableHeight,
-    };
+    return AnimatedBuilder(
+      animation: _transitionController,
+      builder: (context, _) {
+        final mediaQuery = MediaQuery.of(context);
+        final availableHeight =
+            mediaQuery.size.height - mediaQuery.padding.top - 12;
+        final tokens = context.petCareTokens;
+        final shellProgress = _hasExpandedStage ? _sheetMotionProgress : 0.0;
+        final sheetHeight =
+            lerpDouble(_compactSheetHeight, availableHeight, shellProgress)!;
 
-    return ClipRRect(
-      key: const ValueKey('add_sheet_shell'),
-      borderRadius:
-          const BorderRadius.vertical(top: Radius.circular(_sheetRadius)),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-        height: sheetHeight,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 18,
-              right: 18,
-              top: 4,
-              bottom: mediaQuery.viewInsets.bottom + 18,
+        return ClipRRect(
+          key: const ValueKey('add_sheet_shell'),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(_sheetRadius)),
+          child: Container(
+            key: const ValueKey('add_sheet_surface'),
+            height: sheetHeight,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+              ),
             ),
-            child: Column(
-              children: [
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.topCenter,
-                  child: _buildHeader(context),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 18,
+                  right: 18,
+                  top: 4,
+                  bottom: mediaQuery.viewInsets.bottom + 18,
                 ),
-                Expanded(
-                  child: _buildBody(),
-                ),
-              ],
+                child: _buildSheetContent(context),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    if (!_isActionGrid) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildSheetContent(BuildContext context) {
+    return _buildBody();
+  }
 
+  Widget _buildActionsHeaderContent(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = context.petCareTokens;
     return Padding(
-      key: ValueKey(_stage),
+      key: const ValueKey('add_actions_header_boundary'),
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
         children: [
@@ -124,7 +144,7 @@ class _AddActionSheetState extends State<AddActionSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _action == AddAction.none ? '新增内容' : _sheetTitle(_action),
+                  '新增内容',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     color: tokens.primaryText,
                     fontWeight: FontWeight.w800,
@@ -133,9 +153,7 @@ class _AddActionSheetState extends State<AddActionSheet> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  _action == AddAction.none
-                      ? '今天要给毛孩子加点什么新内容？'
-                      : '保存后会自动跳转详情页面。',
+                  '今天要给毛孩子加点什么新内容？',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: tokens.secondaryText,
                   ),
@@ -143,72 +161,140 @@ class _AddActionSheetState extends State<AddActionSheet> {
               ],
             ),
           ),
-          if (!_isActionGrid)
-            IconButton(
-              onPressed: () => setState(() => _action = AddAction.none),
-              icon: const Icon(Icons.arrow_forward_ios_rounded, size: 18),
-              color: tokens.secondaryText,
-              splashRadius: 18,
-              tooltip: '返回',
-            ),
         ],
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildExpandedPage(BuildContext context, {Key? key}) {
     if (_isPetOnboarding) {
-      return _buildExpandedTransition(
-        key: const ValueKey('manual_onboarding_sheet_transition'),
+      return KeyedSubtree(
+        key: key,
         child: PetOnboardingFlow(
           embedded: true,
           onSubmit: _submitPetOnboarding,
           onDefer: _closePetOnboarding,
-          onReturnToActions: _resetToActions,
+          onReturnToActions: _beginCollapseToActions,
         ),
       );
     }
 
-    if (_isActionGrid) {
-      return Align(
-        key: const ValueKey('add_actions_boundary'),
-        alignment: Alignment.topCenter,
-        child: RepaintBoundary(
-          child: SingleChildScrollView(
-            child: _ActionGrid(
-              key: const ValueKey('actions'),
-              onSelect: _selectAction,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return _buildExpandedTransition(
-      key: const ValueKey('manual_expanded_form_transition'),
+    return KeyedSubtree(
+      key: key,
       child: RepaintBoundary(
         key: const ValueKey('add_form_boundary'),
         child: _ExpandedFormShell(
-          title: _sheetTitle(_action),
-          onBack: _resetToActions,
+          title: _sheetTitle(_transitionAction),
+          onBack: _beginCollapseToActions,
           child: KeyedSubtree(
-            key: ValueKey('${_action.name}_${widget.store.pets.isEmpty}'),
-            child: _buildExpandedFormBody(),
+            key: ValueKey(
+                '${_transitionAction.name}_${widget.store.pets.isEmpty}'),
+            child: _buildExpandedFormBody(_transitionAction),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildExpandedFormBody() {
+  Widget _buildBody() {
+    if (_stage == _AddSheetStage.petOnboarding) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_stage == _AddSheetStage.actions || _shouldRevealActions)
+            _buildActionsContent(
+              interactive: false,
+              opacity: _actionsRevealOpacity,
+              opacityKey: const ValueKey('add_sheet_actions_reveal_opacity'),
+              ignorePointerKey:
+                  const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+            ),
+          _buildExpandedTransition(
+            key: const ValueKey('manual_onboarding_sheet_transition'),
+            child: _buildExpandedPage(
+              context,
+              key: const ValueKey('expanded_pet_page'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_stage == _AddSheetStage.actions) {
+      return _buildActionsContent(
+        interactive: true,
+        opacity: 1,
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_stage == _AddSheetStage.actions || _shouldRevealActions)
+          _buildActionsContent(
+            interactive: false,
+            opacity: _actionsRevealOpacity,
+            opacityKey: const ValueKey('add_sheet_actions_reveal_opacity'),
+            ignorePointerKey:
+                const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+          ),
+        _buildExpandedTransition(
+          key: const ValueKey('manual_expanded_form_transition'),
+          child: _buildExpandedPage(
+            context,
+            key: ValueKey('expanded_page_${_transitionAction.name}'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionsContent({
+    required bool interactive,
+    required double opacity,
+    ValueKey<String>? opacityKey,
+    ValueKey<String>? ignorePointerKey,
+  }) {
+    return IgnorePointer(
+      key: ignorePointerKey,
+      ignoring: !interactive,
+      child: KeyedSubtree(
+        key: opacityKey,
+        child: Opacity(
+          opacity: opacity,
+          child: Align(
+            key: const ValueKey('add_actions_boundary'),
+            alignment: Alignment.topCenter,
+            child: RepaintBoundary(
+              child: SingleChildScrollView(
+                key: const ValueKey('add_sheet_actions_content'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildActionsHeaderContent(context),
+                    _ActionGrid(
+                      key: const ValueKey('actions'),
+                      onSelect: _selectAction,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedFormBody(AddAction action) {
     if (widget.store.pets.isEmpty) {
       return _MissingPetPrerequisite(
-        action: _action,
+        action: action,
         onAddPet: _openPetOnboarding,
       );
     }
 
-    return switch (_action) {
+    return switch (action) {
       AddAction.todo =>
         _TodoForm(key: const ValueKey('todo'), store: widget.store),
       AddAction.reminder =>
@@ -224,59 +310,33 @@ class _AddActionSheetState extends State<AddActionSheet> {
     required Key key,
     required Widget child,
   }) {
-    return TweenAnimationBuilder<double>(
+    return AnimatedBuilder(
       key: key,
-      tween: Tween(begin: 0, end: 1),
-      duration: _expandedTransitionDuration,
-      curve: Curves.easeOutCubic,
+      animation: _transitionController,
       child: child,
-      builder: (context, progress, expandedChild) {
+      builder: (context, expandedChild) {
+        final progress = _sheetMotionProgress;
         final tokens = context.petCareTokens;
-        final collapseProgress =
-            Curves.easeOutCubic.transform((progress / 0.34).clamp(0.0, 1.0));
-        final revealProgress = Curves.easeOutCubic
-            .transform(((progress - 0.14) / 0.86).clamp(0.0, 1.0));
-        final pushBackProgress =
-            Curves.easeOutCubic.transform((progress / 0.32).clamp(0.0, 1.0));
+        final foregroundOffset = 48.0 * (1 - progress);
+        final foregroundScale = 0.97 + (0.03 * progress);
+        final foregroundOpacity = progress;
+        final foregroundSurfaceOpacity =
+            _isCollapsing ? 1 - _actionsRevealOpacity : 1.0;
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            if (_showTransitionGrid)
-              IgnorePointer(
-                child: ClipRect(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    heightFactor: 1 - (collapseProgress * 0.16),
-                    child: Transform.translate(
-                      offset: Offset(0, 12 * pushBackProgress),
-                      child: Transform.scale(
-                        scale: 1 - (0.024 * pushBackProgress),
-                        alignment: Alignment.topCenter,
-                        child: Opacity(
-                          key: const ValueKey('add_sheet_push_back_layer'),
-                          opacity: 1 - (0.92 * collapseProgress),
-                          child: RepaintBoundary(
-                            child: _ActionGrid(
-                              onSelect: (_) {},
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             IgnorePointer(
-              ignoring: revealProgress < 0.999,
+              ignoring: _isCollapsing || progress < 0.999,
               child: Transform.translate(
-                offset: Offset(0, 54 * (1 - revealProgress)),
+                offset: Offset(0, foregroundOffset),
                 child: Transform.scale(
-                  scale: 0.965 + (0.035 * revealProgress),
+                  key: const ValueKey('add_sheet_foreground_scale'),
+                  scale: foregroundScale,
                   alignment: Alignment.topCenter,
                   child: Opacity(
                     key: const ValueKey('add_sheet_foreground_surface_opacity'),
-                    opacity: 1,
+                    opacity: foregroundSurfaceOpacity.clamp(0.0, 1.0),
                     child: DecoratedBox(
                       key: const ValueKey('add_sheet_foreground_surface'),
                       decoration: BoxDecoration(
@@ -290,7 +350,9 @@ class _AddActionSheetState extends State<AddActionSheet> {
                         ),
                       ),
                       child: Opacity(
-                        opacity: revealProgress,
+                        key: const ValueKey(
+                            'add_sheet_foreground_content_opacity'),
+                        opacity: foregroundOpacity,
                         child: expandedChild,
                       ),
                     ),
@@ -330,44 +392,60 @@ class _AddActionSheetState extends State<AddActionSheet> {
     Navigator.of(context).pop();
   }
 
+  void _handleTransitionStatus(AnimationStatus status) {
+    if (!mounted) {
+      return;
+    }
+    if (status == AnimationStatus.dismissed && _isCollapsing) {
+      setState(() {
+        _isCollapsing = false;
+        _action = AddAction.none;
+      });
+    }
+  }
+
   void _selectAction(AddAction action) {
-    _transitionTimer?.cancel();
     if (action == AddAction.none) {
-      _resetToActions();
+      _beginCollapseToActions();
       return;
     }
 
+    _transitionController.stop();
     setState(() {
+      _isCollapsing = false;
       _action = action;
-      _showTransitionGrid = true;
     });
-    _transitionTimer = Timer(_gridRetireDelay, () {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _showTransitionGrid = false);
-    });
+    _transitionController.forward(from: 0);
   }
 
-  void _resetToActions() {
-    _transitionTimer?.cancel();
+  void _beginCollapseToActions() {
+    if (!_hasExpandedStage || _isCollapsing) {
+      return;
+    }
     setState(() {
-      _action = AddAction.none;
-      _showTransitionGrid = false;
+      _isCollapsing = true;
     });
+    if (_transitionController.value >= 1.0) {
+      _transitionController.reverse();
+      return;
+    }
+    _transitionController.reverse(from: _transitionController.value);
   }
 
   void _openPetOnboarding() {
-    _transitionTimer?.cancel();
+    _transitionController.stop();
     setState(() {
+      _isCollapsing = false;
       _action = AddAction.pet;
-      _showTransitionGrid = false;
     });
   }
 }
 
 class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({super.key, required this.onSelect});
+  const _ActionGrid({
+    super.key,
+    required this.onSelect,
+  });
 
   final ValueChanged<AddAction> onSelect;
 
@@ -581,12 +659,10 @@ class _TodoFormState extends State<_TodoForm> {
             values: NotificationLeadTime.values,
             selected: _notificationLeadTime,
             labelBuilder: notificationLeadTimeLabel,
-            onChanged: (value) =>
-                setState(() => _notificationLeadTime = value),
+            onChanged: (value) => setState(() => _notificationLeadTime = value),
           ),
           const SectionLabel(text: '备注'),
-          HyperTextField(
-              controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
+          HyperTextField(controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
         ],
       ),
     );
@@ -727,8 +803,7 @@ class _ReminderFormState extends State<_ReminderForm> {
             values: NotificationLeadTime.values,
             selected: _notificationLeadTime,
             labelBuilder: notificationLeadTimeLabel,
-            onChanged: (value) =>
-                setState(() => _notificationLeadTime = value),
+            onChanged: (value) => setState(() => _notificationLeadTime = value),
           ),
           const SectionLabel(text: '重复规则'),
           HyperTextField(controller: _recurrence),
@@ -928,7 +1003,7 @@ class _RecordFormState extends State<_RecordForm> {
 }
 
 class _PetForm extends StatefulWidget {
-  const _PetForm({super.key, required this.store});
+  const _PetForm({required this.store});
 
   final PetCareStore store;
 
@@ -1327,8 +1402,9 @@ Future<DateTime?> _showCupertinoPickerSheet(
     context: context,
     builder: (popupContext) {
       final brightness = Theme.of(context).brightness;
-      final backgroundColor =
-          brightness == Brightness.dark ? const Color(0xFF1C1C1E) : Colors.white;
+      final backgroundColor = brightness == Brightness.dark
+          ? const Color(0xFF1C1C1E)
+          : Colors.white;
       return Container(
         height: 320,
         padding: const EdgeInsets.only(top: 12),
@@ -1350,7 +1426,8 @@ Future<DateTime?> _showCupertinoPickerSheet(
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () => Navigator.of(popupContext).pop(pickedValue),
+                    onPressed: () =>
+                        Navigator.of(popupContext).pop(pickedValue),
                     child: const Text('完成'),
                   ),
                 ],
