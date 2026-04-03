@@ -99,11 +99,14 @@ class MethodChannelNotificationPlatformAdapter
   }
 
   @override
-  Future<void> openNotificationSettings() async {
+  Future<NotificationSettingsOpenResult> openNotificationSettings() async {
     try {
-      await _channel.invokeMethod<void>('openNotificationSettings');
+      final result = await _channel.invokeMethod<String>(
+        'openNotificationSettings',
+      );
+      return notificationSettingsOpenResultFromName(result);
     } on MissingPluginException {
-      // Unsupported platforms silently no-op.
+      return NotificationSettingsOpenResult.unsupported;
     }
   }
 }

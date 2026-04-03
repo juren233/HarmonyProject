@@ -1849,7 +1849,7 @@ void main() {
   });
 
   testWidgets(
-      'dock add pet transition keeps the action grid in a push-back background while onboarding settles',
+      'dock add pet transition keeps the foreground settling without revealing the action grid',
       (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
     await tester.pumpWidget(const PetCareApp());
@@ -1858,14 +1858,15 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增爱宠'));
-    await tester.pump(const Duration(milliseconds: 90));
+    await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.byKey(const ValueKey('add_sheet_push_back_layer')),
-        findsOneWidget);
-    expect(find.text('新增待办'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
+    expect(find.text('新增待办'), findsNothing);
     expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
         findsOneWidget);
-    expect(find.text('先认识一下'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_foreground_surface')),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -2141,13 +2142,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
-    final shell = tester.widget<AnimatedContainer>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('add_sheet_shell')),
-            matching: find.byType(AnimatedContainer),
-          )
-          .first,
+    final shell = tester.widget<Container>(
+      find.byKey(const ValueKey('add_sheet_surface')),
     );
     final shellGradient =
         (shell.decoration as BoxDecoration).gradient! as LinearGradient;

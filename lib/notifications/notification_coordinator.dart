@@ -65,7 +65,7 @@ class NotificationCoordinator extends ChangeNotifier {
     return _adapter.consumeForegroundTap();
   }
 
-  Future<void> openNotificationSettings() {
+  Future<NotificationSettingsOpenResult> openNotificationSettings() {
     return _adapter.openNotificationSettings();
   }
 

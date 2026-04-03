@@ -101,11 +101,27 @@ void main() {
       isNot(contains('todo:todo-1')),
     );
   });
+
+  test('open notification settings forwards platform result', () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      openSettingsResult: NotificationSettingsOpenResult.failed,
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    final result = await coordinator.openNotificationSettings();
+
+    expect(result, NotificationSettingsOpenResult.failed);
+  });
 }
 
 class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
+  _FakeNotificationPlatformAdapter({
+    this.openSettingsResult = NotificationSettingsOpenResult.opened,
+  });
+
   final List<NotificationJob> scheduled = <NotificationJob>[];
   final List<String> cancelled = <String>[];
+  final NotificationSettingsOpenResult openSettingsResult;
 
   @override
   Future<NotificationPermissionState> getPermissionState() async {
@@ -119,7 +135,9 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   Future<NotificationLaunchIntent?> getInitialLaunchIntent() async => null;
 
   @override
-  Future<void> openNotificationSettings() async {}
+  Future<NotificationSettingsOpenResult> openNotificationSettings() async {
+    return openSettingsResult;
+  }
 
   @override
   Future<String?> registerPushToken() async => null;

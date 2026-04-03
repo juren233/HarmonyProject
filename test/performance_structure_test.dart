@@ -25,6 +25,13 @@ void main() {
     expect(rootSource, contains("ValueKey('bottom_nav_boundary')"));
   });
 
+  test('uses a dock snapshot mode to avoid animating the sheet over the live iOS platform view', () {
+    expect(rootSource, contains('enum _DockPresentationMode'));
+    expect(rootSource, contains('frozenSnapshot'));
+    expect(rootSource, contains("ValueKey('ios_native_dock_snapshot')"));
+    expect(rootSource, contains('enableBlur: false'));
+  });
+
   test('wraps frosted panels in repaint boundaries for scroll reuse', () {
     expect(frostedPanelSection, contains('return RepaintBoundary('));
   });
