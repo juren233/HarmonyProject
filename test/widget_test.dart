@@ -16,6 +16,7 @@ import 'package:pet_care_harmony/state/pet_care_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _petsStorageKey = 'pets_v1';
+const _todosStorageKey = 'todos_v1';
 const _firstLaunchIntroAutoEnabledKey = 'first_launch_intro_auto_enabled_v1';
 
 void main() {
@@ -41,7 +42,8 @@ void main() {
     );
   });
 
-  testWidgets('checklist card uses readable Chinese action labels and separators',
+  testWidgets(
+      'checklist card uses readable Chinese action labels and separators',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -116,8 +118,8 @@ void main() {
         findsNothing);
   });
 
-
-  testWidgets('intro-entered onboarding shows a back button that returns to intro',
+  testWidgets(
+      'intro-entered onboarding shows a back button that returns to intro',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
@@ -134,8 +136,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('first_launch_intro_overlay')), findsOneWidget);
-    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')), findsNothing);
+    expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+        findsNothing);
   });
 
   testWidgets('todo and reminder cards use distinct primary action colors',
@@ -186,9 +190,11 @@ void main() {
       ),
     );
 
-    final buttons = tester.widgetList<FilledButton>(find.byType(FilledButton)).toList();
+    final buttons =
+        tester.widgetList<FilledButton>(find.byType(FilledButton)).toList();
     expect(buttons, hasLength(2));
-    expect(buttons[0].style?.backgroundColor?.resolve({}), isNot(equals(buttons[1].style?.backgroundColor?.resolve({}))));
+    expect(buttons[0].style?.backgroundColor?.resolve({}),
+        isNot(equals(buttons[1].style?.backgroundColor?.resolve({}))));
   });
 
   testWidgets('intro keeps a single paw during launch without a handoff icon',
@@ -363,7 +369,7 @@ void main() {
     final pageView = tester.widget<PageView>(
       find.byKey(const ValueKey('first_launch_intro_page_view')),
     );
-    final controller = pageView.controller! as PageController;
+    final controller = pageView.controller!;
 
     expect(controller.viewportFraction, 1.0);
   });
@@ -465,7 +471,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('intro_fixed_hero_host')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
 
     final before = tester.getCenter(
       find.byKey(const ValueKey('intro_fixed_hero_host')),
@@ -491,7 +498,8 @@ void main() {
     );
     expect(after.dx, closeTo(before.dx, 0.5));
     expect(after.dy, closeTo(before.dy, 0.5));
-    expect(find.byKey(const ValueKey('intro_page_1_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_1_hero_icon')), findsOneWidget);
     expect(_introHeroIconFinder(), findsOneWidget);
   });
 
@@ -529,7 +537,8 @@ void main() {
     expect(settledHigh, isTrue);
   });
 
-  testWidgets('intro hero stays matched when quickly returning to the previous page',
+  testWidgets(
+      'intro hero stays matched when quickly returning to the previous page',
       (tester) async {
     await tester.pumpWidget(const PetCareApp());
     await tester.pumpAndSettle();
@@ -541,7 +550,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 280));
 
     expect(find.byKey(const ValueKey('intro_page_1_content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
 
     await tester.fling(
       find.byKey(const ValueKey('first_launch_intro_page_view')),
@@ -552,7 +562,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsOneWidget);
-    expect(find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('intro_page_0_hero_icon')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_1_hero_icon')), findsNothing);
   });
 
@@ -783,9 +794,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 280));
     await tester.pump(const Duration(milliseconds: 80));
 
-    while (find.byKey(const ValueKey('privacy_lock_0_scale'))
-        .evaluate()
-        .isEmpty) {
+    while (
+        find.byKey(const ValueKey('privacy_lock_0_scale')).evaluate().isEmpty) {
       await tester.pump(const Duration(milliseconds: 40));
     }
 
@@ -827,6 +837,202 @@ void main() {
 
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsOneWidget);
+  });
+
+  testWidgets(
+      'starting onboarding from intro keeps intro briefly visible while onboarding fades in',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('first_launch_onboarding_overlay')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'starting onboarding from intro does not reset the intro back to page one during transition',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
+  });
+
+  testWidgets(
+      'starting onboarding keeps intro content fully visible during the hero expansion phase',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+
+    expect(
+      _opacityOrOne(
+        tester,
+        find.byKey(const ValueKey('intro_page_2_content')),
+      ),
+      1,
+    );
+    expect(
+      _opacityOrOne(
+        tester,
+        find.byKey(const ValueKey('first_launch_intro_primary_button')),
+      ),
+      1,
+    );
+    expect(
+      _opacityOrOne(
+        tester,
+        find.byKey(const ValueKey('first_launch_intro_secondary_button')),
+      ),
+      1,
+    );
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('onboarding_transition_opacity'),
+      ),
+      0,
+    );
+  });
+
+  testWidgets(
+      'starting onboarding begins revealing the first onboarding step before intro fully disappears',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 780));
+
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('intro_onboarding_exit_opacity'),
+      ),
+      allOf(greaterThan(0), lessThan(1)),
+    );
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('onboarding_transition_opacity'),
+      ),
+      greaterThan(0),
+    );
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('onboarding_first_step_content_reveal'),
+      ),
+      greaterThan(0),
+    );
+  });
+
+  testWidgets(
+      'starting onboarding fades intro content and footer buttons together before the hero becomes tiny',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 460));
+
+    final contentOpacity = _opacityByKey(
+      tester,
+      const ValueKey('intro_onboarding_exit_content_opacity'),
+    );
+    final footerOpacity = _opacityByKey(
+      tester,
+      const ValueKey('intro_onboarding_exit_footer_opacity'),
+    );
+
+    expect(contentOpacity, allOf(greaterThan(0), lessThan(1)));
+    expect(footerOpacity, allOf(greaterThan(0), lessThan(1)));
+    expect(footerOpacity, closeTo(contentOpacity, 0.0001));
+    expect(_fixedHeroScale(tester), greaterThan(0.18));
+  });
+
+  testWidgets(
+      'explore first keeps intro visible briefly during the shell cross fade',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_secondary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+
+    expect(
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+      findsOneWidget,
+    );
+    expect(find.text('先添加第一只爱宠'), findsWidgets);
+    expect(find.byKey(const ValueKey('bottom_nav_panel')), findsOneWidget);
+  });
+
+  testWidgets('explore first pulls the whole intro overlay upward',
+      (tester) async {
+    await tester.pumpWidget(const PetCareApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_secondary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+
+    expect(
+      _translateDyByKey(
+        tester,
+        const ValueKey('intro_shell_exit_motion'),
+      ),
+      lessThan(-185),
+    );
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('intro_shell_exit_opacity'),
+      ),
+      lessThan(0.2),
+    );
+    expect(
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -905,6 +1111,81 @@ void main() {
     expect(
       (progressFrameRect.center.dy - deferRect.center.dy).abs(),
       lessThanOrEqualTo(2),
+    );
+  });
+
+  testWidgets('onboarding uses a non-scrollable horizontal page view',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetCareTheme(Brightness.light),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final pageView = find.byKey(const ValueKey('onboarding_step_page_view'));
+    expect(pageView, findsOneWidget);
+    expect(find.text('先认识一下'), findsOneWidget);
+
+    await tester.drag(pageView, const Offset(-240, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('先认识一下'), findsOneWidget);
+    expect(find.text('选择品种'), findsNothing);
+  });
+
+  testWidgets('onboarding first step content rises in from below on entry',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetCareTheme(Brightness.light),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('onboarding_first_step_content_reveal'),
+      ),
+      lessThan(1),
+    );
+    expect(
+      _translateDyByKey(
+        tester,
+        const ValueKey('onboarding_first_step_content_reveal'),
+      ),
+      greaterThan(0),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('onboarding_first_step_content_reveal'),
+      ),
+      1,
+    );
+    expect(
+      _translateDyByKey(
+        tester,
+        const ValueKey('onboarding_first_step_content_reveal'),
+      ),
+      0,
     );
   });
 
@@ -1297,7 +1578,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_sheet_test')));
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_add_button_for_sheet_test')));
     await tester.pump();
     await tester.pumpAndSettle();
 
@@ -1338,10 +1620,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_layout_test')));
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_add_button_for_layout_test')));
     await tester.pumpAndSettle();
 
-    final shellRect = tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
     final lastActionCardRect = tester.getRect(find.text('新增爱宠'));
 
     expect(shellRect.height, greaterThanOrEqualTo(448));
@@ -1369,7 +1653,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
-    expect(find.text('补货主粮'), findsOneWidget);
+
+    final prefs = await SharedPreferences.getInstance();
+    final todosJson = prefs.getString(_todosStorageKey);
+    expect(todosJson, isNotNull);
+    expect(todosJson, contains('补货主粮'));
   });
 
   testWidgets(
@@ -1431,7 +1719,8 @@ void main() {
               child: Row(
                 children: [
                   IconButton(
-                    key: const ValueKey('fake_ios_add_button_for_cupertino_picker'),
+                    key: const ValueKey(
+                        'fake_ios_add_button_for_cupertino_picker'),
                     onPressed: onAddTap,
                     icon: const Icon(Icons.add),
                   ),
@@ -1444,7 +1733,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_cupertino_picker')));
+    await tester.tap(
+        find.byKey(const ValueKey('fake_ios_add_button_for_cupertino_picker')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增提醒'));
     await tester.pumpAndSettle();
@@ -1452,7 +1742,8 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('reminder_scheduled_date_field')),
     );
-    await tester.tap(find.byKey(const ValueKey('reminder_scheduled_date_field')));
+    await tester
+        .tap(find.byKey(const ValueKey('reminder_scheduled_date_field')));
     await tester.pumpAndSettle();
 
     expect(find.byType(CupertinoDatePicker), findsOneWidget);
@@ -1476,7 +1767,8 @@ void main() {
               child: Row(
                 children: [
                   IconButton(
-                    key: const ValueKey('fake_ios_add_button_for_expanded_layout'),
+                    key: const ValueKey(
+                        'fake_ios_add_button_for_expanded_layout'),
                     onPressed: onAddTap,
                     icon: const Icon(Icons.add),
                   ),
@@ -1489,12 +1781,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('fake_ios_add_button_for_expanded_layout')));
+    await tester.tap(
+        find.byKey(const ValueKey('fake_ios_add_button_for_expanded_layout')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新增提醒'));
     await tester.pumpAndSettle();
 
-    final shellRect = tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
     final saveRect = tester.getRect(find.widgetWithText(FilledButton, '保存提醒'));
 
     expect(saveRect.bottom, lessThanOrEqualTo(shellRect.bottom - 8));
@@ -1546,8 +1840,8 @@ void main() {
     expect(find.byKey(const ValueKey('onboarding_return_to_actions_button')),
         findsOneWidget);
 
-    await tester.tap(
-        find.byKey(const ValueKey('onboarding_return_to_actions_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_return_to_actions_button')));
     await tester.pumpAndSettle();
 
     expect(find.text('新增内容'), findsOneWidget);
@@ -1589,8 +1883,8 @@ void main() {
     expect(find.text('保存提醒'), findsOneWidget);
     expect(find.byKey(const ValueKey('add_sheet_foreground_surface')),
         findsOneWidget);
-    expect(find.byKey(const ValueKey('add_sheet_push_back_layer')),
-        findsNothing);
+    expect(
+        find.byKey(const ValueKey('add_sheet_push_back_layer')), findsNothing);
   });
 
   testWidgets(
@@ -1903,10 +2197,8 @@ void main() {
     final settingsSize = tester.getSize(settingsFinder);
     expect(requestSize.height, closeTo(settingsSize.height, 0.1));
 
-    final requestStyle =
-        tester.widget<FilledButton>(requestFinder).style!;
-    final settingsStyle =
-        tester.widget<OutlinedButton>(settingsFinder).style!;
+    final requestStyle = tester.widget<FilledButton>(requestFinder).style!;
+    final settingsStyle = tester.widget<OutlinedButton>(settingsFinder).style!;
 
     final requestShape =
         requestStyle.shape!.resolve({})! as RoundedRectangleBorder;
@@ -1914,8 +2206,7 @@ void main() {
         settingsStyle.shape!.resolve({})! as RoundedRectangleBorder;
 
     expect(requestShape.borderRadius, settingsShape.borderRadius);
-    expect(requestShape.borderRadius,
-        BorderRadius.circular(999));
+    expect(requestShape.borderRadius, BorderRadius.circular(999));
   });
 
   testWidgets('adapts first-launch intro surfaces to dark mode',
@@ -2029,12 +2320,14 @@ double _scaleByKey(WidgetTester tester, ValueKey<String> key) {
 }
 
 Color? _iconColorByKey(WidgetTester tester, ValueKey<String> key) {
-  return tester.widget<Icon>(
-    find.descendant(
-      of: find.byKey(key),
-      matching: find.byType(Icon),
-    ),
-  ).color;
+  return tester
+      .widget<Icon>(
+        find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(Icon),
+        ),
+      )
+      .color;
 }
 
 Color? _selectedIndicatorColor(WidgetTester tester) {
@@ -2064,13 +2357,41 @@ Finder _introHeroIconFinder() {
 }
 
 double _fixedHeroScale(WidgetTester tester) {
+  final exitScale = find.byKey(
+    const ValueKey('intro_onboarding_exit_hero_scale'),
+    skipOffstage: false,
+  );
+  if (exitScale.evaluate().isNotEmpty) {
+    final transform = tester.widget<Transform>(exitScale);
+    final scale = transform.transform.storage[0];
+    if ((scale - 1).abs() > 0.001) {
+      return scale;
+    }
+  }
   final transform = tester.widget<Transform>(
-    find.descendant(
-      of: find.byKey(const ValueKey('intro_fixed_hero_host')),
-      matching: find.byType(Transform),
-    ).first,
+    find
+        .descendant(
+          of: find.byKey(const ValueKey('intro_fixed_hero_host')),
+          matching: find.byType(Transform),
+          matchRoot: true,
+        )
+        .first,
   );
   return transform.transform.storage[0];
+}
+
+double _opacityByKey(WidgetTester tester, ValueKey<String> key) {
+  final opacity = tester.widget<Opacity>(find.byKey(key));
+  return opacity.opacity;
+}
+
+double _translateDyByKey(WidgetTester tester, ValueKey<String> key) {
+  final transform = tester.widget<Transform>(
+    find
+        .descendant(of: find.byKey(key), matching: find.byType(Transform))
+        .first,
+  );
+  return transform.transform.storage[13];
 }
 
 IconData _iconDataByKey(WidgetTester tester, ValueKey<String> key) {

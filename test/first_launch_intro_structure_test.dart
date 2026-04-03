@@ -28,13 +28,11 @@ void main() {
     expect(source.contains('_firstPageIndicatorDelay'), isTrue);
     expect(source.contains('_firstPageButtonDelayAfterIndicator'), isTrue);
     expect(
-      source.contains(
-          '_firstPageIndicatorDelay = Duration(milliseconds: 500)'),
+      source.contains('_firstPageIndicatorDelay = Duration(milliseconds: 500)'),
       isTrue,
     );
     expect(
-      source.contains(
-          '_finalPageIndicatorDelay = Duration(milliseconds: 700)'),
+      source.contains('_finalPageIndicatorDelay = Duration(milliseconds: 700)'),
       isTrue,
     );
     expect(
@@ -67,12 +65,17 @@ void main() {
       isTrue,
     );
     expect(
-      source.contains('_segmentValue(elapsedMs, 900, 1120, Curves.easeOutQuart)'),
+      source
+          .contains('_segmentValue(elapsedMs, 900, 1120, Curves.easeOutQuart)'),
       isTrue,
     );
     expect(source.contains('1.38,'), isTrue);
     expect(source.contains('1.5,'), isTrue);
     expect(source.contains('1.0,'), isTrue);
     expect(source.contains('0.6,'), isTrue);
+    expect(source.contains('onboardingExitProgress'), isTrue);
+    expect(source.contains('intro_onboarding_exit_hero_scale'), isTrue);
+    expect(source.contains('_onboardingHeroScale'), isTrue);
+    expect(source.contains('_onboardingHeroOpacity'), isFalse);
   });
 }

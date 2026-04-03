@@ -41,8 +41,10 @@ class PetCareRoot extends StatefulWidget {
 
 enum _OnboardingEntryPoint { intro, manual }
 
+enum _OverlayTransition { none, introToOnboarding, introToShell }
+
 class _PetCareRootState extends State<PetCareRoot>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   PetCareStore? _store;
   NotificationCoordinator? _notificationCoordinator;
   String _activeChecklistKey = 'today';
@@ -50,12 +52,22 @@ class _PetCareRootState extends State<PetCareRoot>
   bool _showFirstLaunchIntro = false;
   bool _showOnboarding = false;
   _OnboardingEntryPoint _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+  _OverlayTransition _overlayTransition = _OverlayTransition.none;
+  late final AnimationController _overlayTransitionController;
   Timer? _timeRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _overlayTransitionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..addListener(() {
+        if (mounted) {
+          setState(() {});
+        }
+      });
     _loadStore();
   }
 
@@ -74,7 +86,9 @@ class _PetCareRootState extends State<PetCareRoot>
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchIntro;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.none;
     });
+    _overlayTransitionController.value = 0;
     _startTimeRefreshTicker();
     unawaited(_initializeNotifications(store));
   }
@@ -131,9 +145,21 @@ class _PetCareRootState extends State<PetCareRoot>
     }
 
     final overlayStyle = petCareOverlayStyleForTheme(Theme.of(context));
-    final useNativeIosDock = !_showFirstLaunchIntro &&
-        !_showOnboarding &&
+    final showBottomNavigation = !_showOnboarding &&
+        (!_showFirstLaunchIntro ||
+            _overlayTransition == _OverlayTransition.introToShell);
+    final showBottomNavigationInBody =
+        _overlayTransition == _OverlayTransition.introToShell;
+    final useNativeIosDock = showBottomNavigation &&
         supportsIosNativeDock(Theme.of(context).platform);
+    final bottomNavigation = !showBottomNavigation
+        ? null
+        : useNativeIosDock
+            ? _buildIosNativeDock(context, store)
+            : _PetCareBottomNav(
+                store: store,
+                onAdd: () => _openAddSheet(context, store),
+              );
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
@@ -143,6 +169,8 @@ class _PetCareRootState extends State<PetCareRoot>
           activeChecklistKey: _activeChecklistKey,
           showFirstLaunchIntro: _showFirstLaunchIntro,
           showOnboarding: _showOnboarding,
+          overlayTransition: _overlayTransition,
+          overlayTransitionProgress: _overlayTransitionController.value,
           settingsController: widget.settingsController,
           notificationCoordinator: _notificationCoordinator,
           highlightedChecklistItemKey: _highlightedChecklistItemKey,
@@ -158,15 +186,11 @@ class _PetCareRootState extends State<PetCareRoot>
               _onboardingEntryPoint == _OnboardingEntryPoint.intro
                   ? _returnToIntroFromOnboarding
                   : null,
+          bottomNavigationOverlay:
+              showBottomNavigationInBody ? bottomNavigation : null,
         ),
-        bottomNavigationBar: _showFirstLaunchIntro || _showOnboarding
-            ? null
-            : useNativeIosDock
-                ? _buildIosNativeDock(context, store)
-                : _PetCareBottomNav(
-                    store: store,
-                    onAdd: () => _openAddSheet(context, store),
-                  ),
+        bottomNavigationBar:
+            showBottomNavigationInBody ? null : bottomNavigation,
       ),
     );
   }
@@ -224,6 +248,7 @@ class _PetCareRootState extends State<PetCareRoot>
   }
 
   void _openManualOnboarding() {
+    _resetOverlayTransition();
     setState(() {
       _showFirstLaunchIntro = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
@@ -243,10 +268,20 @@ class _PetCareRootState extends State<PetCareRoot>
     }
 
     setState(() {
-      _showFirstLaunchIntro = false;
+      _showFirstLaunchIntro = true;
       _onboardingEntryPoint = _OnboardingEntryPoint.intro;
       _showOnboarding = true;
+      _overlayTransition = _OverlayTransition.introToOnboarding;
     });
+    await _overlayTransitionController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _overlayTransition = _OverlayTransition.none;
+    });
+    _overlayTransitionController.value = 0;
   }
 
   Future<void> _dismissFirstLaunchIntro() async {
@@ -261,27 +296,28 @@ class _PetCareRootState extends State<PetCareRoot>
     }
     store.setActiveTab(AppTab.checklist);
     setState(() {
-      _showFirstLaunchIntro = false;
+      _showFirstLaunchIntro = true;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.introToShell;
     });
+    await _overlayTransitionController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _overlayTransition = _OverlayTransition.none;
+    });
+    _overlayTransitionController.value = 0;
   }
 
   void _returnToIntroFromOnboarding() {
+    _resetOverlayTransition();
     setState(() {
       _showOnboarding = false;
       _showFirstLaunchIntro = true;
       _onboardingEntryPoint = _OnboardingEntryPoint.intro;
-    });
-  }
-
-  void _openAddPetOnboardingFromSheet() {
-    Navigator.of(context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _openManualOnboarding();
     });
   }
 
@@ -310,10 +346,13 @@ class _PetCareRootState extends State<PetCareRoot>
       _showFirstLaunchIntro = false;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.none;
     });
+    _overlayTransitionController.value = 0;
   }
 
   Future<void> _deferOnboarding() async {
+    _resetOverlayTransition();
     setState(() {
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
@@ -351,7 +390,9 @@ class _PetCareRootState extends State<PetCareRoot>
       _showOnboarding = false;
       _activeChecklistKey = sectionKey;
       _highlightedChecklistItemKey = intent.payload.key;
+      _overlayTransition = _OverlayTransition.none;
     });
+    _overlayTransitionController.value = 0;
     store.setActiveTab(AppTab.checklist);
   }
 
@@ -376,7 +417,18 @@ class _PetCareRootState extends State<PetCareRoot>
     _timeRefreshTimer?.cancel();
     _store?.removeListener(_handleStoreChanged);
     _notificationCoordinator?.dispose();
+    _overlayTransitionController.dispose();
     super.dispose();
+  }
+
+  void _resetOverlayTransition() {
+    if (_overlayTransitionController.isAnimating) {
+      _overlayTransitionController.stop();
+    }
+    if (_overlayTransitionController.value != 0) {
+      _overlayTransitionController.value = 0;
+    }
+    _overlayTransition = _OverlayTransition.none;
   }
 }
 
@@ -386,6 +438,8 @@ class _PetCareBody extends StatelessWidget {
     required this.activeChecklistKey,
     required this.showFirstLaunchIntro,
     required this.showOnboarding,
+    required this.overlayTransition,
+    required this.overlayTransitionProgress,
     required this.settingsController,
     required this.notificationCoordinator,
     required this.highlightedChecklistItemKey,
@@ -397,12 +451,15 @@ class _PetCareBody extends StatelessWidget {
     required this.onSubmitOnboarding,
     required this.onDeferOnboarding,
     required this.onReturnToIntroFromOnboarding,
+    this.bottomNavigationOverlay,
   });
 
   final PetCareStore store;
   final String activeChecklistKey;
   final bool showFirstLaunchIntro;
   final bool showOnboarding;
+  final _OverlayTransition overlayTransition;
+  final double overlayTransitionProgress;
   final AppSettingsController? settingsController;
   final NotificationCoordinator? notificationCoordinator;
   final String? highlightedChecklistItemKey;
@@ -414,6 +471,7 @@ class _PetCareBody extends StatelessWidget {
   final Future<void> Function(PetOnboardingResult result) onSubmitOnboarding;
   final Future<void> Function() onDeferOnboarding;
   final VoidCallback? onReturnToIntroFromOnboarding;
+  final Widget? bottomNavigationOverlay;
 
   @override
   Widget build(BuildContext context) {
@@ -422,6 +480,17 @@ class _PetCareBody extends StatelessWidget {
       builder: (context, _) {
         final activeTab = store.activeTab;
         final notificationCoordinator = this.notificationCoordinator;
+        final introToOnboarding =
+            overlayTransition == _OverlayTransition.introToOnboarding;
+        final introToShell =
+            overlayTransition == _OverlayTransition.introToShell;
+        final introShellExitProgress = introToShell
+            ? Curves.easeOutQuart
+                .transform((overlayTransitionProgress / 0.34).clamp(0.0, 1.0))
+            : 0.0;
+        final introShellExitOffset =
+            introToShell ? -introShellExitProgress * 260 : 0.0;
+        final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
         return RepaintBoundary(
           key: const ValueKey('page_content_boundary'),
           child: Stack(
@@ -431,8 +500,7 @@ class _PetCareBody extends StatelessWidget {
                   AppTab.checklist => ChecklistPage(
                       store: store,
                       activeSectionKey: activeChecklistKey,
-                      highlightedChecklistItemKey:
-                          highlightedChecklistItemKey,
+                      highlightedChecklistItemKey: highlightedChecklistItemKey,
                       onSectionChanged: onSectionChanged,
                       onAddFirstPet: onAddFirstPet,
                     ),
@@ -453,8 +521,7 @@ class _PetCareBody extends StatelessWidget {
                       notificationPermissionState:
                           notificationCoordinator?.permissionState ??
                               NotificationPermissionState.unknown,
-                      notificationPushToken:
-                          notificationCoordinator?.pushToken,
+                      notificationPushToken: notificationCoordinator?.pushToken,
                       onRequestNotificationPermission:
                           notificationCoordinator == null
                               ? null
@@ -472,17 +539,60 @@ class _PetCareBody extends StatelessWidget {
                     ),
                 },
               ),
-              if (showFirstLaunchIntro)
-                PetFirstLaunchIntro(
-                  onStartOnboarding: onStartOnboardingFromIntro,
-                  onExploreFirst: onExploreFirstLaunchIntro,
+              if (bottomNavigationOverlay != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: bottomNavigationOverlay!,
+                  ),
                 ),
-              if (showOnboarding)
-                PetOnboardingOverlay(
-                  onSubmit: onSubmitOnboarding,
-                  onDefer: onDeferOnboarding,
-                  onReturnToIntro: onReturnToIntroFromOnboarding,
-                ),
+              Positioned.fill(
+                key: const ValueKey('onboarding_overlay_layer'),
+                child: showOnboarding
+                    ? IgnorePointer(
+                        ignoring: introToOnboarding &&
+                            overlayTransitionProgress < 0.96,
+                        child: PetOnboardingOverlay(
+                          animateInitialEntry: !introToOnboarding,
+                          externalRevealProgress: introToOnboarding
+                              ? overlayTransitionProgress
+                              : null,
+                          onSubmit: onSubmitOnboarding,
+                          onDefer: onDeferOnboarding,
+                          onReturnToIntro: onReturnToIntroFromOnboarding,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              Positioned.fill(
+                key: const ValueKey('intro_overlay_layer'),
+                child: showFirstLaunchIntro
+                    ? IgnorePointer(
+                        ignoring: overlayTransition != _OverlayTransition.none,
+                        child: Opacity(
+                          key: const ValueKey('intro_shell_exit_opacity'),
+                          opacity: introOpacity,
+                          child: SizedBox.expand(
+                            key: const ValueKey('intro_shell_exit_motion'),
+                            child: Transform.translate(
+                              offset: Offset(0, introShellExitOffset),
+                              child: PetFirstLaunchIntro(
+                                fillParent: false,
+                                onboardingExitProgress: introToOnboarding
+                                    ? overlayTransitionProgress
+                                    : 0,
+                                onStartOnboarding: onStartOnboardingFromIntro,
+                                onExploreFirst: onExploreFirstLaunchIntro,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ],
           ),
         );

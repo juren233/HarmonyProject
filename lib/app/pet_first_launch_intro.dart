@@ -10,11 +10,13 @@ class PetFirstLaunchIntro extends StatefulWidget {
     required this.onStartOnboarding,
     required this.onExploreFirst,
     this.fillParent = true,
+    this.onboardingExitProgress = 0,
   });
 
   final Future<void> Function() onStartOnboarding;
   final Future<void> Function() onExploreFirst;
   final bool fillParent;
+  final double onboardingExitProgress;
 
   @override
   State<PetFirstLaunchIntro> createState() => _PetFirstLaunchIntroState();
@@ -28,20 +30,15 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _sharedIndicatorColor = Color(0xFFF2A65A);
   static const _pageHorizontalPadding = 20.0;
   static const _pageContentRevealDuration = Duration(milliseconds: 680);
-  static const _privacyLockAnimationDuration =
-      Duration(milliseconds: 1220);
+  static const _privacyLockAnimationDuration = Duration(milliseconds: 1220);
   static const _firstPageIndicatorDelay = Duration(milliseconds: 500);
-  static const _firstPageIndicatorRevealDuration =
-      Duration(milliseconds: 240);
+  static const _firstPageIndicatorRevealDuration = Duration(milliseconds: 240);
   static const _firstPageButtonDelayAfterIndicator =
       Duration(milliseconds: 360);
-  static const _firstPageButtonRevealDuration =
-      Duration(milliseconds: 320);
-  static const _firstPageFooterTimelineDuration =
-      Duration(milliseconds: 1500);
+  static const _firstPageButtonRevealDuration = Duration(milliseconds: 320);
+  static const _firstPageFooterTimelineDuration = Duration(milliseconds: 1500);
   static const _finalPageIndicatorDelay = Duration(milliseconds: 700);
-  static const _finalPageIndicatorRevealDuration =
-      Duration(milliseconds: 180);
+  static const _finalPageIndicatorRevealDuration = Duration(milliseconds: 180);
   static const _finalPagePrimaryButtonDelayAfterIndicator =
       Duration(milliseconds: 360);
   static const _finalPagePrimaryButtonRevealDuration =
@@ -50,8 +47,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       Duration(milliseconds: 180);
   static const _finalPageSecondaryButtonRevealDuration =
       Duration(milliseconds: 280);
-  static const _finalPageFooterTimelineDuration =
-      Duration(milliseconds: 2100);
+  static const _finalPageFooterTimelineDuration = Duration(milliseconds: 2100);
 
   late final PageController _pageController;
   late final AnimationController _launchController;
@@ -178,85 +174,123 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     final page = _pages[_pageIndex];
     final isFinalPage = _pageIndex == _pages.length - 1;
     final insets = MediaQuery.viewPaddingOf(context);
+    final onboardingExitProgress =
+        widget.onboardingExitProgress.clamp(0.0, 1.0);
+    final onboardingHeroScale = _onboardingHeroScale(onboardingExitProgress);
+    final onboardingContentFade =
+        _onboardingContentFadeProgress(onboardingExitProgress);
+    final onboardingOverlayFade =
+        _onboardingOverlayFadeProgress(onboardingExitProgress);
+    final onboardingOverlayScale =
+        _onboardingOverlayScale(onboardingExitProgress);
 
-    final content = Material(
-        key: const ValueKey('first_launch_intro_overlay'),
-        color: theme.scaffoldBackgroundColor.withValues(
-          alpha: isDark ? 0.92 : 0.80,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+    final content = Transform.scale(
+      key: const ValueKey('intro_onboarding_exit_scale'),
+      scale: onboardingOverlayScale,
+      child: Opacity(
+        key: const ValueKey('intro_onboarding_exit_opacity'),
+        opacity: 1 - onboardingOverlayFade,
+        child: Material(
+          key: const ValueKey('first_launch_intro_overlay'),
+          color: theme.scaffoldBackgroundColor.withValues(
+            alpha: isDark ? 0.92 : 0.80,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: insets.top + 20),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Stack(
+                        children: [
+                          Column(
+                            children: [
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: _launchPawEndSize,
+                                child: _showLaunchPaw
+                                    ? const SizedBox.shrink()
+                                    : Center(
+                                        child: Transform.scale(
+                                          key: const ValueKey(
+                                            'intro_onboarding_exit_hero_scale',
+                                          ),
+                                          scale: onboardingHeroScale,
+                                          child: _buildFixedHero(page),
+                                        ),
+                                      ),
+                              ),
+                              const SizedBox(height: 22),
+                              Expanded(
+                                child: Opacity(
+                                  key: const ValueKey(
+                                    'intro_onboarding_exit_content_opacity',
+                                  ),
+                                  opacity: 1 - onboardingContentFade,
+                                  child: PageView(
+                                    key: const ValueKey(
+                                      'first_launch_intro_page_view',
+                                    ),
+                                    controller: _pageController,
+                                    physics: _showLaunchPaw
+                                        ? const NeverScrollableScrollPhysics()
+                                        : null,
+                                    onPageChanged: _handlePageChanged,
+                                    children:
+                                        List.generate(_pages.length, (index) {
+                                      final item = _pages[index];
+                                      return _IntroPage(
+                                        key: ValueKey('intro_page_$index'),
+                                        index: index,
+                                        data: item,
+                                        isRevealed:
+                                            _revealedPages.contains(index),
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_showLaunchPaw)
+                            _LaunchPawOverlay(
+                              progress: _launchController,
+                              endColor: _pages.first.accentColor,
+                              width: constraints.maxWidth,
+                              height: constraints.maxHeight,
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                if (!_showLaunchPaw)
+                  Padding(
+                    padding:
+                        EdgeInsets.fromLTRB(20, 18, 20, insets.bottom + 20),
+                    child: Opacity(
+                      key: const ValueKey(
+                        'intro_onboarding_exit_footer_opacity',
+                      ),
+                      opacity: 1 - onboardingContentFade,
+                      child: _buildFooterChrome(page, isFinalPage),
+                    ),
+                  ),
+              ],
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(height: insets.top + 20),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return Stack(
-                      children: [
-                        Column(
-                          children: [
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: _launchPawEndSize,
-                              child: _showLaunchPaw
-                                  ? const SizedBox.shrink()
-                                  : Center(
-                                      child: _buildFixedHero(page),
-                                    ),
-                            ),
-                            const SizedBox(height: 22),
-                            Expanded(
-                              child: PageView(
-                                key: const ValueKey(
-                                  'first_launch_intro_page_view',
-                                ),
-                                controller: _pageController,
-                                physics: _showLaunchPaw
-                                    ? const NeverScrollableScrollPhysics()
-                                    : null,
-                                onPageChanged: _handlePageChanged,
-                                children: List.generate(_pages.length, (index) {
-                                  final item = _pages[index];
-                                  return _IntroPage(
-                                    key: ValueKey('intro_page_$index'),
-                                    index: index,
-                                    data: item,
-                                    isRevealed: _revealedPages.contains(index),
-                                  );
-                                }),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_showLaunchPaw)
-                          _LaunchPawOverlay(
-                            progress: _launchController,
-                            endColor: _pages.first.accentColor,
-                            width: constraints.maxWidth,
-                            height: constraints.maxHeight,
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              if (!_showLaunchPaw)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(20, 18, 20, insets.bottom + 20),
-                  child: _buildFooterChrome(page, isFinalPage),
-                ),
-            ],
-          ),
         ),
-      );
+      ),
+    );
 
     if (!widget.fillParent) {
       return content;
@@ -501,6 +535,59 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
         .clamp(0.0, 1.0);
     return progress.toDouble();
   }
+
+  double _onboardingHeroScale(double progress) {
+    if (progress <= 0) {
+      return 1.0;
+    }
+    if (progress < 0.24) {
+      return lerpDouble(
+        1.0,
+        1.2,
+        Curves.easeOutCubic.transform(progress / 0.24),
+      )!;
+    }
+    if (progress < 0.34) {
+      return lerpDouble(
+        1.2,
+        0.38,
+        Curves.easeInQuart.transform((progress - 0.24) / 0.10),
+      )!;
+    }
+    return lerpDouble(
+      0.38,
+      0.06,
+      Curves.easeOutQuart.transform(((progress - 0.34) / 0.42).clamp(0.0, 1.0)),
+    )!;
+  }
+
+  double _onboardingContentFadeProgress(double progress) {
+    if (progress <= 0.40) {
+      return 0.0;
+    }
+    return Curves.easeInOutCubic
+        .transform(((progress - 0.40) / 0.26).clamp(0.0, 1.0));
+  }
+
+  double _onboardingOverlayFadeProgress(double progress) {
+    if (progress <= 0.40) {
+      return 0.0;
+    }
+    return Curves.easeInOutCubic
+        .transform(((progress - 0.40) / 0.46).clamp(0.0, 1.0));
+  }
+
+  double _onboardingOverlayScale(double progress) {
+    if (progress <= 0.40) {
+      return 1.0;
+    }
+    return lerpDouble(
+      1.0,
+      0.94,
+      Curves.easeInOutCubic
+          .transform(((progress - 0.40) / 0.46).clamp(0.0, 1.0)),
+    )!;
+  }
 }
 
 class _FooterReveal extends StatelessWidget {
@@ -732,11 +819,10 @@ class _IntroPageState extends State<_IntroPage>
             lockAnimationDelay: widget.data.values[index].leadingStyle ==
                     _IntroValueLeadingStyle.animatedPrivacyLock
                 ? Duration(
-                    milliseconds:
-                        (_PetFirstLaunchIntroState._pageContentRevealDuration
-                                    .inMilliseconds *
-                                start)
-                            .round(),
+                    milliseconds: (_PetFirstLaunchIntroState
+                                ._pageContentRevealDuration.inMilliseconds *
+                            start)
+                        .round(),
                   )
                 : null,
           ),
@@ -907,7 +993,8 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
             child: Opacity(
               opacity: _opacityFor(progress),
               child: _IntroHeroIcon(
-                heroKey: ValueKey('intro_page_${_displayedPageIndex}_hero_icon'),
+                heroKey:
+                    ValueKey('intro_page_${_displayedPageIndex}_hero_icon'),
                 icon: _displayedPage.icon,
                 accentColor: _displayedPage.heroAccentColor,
               ),
@@ -958,7 +1045,8 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
   }
 
   double _segmentValue(num value, num start, num end, Curve curve) {
-    final segment = (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
+    final segment =
+        (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
     return curve.transform(segment);
   }
 }
@@ -1082,11 +1170,10 @@ class _AnimatedPrivacyLockIconState extends State<_AnimatedPrivacyLockIcon>
       animation: _controller,
       builder: (context, _) {
         final value = _controller.value.clamp(0.0, 1.0);
-        final elapsedMs =
-            (_PetFirstLaunchIntroState._privacyLockAnimationDuration
-                        .inMilliseconds *
-                    value)
-                .round();
+        final elapsedMs = (_PetFirstLaunchIntroState
+                    ._privacyLockAnimationDuration.inMilliseconds *
+                value)
+            .round();
         final scale = _scaleFor(value);
         final icon = elapsedMs == 0 || scale > 1.0
             ? CupertinoIcons.lock_open_fill
@@ -1138,7 +1225,8 @@ class _AnimatedPrivacyLockIconState extends State<_AnimatedPrivacyLockIcon>
   }
 
   double _segmentValue(num value, num start, num end, Curve curve) {
-    final segment = (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
+    final segment =
+        (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
     return curve.transform(segment);
   }
 }

@@ -38,11 +38,15 @@ class PetOnboardingOverlay extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.onDefer,
+    this.animateInitialEntry = true,
+    this.externalRevealProgress,
     this.onReturnToIntro,
   });
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
+  final bool animateInitialEntry;
+  final double? externalRevealProgress;
   final VoidCallback? onReturnToIntro;
 
   @override
@@ -55,6 +59,7 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
     final theme = Theme.of(context);
     final tokens = context.petCareTokens;
     final isDark = theme.brightness == Brightness.dark;
+    final transitionOpacity = _transitionOpacity();
 
     return SizedBox.expand(
       child: Material(
@@ -70,13 +75,32 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
               colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
             ),
           ),
-          child: PetOnboardingFlow(
-            onSubmit: widget.onSubmit,
-            onDefer: widget.onDefer,
-            onReturnToIntro: widget.onReturnToIntro,
+          child: Opacity(
+            key: const ValueKey('onboarding_transition_opacity'),
+            opacity: transitionOpacity,
+            child: PetOnboardingFlow(
+              animateInitialEntry: widget.animateInitialEntry,
+              externalRevealProgress: widget.externalRevealProgress,
+              onSubmit: widget.onSubmit,
+              onDefer: widget.onDefer,
+              onReturnToIntro: widget.onReturnToIntro,
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  double _transitionOpacity() {
+    final progress = widget.externalRevealProgress;
+    if (progress == null) {
+      return 1.0;
+    }
+    if (progress <= 0.58) {
+      return 0.0;
+    }
+    return Curves.easeOutCubic.transform(
+      ((progress - 0.58) / 0.22).clamp(0.0, 1.0),
     );
   }
 }
@@ -86,6 +110,8 @@ class PetOnboardingFlow extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.onDefer,
+    this.animateInitialEntry = true,
+    this.externalRevealProgress,
     this.embedded = false,
     this.onReturnToActions,
     this.onReturnToIntro,
@@ -93,6 +119,8 @@ class PetOnboardingFlow extends StatefulWidget {
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
+  final bool animateInitialEntry;
+  final double? externalRevealProgress;
   final bool embedded;
   final VoidCallback? onReturnToActions;
   final VoidCallback? onReturnToIntro;
@@ -101,13 +129,16 @@ class PetOnboardingFlow extends StatefulWidget {
   State<PetOnboardingFlow> createState() => _PetOnboardingFlowState();
 }
 
-class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
+class _PetOnboardingFlowState extends State<PetOnboardingFlow>
+    with TickerProviderStateMixin {
   final _name = TextEditingController();
   final _customBreed = TextEditingController();
   final _feeding = TextEditingController();
   final _allergies = TextEditingController();
   final _note = TextEditingController();
   final _weight = TextEditingController();
+  late final PageController _stepPageController;
+  late final AnimationController _entryController;
 
   int _stepIndex = 0;
   PetType? _type;
@@ -132,6 +163,15 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
   @override
   void initState() {
     super.initState();
+    _stepPageController = PageController();
+    _entryController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 640),
+      value: widget.animateInitialEntry ? 0 : 1,
+    );
+    if (widget.animateInitialEntry) {
+      _entryController.forward();
+    }
     for (final controller in [
       _name,
       _customBreed,
@@ -162,13 +202,15 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
     _allergies.dispose();
     _note.dispose();
     _weight.dispose();
+    _stepPageController.dispose();
+    _entryController.dispose();
     super.dispose();
   }
 
-  bool get _showSkipButton => _stepIndex >= 5 && _stepIndex <= 7;
+  bool get _canContinue => _canContinueFor(_stepIndex);
 
-  bool get _canContinue {
-    switch (_stepIndex) {
+  bool _canContinueFor(int stepIndex) {
+    switch (stepIndex) {
       case 0:
         return _name.text.trim().isNotEmpty && _type != null;
       case 1:
@@ -196,75 +238,52 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
     }
   }
 
+  bool _showSkipButtonFor(int stepIndex) {
+    return stepIndex >= 5 && stepIndex <= 7;
+  }
+
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewPaddingOf(context);
-    final step = _steps[_stepIndex];
     final topInset = widget.embedded ? 20.0 : insets.top + 12;
     final bottomInset = widget.embedded ? 8.0 : insets.bottom + 20;
 
-    return SizedBox.expand(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(20, topInset, 20, bottomInset),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildTopBar(context),
-            const SizedBox(height: 18),
-            Text(
-              step.title,
-              style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    color: context.petCareTokens.primaryText,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -1,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              step.subtitle,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: context.petCareTokens.secondaryText,
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: SingleChildScrollView(
-                child: _buildStepCard(context),
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (_showSkipButton)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    key: const ValueKey('onboarding_skip_button'),
-                    onPressed: _isSubmitting ? null : _skipCurrentStep,
-                    child: const Text('跳过'),
+    final externalRevealProgress = _externalRevealProgress();
+
+    return AnimatedBuilder(
+      animation: _entryController,
+      builder: (context, _) {
+        return SizedBox.expand(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, topInset, 20, bottomInset),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildEntranceReveal(
+                  key: const ValueKey('onboarding_top_bar_reveal'),
+                  progress: widget.animateInitialEntry
+                      ? _stageProgress(_entryController.value, 0.02, 0.54)
+                      : externalRevealProgress,
+                  offsetY: 0,
+                  child: _buildTopBar(context),
+                ),
+                const SizedBox(height: 18),
+                Expanded(
+                  child: PageView.builder(
+                    key: const ValueKey('onboarding_step_page_view'),
+                    controller: _stepPageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _steps.length,
+                    itemBuilder: (context, index) {
+                      return _buildStepPage(context, index);
+                    },
                   ),
                 ),
-              ),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: ValueKey(
-                  _stepIndex == _steps.length - 1
-                      ? 'onboarding_save_button'
-                      : 'onboarding_continue_button',
-                ),
-                onPressed: _isSubmitting
-                    ? null
-                    : _stepIndex == _steps.length - 1
-                        ? _save
-                        : (_canContinue ? _goNext : null),
-                child: Text(_stepIndex == _steps.length - 1 ? '保存爱宠' : '继续'),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -275,12 +294,10 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
     final progressFrameBorderColor = isDark
         ? tokens.primaryText.withValues(alpha: 0.24)
         : const Color(0xFFDCCDBA);
-    final progressFrameBackground = isDark
-        ? const Color(0xFF0E1014)
-        : const Color(0xFFFCF8F2);
-    final progressTrackColor = isDark
-        ? const Color(0xFF181C22)
-        : const Color(0xFFECE3D7);
+    final progressFrameBackground =
+        isDark ? const Color(0xFF0E1014) : const Color(0xFFFCF8F2);
+    final progressTrackColor =
+        isDark ? const Color(0xFF181C22) : const Color(0xFFECE3D7);
     return SizedBox(
       height: 48,
       child: Row(
@@ -290,15 +307,14 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
             height: 48,
             child: _stepIndex > 0
                 ? IconButton(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => setState(() => _stepIndex -= 1),
+                    onPressed: _isSubmitting ? null : _goBack,
                     icon: const Icon(Icons.arrow_back_rounded),
                     color: tokens.secondaryText,
                   )
                 : (widget.embedded && widget.onReturnToActions != null)
                     ? IconButton(
-                        key: const ValueKey('onboarding_return_to_actions_button'),
+                        key: const ValueKey(
+                            'onboarding_return_to_actions_button'),
                         onPressed:
                             _isSubmitting ? null : widget.onReturnToActions,
                         icon: const Icon(Icons.arrow_back_rounded),
@@ -306,7 +322,8 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
                       )
                     : (widget.onReturnToIntro != null)
                         ? IconButton(
-                            key: const ValueKey('onboarding_return_to_intro_button'),
+                            key: const ValueKey(
+                                'onboarding_return_to_intro_button'),
                             onPressed:
                                 _isSubmitting ? null : widget.onReturnToIntro,
                             icon: const Icon(Icons.arrow_back_rounded),
@@ -386,10 +403,10 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
     );
   }
 
-  Widget _buildStepCard(BuildContext context) {
+  Widget _buildStepCardFor(BuildContext context, int stepIndex) {
     return SectionCard(
-      title: '步骤 ${_stepIndex + 1}',
-      children: switch (_stepIndex) {
+      title: '步骤 ${stepIndex + 1}',
+      children: switch (stepIndex) {
         0 => _identityStep(),
         1 => _breedStep(),
         2 => _sexStep(),
@@ -412,6 +429,114 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
             hintText: '比如洗澡会紧张、外出需要安抚等',
           ),
       },
+    );
+  }
+
+  Widget _buildStepPage(BuildContext context, int index) {
+    final step = _steps[index];
+    final isFirstStep = index == 0;
+    final isCurrentStep = index == _stepIndex;
+    final externalRevealProgress = _externalRevealProgress();
+    final contentProgress = isFirstStep
+        ? widget.animateInitialEntry
+            ? _stageProgress(_entryController.value, 0.08, 0.72)
+            : externalRevealProgress
+        : 1.0;
+    final actionProgress = isFirstStep
+        ? widget.animateInitialEntry
+            ? _stageProgress(_entryController.value, 0.22, 0.84)
+            : externalRevealProgress
+        : 1.0;
+
+    return Column(
+      key: ValueKey('onboarding_step_page_$index'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildEntranceReveal(
+          key: isFirstStep
+              ? const ValueKey('onboarding_first_step_content_reveal')
+              : ValueKey('onboarding_step_${index}_content_reveal'),
+          progress: contentProgress,
+          offsetY: 24,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                step.title,
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      color: context.petCareTokens.primaryText,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                step.subtitle,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: context.petCareTokens.secondaryText,
+                      fontWeight: FontWeight.w500,
+                    ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _buildEntranceReveal(
+            progress: contentProgress,
+            offsetY: 18,
+            child: SingleChildScrollView(
+              child: _buildStepCardFor(context, index),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildEntranceReveal(
+          key: isFirstStep
+              ? const ValueKey('onboarding_first_step_actions_reveal')
+              : ValueKey('onboarding_step_${index}_actions_reveal'),
+          progress: actionProgress,
+          offsetY: 20,
+          child: Column(
+            children: [
+              if (_showSkipButtonFor(index))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      key: isCurrentStep
+                          ? const ValueKey('onboarding_skip_button')
+                          : null,
+                      onPressed: !isCurrentStep || _isSubmitting
+                          ? null
+                          : _skipCurrentStep,
+                      child: const Text('跳过'),
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: isCurrentStep
+                      ? ValueKey(
+                          index == _steps.length - 1
+                              ? 'onboarding_save_button'
+                              : 'onboarding_continue_button',
+                        )
+                      : null,
+                  onPressed: !isCurrentStep || _isSubmitting
+                      ? null
+                      : index == _steps.length - 1
+                          ? _save
+                          : (_canContinue ? _goNext : null),
+                  child: Text(index == _steps.length - 1 ? '保存爱宠' : '继续'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -571,7 +696,13 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
   }
 
   void _goNext() {
-    setState(() => _stepIndex += 1);
+    if (_stepIndex >= _steps.length - 1) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    final nextStep = _stepIndex + 1;
+    setState(() => _stepIndex = nextStep);
+    _animateToStep(nextStep);
   }
 
   void _skipCurrentStep() {
@@ -580,7 +711,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
       return;
     }
     if (_stepIndex < _steps.length - 1) {
-      setState(() => _stepIndex += 1);
+      final nextStep = _stepIndex + 1;
+      setState(() => _stepIndex = nextStep);
+      _animateToStep(nextStep);
     }
   }
 
@@ -631,6 +764,70 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow> {
       setState(() {});
     }
   }
+
+  void _goBack() {
+    if (_stepIndex <= 0) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    final previousStep = _stepIndex - 1;
+    setState(() => _stepIndex = previousStep);
+    _animateToStep(previousStep, reverse: true);
+  }
+
+  void _animateToStep(int stepIndex, {bool reverse = false}) {
+    if (!_stepPageController.hasClients) {
+      return;
+    }
+    _stepPageController.animateToPage(
+      stepIndex,
+      duration: Duration(milliseconds: reverse ? 340 : 380),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  double _stageProgress(double value, double start, double end) {
+    if (value <= start) {
+      return 0;
+    }
+    if (value >= end) {
+      return 1;
+    }
+    return Curves.easeOutCubic.transform((value - start) / (end - start));
+  }
+
+  double _externalRevealProgress() {
+    final progress = widget.externalRevealProgress;
+    if (progress == null) {
+      return 1.0;
+    }
+    if (progress <= 0.64) {
+      return 0.0;
+    }
+    return Curves.easeOutCubic.transform(
+      ((progress - 0.64) / 0.24).clamp(0.0, 1.0),
+    );
+  }
+
+  Widget _buildEntranceReveal({
+    Key? key,
+    required double progress,
+    required Widget child,
+    required double offsetY,
+  }) {
+    final clamped = progress.clamp(0.0, 1.0);
+    return IgnorePointer(
+      ignoring: clamped <= 0,
+      child: Opacity(
+        key: key,
+        opacity: clamped,
+        child: Transform.translate(
+          offset: Offset(0, (1 - clamped) * offsetY),
+          child: child,
+        ),
+      ),
+    );
+  }
 }
 
 class _StepCopy {
@@ -661,8 +858,8 @@ class _AnimatedPipelineProgressBar extends StatefulWidget {
       _AnimatedPipelineProgressBarState();
 }
 
-class _AnimatedPipelineProgressBarState extends State<_AnimatedPipelineProgressBar>
-    with TickerProviderStateMixin {
+class _AnimatedPipelineProgressBarState
+    extends State<_AnimatedPipelineProgressBar> with TickerProviderStateMixin {
   late final AnimationController _progressController = AnimationController(
     vsync: this,
     value: 1,
@@ -758,7 +955,8 @@ class _PipelineProgressPainter extends CustomPainter {
     }
 
     final fillWidth = math.max(size.height, size.width * progress);
-    final fillRect = Rect.fromLTWH(0, 0, fillWidth.clamp(0, size.width), size.height);
+    final fillRect =
+        Rect.fromLTWH(0, 0, fillWidth.clamp(0, size.width), size.height);
     final fill = RRect.fromRectAndRadius(fillRect, radius);
     final fillPaint = Paint()
       ..shader = LinearGradient(
@@ -776,8 +974,8 @@ class _PipelineProgressPainter extends CustomPainter {
     canvas.clipRRect(fill);
 
     if (shimmerOpacity > 0.001) {
-      final directionPhase =
-          _normalizePhase(flowPhase, animateWithDirection: shimmerOpacity > 0.3);
+      final directionPhase = _normalizePhase(flowPhase,
+          animateWithDirection: shimmerOpacity > 0.3);
       final shimmerWidth = math.max(22.0, size.width * 0.14);
       final shimmerTravel = fillRect.width + shimmerWidth;
       final shimmerX = (directionPhase * shimmerTravel) - shimmerWidth;
