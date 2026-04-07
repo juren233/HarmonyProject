@@ -53,6 +53,13 @@ jobs:
                 ? `<blockquote>${escapeHTML(bodyLines.join("\n"))}</blockquote>`
                 : "";
 
+              const author = escapeHTML(
+                commit.author?.name ||
+                  payload.pusher?.name ||
+                  payload.sender?.login ||
+                  "Unknown"
+              );
+
               const time = new Date(commit.timestamp).toLocaleString(
                 "zh-CN",
                 {
@@ -67,6 +74,9 @@ jobs:
           ${title}
           ${blockquote ? `
           ${blockquote}` : ""}
+
+          Committed by
+          👤 ${author}
 
           Committed at
           🕒 ${time}`;
