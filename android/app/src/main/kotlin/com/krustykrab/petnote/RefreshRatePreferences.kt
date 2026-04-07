@@ -1,4 +1,4 @@
-package com.harmony.pet.pet_care_harmony
+package com.krustykrab.petnote
 
 private const val preferredRefreshRateHz = 120f
 private const val refreshRateToleranceHz = 0.5f

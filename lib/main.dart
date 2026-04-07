@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
-import 'package:pet_care_harmony/app/pet_care_app.dart';
-import 'package:pet_care_harmony/app/system_ui_policy.dart';
+import 'package:petnote/app/petnote_app.dart';
+import 'package:petnote/app/system_ui_policy.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   configureStartupSystemUi();
-  runApp(const PetCareApp());
+  runApp(const PetNoteApp());
 }

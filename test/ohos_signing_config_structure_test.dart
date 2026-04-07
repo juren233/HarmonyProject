@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('OHOS build profile uses the current encrypted signing passwords', () async {
+  test('OHOS build profile uses the current encrypted signing passwords',
+      () async {
     final profile = File('ohos/build-profile.json5').readAsStringSync();
 
     expect(

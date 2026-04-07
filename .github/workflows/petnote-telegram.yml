@@ -1,0 +1,141 @@
+name: PetNote Notify
+
+on: push
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Send Telegram message
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+
+          function escapeHTML(text) {
+            return text
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;");
+          }
+
+          module.exports = async function handler(req, res) {
+            try {
+              let payload = req.body;
+              if (!payload || typeof payload !== "object") {
+                payload = JSON.parse(req.body);
+              }
+
+              const commits = payload.commits || [];
+              const commit =
+                payload.head_commit || commits[commits.length - 1];
+
+              if (!commit) {
+                return res.status(200).send("No commit found");
+              }
+
+              const lines = commit.message
+                .split("\n")
+                .map(l => l.trim())
+                .filter(Boolean);
+
+              const title = escapeHTML(lines[0]);
+              const bodyLines = lines.slice(1);
+
+              const blockquote = bodyLines.length
+                ? `<blockquote>${escapeHTML(bodyLines.join("\n"))}</blockquote>`
+                : "";
+
+              const author = escapeHTML(
+                commit.author?.name ||
+                  payload.pusher?.name ||
+                  payload.sender?.login ||
+                  "Unknown"
+              );
+
+              const time = new Date(commit.timestamp).toLocaleString(
+                "zh-CN",
+                {
+                  timeZone: "Asia/Shanghai",
+                  hour12: false,
+                }
+              );
+
+              const text =
+          `🐾 PetNote 更新
+
+          ${title}
+          ${blockquote ? `
+          ${blockquote}` : ""}
+
+          Committed by
+          👤 ${author}
+
+          Committed at
+          🕒 ${time}`;
+
+              const resp = await fetch(
+                `https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/sendMessage`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    chat_id: process.env.TG_CHAT_ID,
+                    text,
+                    parse_mode: "HTML",
+                    disable_web_page_preview: true,
+                    reply_markup: {
+                      inline_keyboard: [
+                        [
+                          {
+                            text: "🔗 查看提交",
+                            url: commit.url,
+                          },
+                        ],
+                      ],
+                    },
+                  }),
+                }
+              );
+
+              if (!resp.ok) {
+                console.error("Telegram API error:", await resp.text());
+              }
+
+              return res.status(200).send("ok");
+            } catch (err) {
+              console.error("Webhook error:", err);
+              return res.status(200).send("handled");
+            }
+          };
+
+          const payload = JSON.parse(
+            fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")
+          );
+
+          const req = { body: payload };
+          const res = {
+            status(code) {
+              this.statusCode = code;
+              return this;
+            },
+            send(message) {
+              console.log(message);
+              return message;
+            },
+          };
+
+          module.exports(req, res).catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          NODE

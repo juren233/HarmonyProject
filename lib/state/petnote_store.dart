@@ -10,6 +10,14 @@ enum ReminderStatus { pending, done, skipped, postponed, overdue }
 
 enum TodoStatus { open, done, skipped, postponed, overdue }
 
+enum NotificationLeadTime {
+  none,
+  fiveMinutes,
+  fifteenMinutes,
+  oneHour,
+  oneDay,
+}
+
 enum PetRecordType { medical, receipt, image, testResult, other }
 
 enum OverviewRange { sevenDays, oneMonth, threeMonths, sixMonths, oneYear }
@@ -94,6 +102,7 @@ class TodoItem {
     required this.petId,
     required this.title,
     required this.dueAt,
+    required this.notificationLeadTime,
     required this.status,
     required this.note,
   });
@@ -102,8 +111,34 @@ class TodoItem {
   final String petId;
   final String title;
   DateTime dueAt;
+  NotificationLeadTime notificationLeadTime;
   TodoStatus status;
   final String note;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'petId': petId,
+      'title': title,
+      'dueAt': dueAt.toIso8601String(),
+      'notificationLeadTime': notificationLeadTime.name,
+      'status': status.name,
+      'note': note,
+    };
+  }
+
+  factory TodoItem.fromJson(Map<String, dynamic> json) {
+    return TodoItem(
+      id: json['id'] as String,
+      petId: json['petId'] as String,
+      title: json['title'] as String,
+      dueAt: DateTime.parse(json['dueAt'] as String),
+      notificationLeadTime: _notificationLeadTimeFromName(
+          json['notificationLeadTime'] as String?),
+      status: _todoStatusFromName(json['status'] as String?),
+      note: json['note'] as String? ?? '',
+    );
+  }
 }
 
 class ReminderItem {
@@ -113,6 +148,7 @@ class ReminderItem {
     required this.kind,
     required this.title,
     required this.scheduledAt,
+    required this.notificationLeadTime,
     required this.recurrence,
     required this.status,
     required this.note,
@@ -123,9 +159,39 @@ class ReminderItem {
   final ReminderKind kind;
   final String title;
   DateTime scheduledAt;
+  NotificationLeadTime notificationLeadTime;
   final String recurrence;
   ReminderStatus status;
   final String note;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'petId': petId,
+      'kind': kind.name,
+      'title': title,
+      'scheduledAt': scheduledAt.toIso8601String(),
+      'notificationLeadTime': notificationLeadTime.name,
+      'recurrence': recurrence,
+      'status': status.name,
+      'note': note,
+    };
+  }
+
+  factory ReminderItem.fromJson(Map<String, dynamic> json) {
+    return ReminderItem(
+      id: json['id'] as String,
+      petId: json['petId'] as String,
+      kind: _reminderKindFromName(json['kind'] as String?),
+      title: json['title'] as String,
+      scheduledAt: DateTime.parse(json['scheduledAt'] as String),
+      notificationLeadTime: _notificationLeadTimeFromName(
+          json['notificationLeadTime'] as String?),
+      recurrence: json['recurrence'] as String? ?? '单次',
+      status: _reminderStatusFromName(json['status'] as String?),
+      note: json['note'] as String? ?? '',
+    );
+  }
 }
 
 class PetRecord {
@@ -146,6 +212,30 @@ class PetRecord {
   final DateTime recordDate;
   final String summary;
   final String note;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'petId': petId,
+      'type': type.name,
+      'title': title,
+      'recordDate': recordDate.toIso8601String(),
+      'summary': summary,
+      'note': note,
+    };
+  }
+
+  factory PetRecord.fromJson(Map<String, dynamic> json) {
+    return PetRecord(
+      id: json['id'] as String,
+      petId: json['petId'] as String,
+      type: _petRecordTypeFromName(json['type'] as String?),
+      title: json['title'] as String,
+      recordDate: DateTime.parse(json['recordDate'] as String),
+      summary: json['summary'] as String? ?? '',
+      note: json['note'] as String? ?? '',
+    );
+  }
 }
 
 class ChecklistItemViewModel {
@@ -210,15 +300,17 @@ class OverviewSnapshot {
   final String disclaimer;
 }
 
-class PetCareStore extends ChangeNotifier {
-  PetCareStore._({
+class PetNoteStore extends ChangeNotifier {
+  PetNoteStore._({
     List<Pet>? pets,
     List<TodoItem>? todos,
     List<ReminderItem>? reminders,
     List<PetRecord>? records,
     SharedPreferences? preferences,
+    DateTime Function()? nowProvider,
     bool shouldAutoShowFirstLaunchIntro = true,
   })  : _preferences = preferences,
+        _nowProvider = nowProvider ?? DateTime.now,
         _shouldAutoShowFirstLaunchIntro = shouldAutoShowFirstLaunchIntro {
     if (pets != null) {
       _pets.addAll(pets);
@@ -237,8 +329,12 @@ class PetCareStore extends ChangeNotifier {
     }
   }
 
-  factory PetCareStore.seeded() {
-    return PetCareStore._(
+  factory PetNoteStore.seeded({
+    DateTime Function()? nowProvider,
+  }) {
+    return PetNoteStore._(
+      nowProvider:
+          nowProvider ?? () => DateTime.parse('2026-03-24T12:00:00+08:00'),
       shouldAutoShowFirstLaunchIntro: false,
       pets: [
         Pet(
@@ -278,6 +374,7 @@ class PetCareStore extends ChangeNotifier {
           petId: 'pet-1',
           title: '补充冻干库存',
           dueAt: DateTime.parse('2026-03-24T18:00:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.none,
           status: TodoStatus.open,
           note: '检查低敏口味。',
         ),
@@ -286,6 +383,7 @@ class PetCareStore extends ChangeNotifier {
           petId: 'pet-2',
           title: '周末修剪指甲',
           dueAt: DateTime.parse('2026-03-27T10:00:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.none,
           status: TodoStatus.postponed,
           note: '准备零食安抚。',
         ),
@@ -294,6 +392,7 @@ class PetCareStore extends ChangeNotifier {
           petId: 'pet-2',
           title: '清洗牵引绳',
           dueAt: DateTime.parse('2026-03-22T20:00:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.none,
           status: TodoStatus.overdue,
           note: '下雨后有泥点。',
         ),
@@ -305,6 +404,7 @@ class PetCareStore extends ChangeNotifier {
           kind: ReminderKind.vaccine,
           title: '三联疫苗加强',
           scheduledAt: DateTime.parse('2026-03-30T09:30:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.oneDay,
           recurrence: '每年',
           status: ReminderStatus.pending,
           note: '提前准备免疫本。',
@@ -315,6 +415,7 @@ class PetCareStore extends ChangeNotifier {
           kind: ReminderKind.deworming,
           title: '体内驱虫',
           scheduledAt: DateTime.parse('2026-03-24T21:00:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.oneHour,
           recurrence: '每月',
           status: ReminderStatus.pending,
           note: '晚饭后服用。',
@@ -325,6 +426,7 @@ class PetCareStore extends ChangeNotifier {
           kind: ReminderKind.review,
           title: '皮肤复查',
           scheduledAt: DateTime.parse('2026-03-20T14:00:00+08:00'),
+          notificationLeadTime: NotificationLeadTime.none,
           recurrence: '单次',
           status: ReminderStatus.done,
           note: '带上上次化验单。',
@@ -362,20 +464,31 @@ class PetCareStore extends ChangeNotifier {
     );
   }
 
-  static Future<PetCareStore> load({
+  static Future<PetNoteStore> load({
     Future<SharedPreferences> Function()? preferencesLoader,
+    DateTime Function()? nowProvider,
   }) async {
     final preferences = await _loadPreferences(preferencesLoader);
     final petsJson = preferences?.getString(_petsStorageKey);
-    return PetCareStore._(
+    final todosJson = preferences?.getString(_todosStorageKey);
+    final remindersJson = preferences?.getString(_remindersStorageKey);
+    final recordsJson = preferences?.getString(_recordsStorageKey);
+    return PetNoteStore._(
       preferences: preferences,
+      nowProvider: nowProvider,
       shouldAutoShowFirstLaunchIntro:
           preferences?.getBool(_firstLaunchIntroAutoEnabledKey) ?? true,
       pets: _decodePets(petsJson),
+      todos: _decodeTodos(todosJson),
+      reminders: _decodeReminders(remindersJson),
+      records: _decodeRecords(recordsJson),
     );
   }
 
   static const String _petsStorageKey = 'pets_v1';
+  static const String _todosStorageKey = 'todos_v1';
+  static const String _remindersStorageKey = 'reminders_v1';
+  static const String _recordsStorageKey = 'records_v1';
   static const String _firstLaunchIntroAutoEnabledKey =
       'first_launch_intro_auto_enabled_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
@@ -384,10 +497,12 @@ class PetCareStore extends ChangeNotifier {
   final List<TodoItem> _todos = [];
   final List<ReminderItem> _reminders = [];
   final List<PetRecord> _records = [];
-  final DateTime _referenceNow = DateTime.parse('2026-03-24T12:00:00+08:00');
+  final DateTime Function() _nowProvider;
   final SharedPreferences? _preferences;
   List<ChecklistSection>? _checklistSectionsCache;
+  int? _checklistSectionsCacheMinuteStamp;
   OverviewSnapshot? _overviewSnapshotCache;
+  int? _overviewSnapshotCacheMinuteStamp;
   String? _remindersForSelectedPetCachePetId;
   List<ReminderItem>? _remindersForSelectedPetCache;
   String? _recordsForSelectedPetCachePetId;
@@ -401,6 +516,10 @@ class PetCareStore extends ChangeNotifier {
   AppTab get activeTab => _activeTab;
   OverviewRange get overviewRange => _overviewRange;
   List<Pet> get pets => List<Pet>.unmodifiable(_pets);
+  List<TodoItem> get todos => List<TodoItem>.unmodifiable(_todos);
+  List<ReminderItem> get reminders =>
+      List<ReminderItem>.unmodifiable(_reminders);
+  List<PetRecord> get records => List<PetRecord>.unmodifiable(_records);
   bool get shouldAutoShowFirstLaunchIntro => _shouldAutoShowFirstLaunchIntro;
 
   Pet? get selectedPet {
@@ -445,24 +564,32 @@ class PetCareStore extends ChangeNotifier {
   }
 
   List<ChecklistSection> get checklistSections {
+    final referenceNow = _referenceNow;
+    final minuteStamp = _minuteStamp(referenceNow);
     final cached = _checklistSectionsCache;
-    if (cached != null) {
+    if (cached != null && _checklistSectionsCacheMinuteStamp == minuteStamp) {
       return cached;
     }
 
     final todayEnd = DateTime(
-        _referenceNow.year, _referenceNow.month, _referenceNow.day, 23, 59, 59);
+        referenceNow.year, referenceNow.month, referenceNow.day, 23, 59, 59);
     final today = <ChecklistItemViewModel>[];
     final upcoming = <ChecklistItemViewModel>[];
     final overdue = <ChecklistItemViewModel>[];
+    final postponed = <ChecklistItemViewModel>[];
+    final skipped = <ChecklistItemViewModel>[];
 
     for (final todo in _todos) {
-      if (todo.status == TodoStatus.done || todo.status == TodoStatus.skipped) {
+      if (todo.status == TodoStatus.done) {
         continue;
       }
       final item = _todoToChecklistItem(todo);
-      if (todo.status == TodoStatus.overdue ||
-          todo.dueAt.isBefore(_referenceNow)) {
+      if (todo.status == TodoStatus.skipped) {
+        skipped.add(item);
+      } else if (todo.status == TodoStatus.postponed) {
+        postponed.add(item);
+      } else if (_effectiveTodoStatus(todo, referenceNow) ==
+          TodoStatus.overdue) {
         overdue.add(item);
       } else if (!todo.dueAt.isAfter(todayEnd)) {
         today.add(item);
@@ -472,13 +599,16 @@ class PetCareStore extends ChangeNotifier {
     }
 
     for (final reminder in _reminders) {
-      if (reminder.status == ReminderStatus.done ||
-          reminder.status == ReminderStatus.skipped) {
+      if (reminder.status == ReminderStatus.done) {
         continue;
       }
       final item = _reminderToChecklistItem(reminder);
-      if (reminder.status == ReminderStatus.overdue ||
-          reminder.scheduledAt.isBefore(_referenceNow)) {
+      if (reminder.status == ReminderStatus.skipped) {
+        skipped.add(item);
+      } else if (reminder.status == ReminderStatus.postponed) {
+        postponed.add(item);
+      } else if (_effectiveReminderStatus(reminder, referenceNow) ==
+          ReminderStatus.overdue) {
         overdue.add(item);
       } else if (!reminder.scheduledAt.isAfter(todayEnd)) {
         today.add(item);
@@ -503,18 +633,31 @@ class PetCareStore extends ChangeNotifier {
           title: '已逾期',
           summary: '${overdue.length} 项',
           items: overdue),
+      ChecklistSection(
+          key: 'postponed',
+          title: '已延后',
+          summary: '${postponed.length} 项',
+          items: postponed),
+      ChecklistSection(
+          key: 'skipped',
+          title: '已跳过',
+          summary: '${skipped.length} 项',
+          items: skipped),
     ]);
     _checklistSectionsCache = sections;
+    _checklistSectionsCacheMinuteStamp = minuteStamp;
     return sections;
   }
 
   OverviewSnapshot get overviewSnapshot {
+    final referenceNow = _referenceNow;
+    final minuteStamp = _minuteStamp(referenceNow);
     final cached = _overviewSnapshotCache;
-    if (cached != null) {
+    if (cached != null && _overviewSnapshotCacheMinuteStamp == minuteStamp) {
       return cached;
     }
 
-    final rangeStart = _referenceNow.subtract(Duration(
+    final rangeStart = referenceNow.subtract(Duration(
         days: switch (_overviewRange) {
       OverviewRange.sevenDays => 7,
       OverviewRange.oneMonth => 30,
@@ -586,6 +729,7 @@ class PetCareStore extends ChangeNotifier {
       disclaimer: '仅供日常照护参考，不构成诊断或医疗建议，如有异常请及时咨询专业兽医。',
     );
     _overviewSnapshotCache = snapshot;
+    _overviewSnapshotCacheMinuteStamp = minuteStamp;
     return snapshot;
   }
 
@@ -615,7 +759,7 @@ class PetCareStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void markChecklistDone(String sourceType, String itemId) {
+  Future<void> markChecklistDone(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
       _todos.firstWhere((item) => item.id == itemId).status = TodoStatus.done;
     } else {
@@ -626,9 +770,10 @@ class PetCareStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
+    await _saveState();
   }
 
-  void postponeChecklist(String sourceType, String itemId) {
+  Future<void> postponeChecklist(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
       final todo = _todos.firstWhere((item) => item.id == itemId);
       todo.status = TodoStatus.postponed;
@@ -642,9 +787,10 @@ class PetCareStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
+    await _saveState();
   }
 
-  void skipChecklist(String sourceType, String itemId) {
+  Future<void> skipChecklist(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
       _todos.firstWhere((item) => item.id == itemId).status =
           TodoStatus.skipped;
@@ -656,6 +802,7 @@ class PetCareStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
+    await _saveState();
   }
 
   Future<void> dismissFirstLaunchIntro() async {
@@ -664,12 +811,13 @@ class PetCareStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addTodo({
+  Future<void> addTodo({
     required String title,
     required String petId,
     required DateTime dueAt,
     required String note,
-  }) {
+    NotificationLeadTime notificationLeadTime = NotificationLeadTime.none,
+  }) async {
     _todos.insert(
       0,
       TodoItem(
@@ -677,6 +825,7 @@ class PetCareStore extends ChangeNotifier {
         petId: petId,
         title: title,
         dueAt: dueAt,
+        notificationLeadTime: notificationLeadTime,
         status: TodoStatus.open,
         note: note,
       ),
@@ -685,16 +834,18 @@ class PetCareStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
+    await _saveState();
   }
 
-  void addReminder({
+  Future<void> addReminder({
     required String title,
     required String petId,
     required DateTime scheduledAt,
     required ReminderKind kind,
     required String recurrence,
     required String note,
-  }) {
+    NotificationLeadTime notificationLeadTime = NotificationLeadTime.none,
+  }) async {
     _reminders.insert(
       0,
       ReminderItem(
@@ -703,6 +854,7 @@ class PetCareStore extends ChangeNotifier {
         kind: kind,
         title: title,
         scheduledAt: scheduledAt,
+        notificationLeadTime: notificationLeadTime,
         recurrence: recurrence,
         status: ReminderStatus.pending,
         note: note,
@@ -715,16 +867,17 @@ class PetCareStore extends ChangeNotifier {
       _invalidateSelectedPetReminders();
     }
     notifyListeners();
+    await _saveState();
   }
 
-  void addRecord({
+  Future<void> addRecord({
     required String petId,
     required PetRecordType type,
     required String title,
     required DateTime recordDate,
     required String summary,
     required String note,
-  }) {
+  }) async {
     _records.insert(
       0,
       PetRecord(
@@ -742,6 +895,7 @@ class PetCareStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetDerivedData();
     notifyListeners();
+    await _saveState();
   }
 
   Future<void> addPet({
@@ -774,7 +928,7 @@ class PetCareStore extends ChangeNotifier {
     _pets.insert(0, pet);
     _selectedPetId = pet.id;
     _activeTab = AppTab.pets;
-    await _savePets();
+    await _saveState();
     _invalidateAllDerivedData();
     notifyListeners();
   }
@@ -815,7 +969,7 @@ class PetCareStore extends ChangeNotifier {
     );
     _selectedPetId = current.id;
     _activeTab = AppTab.pets;
-    await _savePets();
+    await _saveState();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -829,10 +983,12 @@ class PetCareStore extends ChangeNotifier {
 
   void _invalidateChecklistDerivedData() {
     _checklistSectionsCache = null;
+    _checklistSectionsCacheMinuteStamp = null;
   }
 
   void _invalidateOverviewDerivedData() {
     _overviewSnapshotCache = null;
+    _overviewSnapshotCacheMinuteStamp = null;
   }
 
   void _invalidateSelectedPetReminders() {
@@ -851,6 +1007,7 @@ class PetCareStore extends ChangeNotifier {
   }
 
   ChecklistItemViewModel _todoToChecklistItem(TodoItem item) {
+    final effectiveStatus = _effectiveTodoStatus(item, _referenceNow);
     return ChecklistItemViewModel(
       id: item.id,
       sourceType: 'todo',
@@ -859,13 +1016,14 @@ class PetCareStore extends ChangeNotifier {
       petAvatarText: _petAvatar(item.petId),
       title: item.title,
       dueLabel: _formatDate(item.dueAt),
-      statusLabel: _todoStatusLabel(item.status),
+      statusLabel: _todoStatusLabel(effectiveStatus),
       kindLabel: '待办',
       note: item.note,
     );
   }
 
   ChecklistItemViewModel _reminderToChecklistItem(ReminderItem item) {
+    final effectiveStatus = _effectiveReminderStatus(item, _referenceNow);
     return ChecklistItemViewModel(
       id: item.id,
       sourceType: 'reminder',
@@ -874,10 +1032,47 @@ class PetCareStore extends ChangeNotifier {
       petAvatarText: _petAvatar(item.petId),
       title: item.title,
       dueLabel: _formatDate(item.scheduledAt),
-      statusLabel: _reminderStatusLabel(item.status),
+      statusLabel: _reminderStatusLabel(effectiveStatus),
       kindLabel: '提醒',
       note: item.note,
     );
+  }
+
+  DateTime get _referenceNow => _nowProvider();
+
+  int _minuteStamp(DateTime value) => DateTime(
+        value.year,
+        value.month,
+        value.day,
+        value.hour,
+        value.minute,
+      ).millisecondsSinceEpoch;
+
+  TodoStatus _effectiveTodoStatus(TodoItem item, DateTime referenceNow) {
+    if (item.status == TodoStatus.done ||
+        item.status == TodoStatus.skipped ||
+        item.status == TodoStatus.overdue) {
+      return item.status;
+    }
+    if (item.dueAt.isBefore(referenceNow)) {
+      return TodoStatus.overdue;
+    }
+    return item.status;
+  }
+
+  ReminderStatus _effectiveReminderStatus(
+    ReminderItem item,
+    DateTime referenceNow,
+  ) {
+    if (item.status == ReminderStatus.done ||
+        item.status == ReminderStatus.skipped ||
+        item.status == ReminderStatus.overdue) {
+      return item.status;
+    }
+    if (item.scheduledAt.isBefore(referenceNow)) {
+      return ReminderStatus.overdue;
+    }
+    return item.status;
   }
 
   String _petName(String petId) {
@@ -899,12 +1094,28 @@ class PetCareStore extends ChangeNotifier {
     return null;
   }
 
-  Future<void> _savePets() async {
+  Pet? petById(String petId) => _findPet(petId);
+
+  Future<void> _saveState() async {
     if (_preferences == null) {
       return;
     }
-    final encoded = jsonEncode(_pets.map((pet) => pet.toJson()).toList());
-    await _preferences.setString(_petsStorageKey, encoded);
+    await _preferences.setString(
+      _petsStorageKey,
+      jsonEncode(_pets.map((pet) => pet.toJson()).toList()),
+    );
+    await _preferences.setString(
+      _todosStorageKey,
+      jsonEncode(_todos.map((item) => item.toJson()).toList()),
+    );
+    await _preferences.setString(
+      _remindersStorageKey,
+      jsonEncode(_reminders.map((item) => item.toJson()).toList()),
+    );
+    await _preferences.setString(
+      _recordsStorageKey,
+      jsonEncode(_records.map((item) => item.toJson()).toList()),
+    );
   }
 
   String _avatarTextForName(String name) {
@@ -924,6 +1135,35 @@ class PetCareStore extends ChangeNotifier {
       return const <Pet>[];
     }
     return decoded.whereType<Map<String, dynamic>>().map(Pet.fromJson).toList();
+  }
+
+  static List<TodoItem> _decodeTodos(String? todosJson) {
+    return _decodeList(todosJson, TodoItem.fromJson);
+  }
+
+  static List<ReminderItem> _decodeReminders(String? remindersJson) {
+    return _decodeList(remindersJson, ReminderItem.fromJson);
+  }
+
+  static List<PetRecord> _decodeRecords(String? recordsJson) {
+    return _decodeList(recordsJson, PetRecord.fromJson);
+  }
+
+  static List<T> _decodeList<T>(
+    String? encoded,
+    T Function(Map<String, dynamic> json) fromJson,
+  ) {
+    if (encoded == null || encoded.isEmpty) {
+      return <T>[];
+    }
+    final decoded = jsonDecode(encoded);
+    if (decoded is! List) {
+      return <T>[];
+    }
+    return decoded
+        .whereType<Map>()
+        .map((item) => fromJson(Map<String, dynamic>.from(item)))
+        .toList();
   }
 
   static Future<SharedPreferences?> _loadPreferences(
@@ -991,4 +1231,63 @@ String petNeuterStatusLabel(PetNeuterStatus status) => switch (status) {
       PetNeuterStatus.neutered => '已绝育',
       PetNeuterStatus.notNeutered => '未绝育',
       PetNeuterStatus.unknown => '暂不确定',
+    };
+
+TodoStatus _todoStatusFromName(String? value) => switch (value) {
+      'done' => TodoStatus.done,
+      'skipped' => TodoStatus.skipped,
+      'postponed' => TodoStatus.postponed,
+      'overdue' => TodoStatus.overdue,
+      _ => TodoStatus.open,
+    };
+
+ReminderKind _reminderKindFromName(String? value) => switch (value) {
+      'vaccine' => ReminderKind.vaccine,
+      'deworming' => ReminderKind.deworming,
+      'medication' => ReminderKind.medication,
+      'review' => ReminderKind.review,
+      'grooming' => ReminderKind.grooming,
+      _ => ReminderKind.custom,
+    };
+
+ReminderStatus _reminderStatusFromName(String? value) => switch (value) {
+      'done' => ReminderStatus.done,
+      'skipped' => ReminderStatus.skipped,
+      'postponed' => ReminderStatus.postponed,
+      'overdue' => ReminderStatus.overdue,
+      _ => ReminderStatus.pending,
+    };
+
+NotificationLeadTime _notificationLeadTimeFromName(String? value) =>
+    switch (value) {
+      'fiveMinutes' => NotificationLeadTime.fiveMinutes,
+      'fifteenMinutes' => NotificationLeadTime.fifteenMinutes,
+      'oneHour' => NotificationLeadTime.oneHour,
+      'oneDay' => NotificationLeadTime.oneDay,
+      _ => NotificationLeadTime.none,
+    };
+
+Duration leadTimeDuration(NotificationLeadTime leadTime) => switch (leadTime) {
+      NotificationLeadTime.none => Duration.zero,
+      NotificationLeadTime.fiveMinutes => const Duration(minutes: 5),
+      NotificationLeadTime.fifteenMinutes => const Duration(minutes: 15),
+      NotificationLeadTime.oneHour => const Duration(hours: 1),
+      NotificationLeadTime.oneDay => const Duration(days: 1),
+    };
+
+String notificationLeadTimeLabel(NotificationLeadTime leadTime) =>
+    switch (leadTime) {
+      NotificationLeadTime.none => '准时',
+      NotificationLeadTime.fiveMinutes => '提前5分钟',
+      NotificationLeadTime.fifteenMinutes => '提前15分钟',
+      NotificationLeadTime.oneHour => '提前1小时',
+      NotificationLeadTime.oneDay => '提前1天',
+    };
+
+PetRecordType _petRecordTypeFromName(String? value) => switch (value) {
+      'medical' => PetRecordType.medical,
+      'receipt' => PetRecordType.receipt,
+      'image' => PetRecordType.image,
+      'testResult' => PetRecordType.testResult,
+      _ => PetRecordType.other,
     };

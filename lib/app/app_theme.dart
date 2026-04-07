@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 @immutable
-class PetCareThemeTokens extends ThemeExtension<PetCareThemeTokens> {
-  const PetCareThemeTokens({
+class PetNoteThemeTokens extends ThemeExtension<PetNoteThemeTokens> {
+  const PetNoteThemeTokens({
     required this.pageGradientTop,
     required this.pageGradientBottom,
     required this.pageGlow,
@@ -66,7 +66,7 @@ class PetCareThemeTokens extends ThemeExtension<PetCareThemeTokens> {
   final Color emptyStateForeground;
 
   @override
-  PetCareThemeTokens copyWith({
+  PetNoteThemeTokens copyWith({
     Color? pageGradientTop,
     Color? pageGradientBottom,
     Color? pageGlow,
@@ -97,7 +97,7 @@ class PetCareThemeTokens extends ThemeExtension<PetCareThemeTokens> {
     Color? emptyStateBackground,
     Color? emptyStateForeground,
   }) {
-    return PetCareThemeTokens(
+    return PetNoteThemeTokens(
       pageGradientTop: pageGradientTop ?? this.pageGradientTop,
       pageGradientBottom: pageGradientBottom ?? this.pageGradientBottom,
       pageGlow: pageGlow ?? this.pageGlow,
@@ -134,14 +134,14 @@ class PetCareThemeTokens extends ThemeExtension<PetCareThemeTokens> {
   }
 
   @override
-  PetCareThemeTokens lerp(
-    covariant ThemeExtension<PetCareThemeTokens>? other,
+  PetNoteThemeTokens lerp(
+    covariant ThemeExtension<PetNoteThemeTokens>? other,
     double t,
   ) {
-    if (other is! PetCareThemeTokens) {
+    if (other is! PetNoteThemeTokens) {
       return this;
     }
-    return PetCareThemeTokens(
+    return PetNoteThemeTokens(
       pageGradientTop: Color.lerp(pageGradientTop, other.pageGradientTop, t)!,
       pageGradientBottom:
           Color.lerp(pageGradientBottom, other.pageGradientBottom, t)!,
@@ -200,7 +200,7 @@ const _accent = Color(0xFFF2A65A);
 const _accentDeep = Color(0xFFD9822B);
 const _accentSoft = Color(0xFFFDEBD6);
 
-const lightPetCareTokens = PetCareThemeTokens(
+const lightPetNoteTokens = PetNoteThemeTokens(
   pageGradientTop: Color(0xFFF8F4EF),
   pageGradientBottom: Color(0xFFF3F4F8),
   pageGlow: Color(0x66FFFFFF),
@@ -232,7 +232,7 @@ const lightPetCareTokens = PetCareThemeTokens(
   emptyStateForeground: Color(0xFF5B8CFF),
 );
 
-const darkPetCareTokens = PetCareThemeTokens(
+const darkPetNoteTokens = PetNoteThemeTokens(
   pageGradientTop: Color(0xFF060708),
   pageGradientBottom: Color(0xFF010102),
   pageGlow: Color(0x10FFFFFF),
@@ -264,9 +264,9 @@ const darkPetCareTokens = PetCareThemeTokens(
   emptyStateForeground: Color(0xFF8FB4FF),
 );
 
-ThemeData buildPetCareTheme(Brightness brightness) {
+ThemeData buildPetNoteTheme(Brightness brightness) {
   final isDark = brightness == Brightness.dark;
-  final tokens = isDark ? darkPetCareTokens : lightPetCareTokens;
+  final tokens = isDark ? darkPetNoteTokens : lightPetNoteTokens;
   final colorScheme = isDark
       ? const ColorScheme.dark(
           primary: _accent,
@@ -363,7 +363,7 @@ ThemeData buildPetCareTheme(Brightness brightness) {
   );
 }
 
-SystemUiOverlayStyle petCareOverlayStyleForTheme(ThemeData theme) {
+SystemUiOverlayStyle petNoteOverlayStyleForTheme(ThemeData theme) {
   final isDark = theme.brightness == Brightness.dark;
   return SystemUiOverlayStyle(
     statusBarColor: const Color(0x00000000),
@@ -376,9 +376,9 @@ SystemUiOverlayStyle petCareOverlayStyleForTheme(ThemeData theme) {
   );
 }
 
-extension PetCareThemeX on BuildContext {
+extension PetNoteThemeX on BuildContext {
   ThemeData get appTheme => Theme.of(this);
 
-  PetCareThemeTokens get petCareTokens =>
-      appTheme.extension<PetCareThemeTokens>()!;
+  PetNoteThemeTokens get petNoteTokens =>
+      appTheme.extension<PetNoteThemeTokens>()!;
 }

@@ -1,0 +1,553 @@
+name: Android Release
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-release-plan:
+    name: Resolve Release Plan
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.finalize.outputs.enabled }}
+      branch_name: ${{ steps.parse.outputs.branch_name }}
+      publish_mode: ${{ steps.parse.outputs.publish_mode }}
+      should_build: ${{ steps.finalize.outputs.should_build }}
+      should_publish_release: ${{ steps.finalize.outputs.should_publish_release }}
+      tag: ${{ steps.parse.outputs.tag }}
+      version_core: ${{ steps.parse.outputs.version_core }}
+      version_build: ${{ steps.parse.outputs.version_build }}
+      android_enabled: ${{ steps.parse.outputs.android_enabled }}
+      android_matrix_json: ${{ steps.parse.outputs.android_matrix_json }}
+      release_exists: ${{ steps.duplicate.outputs.exists || 'false' }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v5
+
+      - name: Parse Release Config
+        id: parse
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          release_path = Path("release.yml")
+          if not release_path.exists():
+            raise SystemExit("Missing release.yml at repository root.")
+
+          enabled = False
+          tag = ""
+          android_section_found = False
+          android_enabled = None
+          abis = []
+          in_android = False
+          in_android_artifacts = False
+
+          for raw_line in release_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.rstrip()
+            stripped = line.strip()
+
+            if not stripped or stripped.startswith("#"):
+              continue
+
+            if not line.startswith(" ") and stripped == "android:":
+              android_section_found = True
+              in_android = True
+              in_android_artifacts = False
+              continue
+
+            if not line.startswith(" "):
+              in_android = False
+              in_android_artifacts = False
+              if stripped.startswith("enabled:"):
+                enabled = stripped.split(":", 1)[1].strip().lower() == "true"
+              elif stripped.startswith("tag:"):
+                value = stripped.split(":", 1)[1].strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                  value = value[1:-1]
+                tag = value
+              continue
+
+            if in_android:
+              if stripped.startswith("enabled:"):
+                android_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
+                in_android_artifacts = False
+              elif stripped == "artifacts:":
+                in_android_artifacts = True
+              elif in_android_artifacts and stripped.startswith("- "):
+                abis.append(stripped[2:].strip())
+              elif not line.startswith("    "):
+                in_android_artifacts = False
+
+          if not android_section_found:
+            raise SystemExit("release.yml must contain an android section.")
+
+          if android_enabled is None:
+            raise SystemExit("release.yml must define android.enabled.")
+
+          version_line = None
+          for raw_line in Path("pubspec.yaml").read_text(encoding="utf-8").splitlines():
+            if re.match(r"^\s*version:\s*", raw_line):
+              version_line = raw_line
+              break
+
+          if version_line is None:
+            raise SystemExit("Could not find version in pubspec.yaml.")
+
+          version_full = version_line.split(":", 1)[1].strip()
+          version_core, _, version_build = version_full.partition("+")
+          version_build = version_build or "1"
+          if not version_core:
+            raise SystemExit("pubspec.yaml version must not be empty.")
+
+          branch_name = os.environ["GITHUB_REF_NAME"]
+          if branch_name == "main":
+            publish_mode = "release"
+          elif branch_name == "beta":
+            publish_mode = "pre-release"
+          else:
+            publish_mode = "artifacts-only"
+
+          abi_map = {
+            "arm64-v8a": "arm64",
+            "armeabi-v7a": "arm",
+            "x86_64": "x64",
+          }
+
+          if enabled:
+            if not android_enabled:
+              raise SystemExit("Android release automation is enabled, but android.enabled is not true.")
+            if not abis:
+              raise SystemExit("Android release automation is enabled, but no Android artifacts are configured.")
+
+            invalid_abis = [abi for abi in abis if abi not in abi_map]
+            if invalid_abis:
+              raise SystemExit(f"Unsupported Android artifact values: {', '.join(invalid_abis)}")
+
+          should_build = enabled and android_enabled
+          should_publish_release = should_build and publish_mode in {"release", "pre-release"}
+
+          if should_publish_release:
+            if not tag:
+              raise SystemExit(f"tag is required for branch {branch_name}.")
+            expected_tag = f"v{version_core}"
+            if tag != expected_tag:
+              raise SystemExit(
+                f"tag {tag} does not match pubspec version {version_core}; expected {expected_tag}."
+              )
+
+          matrix = [{"abi": abi, "scriptTarget": abi_map[abi]} for abi in abis]
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+            handle.write(f"enabled={'true' if enabled else 'false'}\n")
+            handle.write(f"branch_name={branch_name}\n")
+            handle.write(f"publish_mode={publish_mode}\n")
+            handle.write(f"tag={tag}\n")
+            handle.write(f"version_core={version_core}\n")
+            handle.write(f"version_build={version_build}\n")
+            handle.write(f"android_enabled={'true' if android_enabled else 'false'}\n")
+            handle.write(f"should_build={'true' if should_build else 'false'}\n")
+            handle.write(f"should_publish_release={'true' if should_publish_release else 'false'}\n")
+            handle.write(f"android_matrix_json={json.dumps(matrix, separators=(',', ':'))}\n")
+          PY
+
+      - name: Check Existing Release Or Tag
+        id: duplicate
+        if: steps.parse.outputs.should_publish_release == 'true'
+        uses: actions/github-script@v8
+        env:
+          TAG_NAME: ${{ steps.parse.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.TAG_NAME;
+            let exists = false;
+
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              exists = true;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            if (!exists) {
+              try {
+                await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${tag}`,
+                });
+                exists = true;
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            core.setOutput('exists', exists ? 'true' : 'false');
+
+      - name: Finalize Plan
+        id: finalize
+        shell: bash
+        run: |
+          enabled="${{ steps.parse.outputs.enabled }}"
+          should_build="${{ steps.parse.outputs.should_build }}"
+          should_publish_release="${{ steps.parse.outputs.should_publish_release }}"
+          release_exists="${{ steps.duplicate.outputs.exists }}"
+
+          if [[ "${should_publish_release}" == "true" && "${release_exists}" == "true" ]]; then
+            should_build="false"
+            should_publish_release="false"
+          fi
+
+          echo "enabled=${enabled}" >> "${GITHUB_OUTPUT}"
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          echo "should_publish_release=${should_publish_release}" >> "${GITHUB_OUTPUT}"
+
+  build-android:
+    name: Build Android APKs
+    needs: resolve-release-plan
+    if: needs.resolve-release-plan.outputs.should_build == 'true'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.resolve-release-plan.outputs.android_matrix_json) }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v5
+
+      - name: Set Up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set Up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare Android Local Properties
+        shell: powershell
+        run: |
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          $androidSdk = if ($env:ANDROID_SDK_ROOT) {
+            $env:ANDROID_SDK_ROOT
+          } elseif ($env:ANDROID_HOME) {
+            $env:ANDROID_HOME
+          } elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) {
+            Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+          } else {
+            throw 'Android SDK environment variable was not found.'
+          }
+
+          $flutterSdk = if ($env:FLUTTER_ROOT) {
+            $env:FLUTTER_ROOT
+          } elseif ($env:FLUTTER_HOME) {
+            $env:FLUTTER_HOME
+          } else {
+            $flutterCommand = Get-Command flutter -ErrorAction Stop
+            Split-Path (Split-Path $flutterCommand.Source -Parent) -Parent
+          }
+
+          $androidSdkEscaped = $androidSdk.Replace('\', '\\')
+          $flutterSdkEscaped = $flutterSdk.Replace('\', '\\')
+          $versionName = '${{ needs.resolve-release-plan.outputs.version_core }}'
+          $versionCode = '${{ needs.resolve-release-plan.outputs.version_build }}'
+
+          $localPropertiesContent = @"
+          sdk.dir=$androidSdkEscaped
+          flutter.sdk=$flutterSdkEscaped
+          flutter.buildMode=release
+          flutter.versionName=$versionName
+          flutter.versionCode=$versionCode
+          "@
+
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD 'android/local.properties'),
+            $localPropertiesContent,
+            $utf8NoBom
+          )
+
+      - name: Prepare Android Signing
+        shell: powershell
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEYSTORE_BASE64)) {
+            throw 'Missing GitHub secret ANDROID_KEYSTORE_BASE64.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEYSTORE_PASSWORD)) {
+            throw 'Missing GitHub secret ANDROID_KEYSTORE_PASSWORD.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEY_ALIAS)) {
+            throw 'Missing GitHub secret ANDROID_KEY_ALIAS.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEY_PASSWORD)) {
+            throw 'Missing GitHub secret ANDROID_KEY_PASSWORD.'
+          }
+
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          $signingDir = Join-Path $PWD 'android/signing'
+          $keystorePath = Join-Path $signingDir 'pet-release.jks'
+          New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
+          [System.IO.File]::WriteAllBytes(
+            $keystorePath,
+            [System.Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64)
+          )
+
+          $keyPropertiesContent = @"
+          storePassword=$env:ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$env:ANDROID_KEY_PASSWORD
+          keyAlias=$env:ANDROID_KEY_ALIAS
+          storeFile=signing/pet-release.jks
+          "@
+
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD 'android/key.properties'),
+            $keyPropertiesContent,
+            $utf8NoBom
+          )
+
+      - name: Build ABI APK
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\scripts\flutter-android.ps1 -Mode build -BuildMode release -TargetPlatform '${{ matrix.scriptTarget }}'
+
+      - name: Rename Built APK
+        shell: powershell
+        run: |
+          $sourcePath = 'build/app/outputs/flutter-apk/app-release.apk'
+          if (-not (Test-Path $sourcePath)) {
+            throw "Expected APK was not generated at $sourcePath"
+          }
+
+          $publishMode = '${{ needs.resolve-release-plan.outputs.publish_mode }}'
+          $branchName = '${{ needs.resolve-release-plan.outputs.branch_name }}'
+          $versionCore = '${{ needs.resolve-release-plan.outputs.version_core }}'
+          $tagName = '${{ needs.resolve-release-plan.outputs.tag }}'
+          $abi = '${{ matrix.abi }}'
+          $shortSha = '${{ github.sha }}'.Substring(0, 7)
+          $safeBranch = ($branchName -replace '[^A-Za-z0-9._-]', '-').Trim('-')
+          if ([string]::IsNullOrWhiteSpace($safeBranch)) {
+            $safeBranch = 'branch'
+          }
+
+          if ($publishMode -eq 'artifacts-only') {
+            $fileName = "pet-android-$abi-$safeBranch-v$versionCore-$shortSha.apk"
+          } else {
+            $fileName = "pet-android-$abi-$tagName.apk"
+          }
+
+          New-Item -ItemType Directory -Force -Path 'release-assets' | Out-Null
+          Copy-Item -Path $sourcePath -Destination (Join-Path 'release-assets' $fileName) -Force
+
+      - name: Upload Matrix APK Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: apk-${{ matrix.abi }}
+          path: release-assets/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-release:
+    name: Publish Release Artifacts
+    needs:
+      - resolve-release-plan
+      - build-android
+    if: needs.resolve-release-plan.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Built APKs
+        uses: actions/download-artifact@v8
+        with:
+          path: downloaded-artifacts
+
+      - name: Build Initial Release Notes
+        if: needs.resolve-release-plan.outputs.publish_mode == 'release' || needs.resolve-release-plan.outputs.publish_mode == 'pre-release'
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          payload = json.loads(event_path.read_text(encoding="utf-8"))
+          commits = payload.get("commits") or []
+          head_commit = payload.get("head_commit")
+          appended_count = 0
+
+          lines = []
+          if os.environ["PUBLISH_MODE"] == "pre-release":
+            lines.extend([
+              "> [!IMPORTANT]",
+              "> 这是一个 Beta 预发布版本，主要用于测试和提前体验新功能，可能包含不稳定行为或未完全验证的问题，请谨慎安装。",
+              "",
+            ])
+
+          lines.extend([
+            "## 本次更新",
+            "",
+          ])
+
+          def append_commit(commit):
+            global appended_count
+            message = (commit.get("message") or "").rstrip()
+            if not message:
+              return
+            parts = message.splitlines()
+            subject = parts[0].strip()
+            appended_count += 1
+            lines.append(f"- {subject}")
+            for body_line in parts[1:]:
+              body_line = body_line.rstrip()
+              if body_line:
+                lines.append(f"  {body_line}")
+
+          for commit in commits:
+            append_commit(commit)
+
+          if not commits and head_commit:
+            append_commit(head_commit)
+
+          if appended_count == 0:
+            lines.append("- 本次推送未携带可展示的提交说明。")
+
+          Path("release-body-initial.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          PY
+        env:
+          PUBLISH_MODE: ${{ needs.resolve-release-plan.outputs.publish_mode }}
+
+      - name: Create GitHub Release
+        id: create_release
+        if: needs.resolve-release-plan.outputs.should_publish_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.resolve-release-plan.outputs.tag }}
+          TARGET_BRANCH: ${{ needs.resolve-release-plan.outputs.branch_name }}
+          PUBLISH_MODE: ${{ needs.resolve-release-plan.outputs.publish_mode }}
+        run: |
+          set -euo pipefail
+
+          echo "created=false" >> "${GITHUB_OUTPUT}"
+
+          if gh release view "${TAG_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            echo "Release ${TAG_NAME} already exists. Skipping create step."
+            exit 0
+          fi
+
+          shopt -s globstar nullglob
+          apk_files=(downloaded-artifacts/**/*.apk)
+
+          if [[ ${#apk_files[@]} -eq 0 ]]; then
+            echo "No APK files found under downloaded-artifacts." >&2
+            exit 1
+          fi
+
+          cmd=(
+            gh release create
+            "${TAG_NAME}"
+          )
+
+          cmd+=("${apk_files[@]}")
+          cmd+=(
+            --repo "${GH_REPO}"
+            --target "${TARGET_BRANCH}"
+            --title "${TAG_NAME}"
+            --notes-file release-body-initial.md
+          )
+
+          if [[ "${PUBLISH_MODE}" == "pre-release" ]]; then
+            cmd+=(--prerelease)
+          fi
+
+          "${cmd[@]}"
+          echo "created=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Update Release Notes With Download Links
+        if: needs.resolve-release-plan.outputs.should_publish_release == 'true' && steps.create_release.outputs.created == 'true'
+        uses: actions/github-script@v8
+        env:
+          TAG_NAME: ${{ needs.resolve-release-plan.outputs.tag }}
+        with:
+          script: |
+            const fs = require('fs');
+            const tag = process.env.TAG_NAME;
+            const releaseResponse = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag,
+            });
+
+            const release = releaseResponse.data;
+            const initialBody = fs.readFileSync('release-body-initial.md', 'utf8').trimEnd();
+            const descriptions = {
+              'arm64-v8a': '适用于大多数 64 位 Android 真机',
+              'armeabi-v7a': '适用于较老的 32 位 Android 设备',
+              'x86_64': '适用于 Android 模拟器或少量 x86_64 设备',
+            };
+            const order = ['arm64-v8a', 'armeabi-v7a', 'x86_64'];
+
+            function detectAbi(assetName) {
+              return order.find((abi) => assetName.includes(abi));
+            }
+
+            const assets = [...release.assets]
+              .filter((asset) => asset.name.endsWith('.apk'))
+              .map((asset) => ({ ...asset, abi: detectAbi(asset.name) }))
+              .sort((left, right) => order.indexOf(left.abi) - order.indexOf(right.abi));
+
+            const lines = [initialBody, '', '## 版本选择', ''];
+            for (const asset of assets) {
+              const label = asset.abi ? `Android ${asset.abi} 安装包` : asset.name;
+              lines.push(`- [${label}](${asset.browser_download_url})`);
+              if (asset.abi && descriptions[asset.abi]) {
+                lines.push(`  ${descriptions[asset.abi]}`);
+              }
+            }
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.id,
+              body: lines.join('\n').trimEnd(),
+            });
+
+      - name: Compute Grouped Artifact Name
+        if: needs.resolve-release-plan.outputs.publish_mode == 'artifacts-only'
+        id: artifact_name
+        shell: bash
+        run: |
+          safe_branch="$(echo "${GITHUB_REF_NAME}" | sed 's/[^A-Za-z0-9._-]/-/g' | sed 's/^-*//;s/-*$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
+          echo "name=android-apks-${safe_branch}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload Grouped Workflow Artifact
+        if: needs.resolve-release-plan.outputs.publish_mode == 'artifacts-only'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.artifact_name.outputs.name }}
+          path: downloaded-artifacts/**/*.apk
+          if-no-files-found: error
+          retention-days: 7

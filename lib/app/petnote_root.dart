@@ -1,59 +1,132 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pet_care_harmony/app/add_sheet.dart';
-import 'package:pet_care_harmony/app/app_theme.dart';
-import 'package:pet_care_harmony/app/common_widgets.dart';
-import 'package:pet_care_harmony/app/layout_metrics.dart';
-import 'package:pet_care_harmony/app/me_page.dart';
-import 'package:pet_care_harmony/app/navigation_palette.dart';
-import 'package:pet_care_harmony/app/pet_care_pages.dart' hide MePage;
-import 'package:pet_care_harmony/app/pet_edit_sheet.dart';
-import 'package:pet_care_harmony/app/pet_first_launch_intro.dart';
-import 'package:pet_care_harmony/app/pet_onboarding_overlay.dart';
-import 'package:pet_care_harmony/state/app_settings_controller.dart';
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/app/add_sheet.dart';
+import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/ios_native_dock.dart';
+import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/app/me_page.dart';
+import 'package:petnote/app/navigation_palette.dart';
+import 'package:petnote/notifications/method_channel_notification_adapter.dart';
+import 'package:petnote/notifications/notification_coordinator.dart';
+import 'package:petnote/notifications/notification_models.dart';
+import 'package:petnote/notifications/notification_platform_adapter.dart';
+import 'package:petnote/app/petnote_pages.dart' hide MePage;
+import 'package:petnote/app/pet_edit_sheet.dart';
+import 'package:petnote/app/pet_first_launch_intro.dart';
+import 'package:petnote/app/pet_onboarding_overlay.dart';
+import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/state/petnote_store.dart';
 
-class PetCareRoot extends StatefulWidget {
-  const PetCareRoot({
+class PetNoteRoot extends StatefulWidget {
+  const PetNoteRoot({
     super.key,
     this.settingsController,
+    this.iosDockBuilder,
+    this.storeLoader,
+    this.notificationAdapter,
   });
 
   final AppSettingsController? settingsController;
+  final IosDockBuilder? iosDockBuilder;
+  final Future<PetNoteStore> Function()? storeLoader;
+  final NotificationPlatformAdapter? notificationAdapter;
 
   @override
-  State<PetCareRoot> createState() => _PetCareRootState();
+  State<PetNoteRoot> createState() => _PetNoteRootState();
 }
 
 enum _OnboardingEntryPoint { intro, manual }
 
-class _PetCareRootState extends State<PetCareRoot> {
-  PetCareStore? _store;
+enum _OverlayTransition { none, introToOnboarding, introToShell }
+
+class _PetNoteRootState extends State<PetNoteRoot>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  PetNoteStore? _store;
+  NotificationCoordinator? _notificationCoordinator;
   String _activeChecklistKey = 'today';
+  String? _highlightedChecklistItemKey;
   bool _showFirstLaunchIntro = false;
   bool _showOnboarding = false;
   _OnboardingEntryPoint _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+  _OverlayTransition _overlayTransition = _OverlayTransition.none;
+  late final AnimationController _overlayTransitionController;
+  Timer? _timeRefreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _overlayTransitionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..addListener(() {
+        if (mounted) {
+          setState(() {});
+        }
+      });
     _loadStore();
   }
 
   Future<void> _loadStore() async {
-    final store = await PetCareStore.load();
+    final store = await (widget.storeLoader ?? PetNoteStore.load)();
     if (!mounted) {
       return;
     }
+    final oldStore = _store;
+    oldStore?.removeListener(_handleStoreChanged);
+    store.addListener(_handleStoreChanged);
     setState(() {
       _store = store;
+      _notificationCoordinator = null;
       _showFirstLaunchIntro =
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchIntro;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.none;
     });
+    _overlayTransitionController.value = 0;
+    _startTimeRefreshTicker();
+    unawaited(_initializeNotifications(store));
+  }
+
+  Future<void> _initializeNotifications(PetNoteStore store) async {
+    final coordinator = NotificationCoordinator(
+      adapter: widget.notificationAdapter ??
+          MethodChannelNotificationPlatformAdapter(),
+    );
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+    final launchIntent = await coordinator.consumeLaunchIntent();
+    if (!mounted || !identical(_store, store)) {
+      coordinator.dispose();
+      return;
+    }
+    setState(() {
+      _notificationCoordinator = coordinator;
+    });
+    if (launchIntent != null) {
+      _applyNotificationIntent(store, launchIntent);
+    }
+  }
+
+  void _startTimeRefreshTicker() {
+    _timeRefreshTimer?.cancel();
+    _timeRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -71,17 +144,36 @@ class _PetCareRootState extends State<PetCareRoot> {
       );
     }
 
-    final overlayStyle = petCareOverlayStyleForTheme(Theme.of(context));
+    final overlayStyle = petNoteOverlayStyleForTheme(Theme.of(context));
+    final showBottomNavigation = !_showOnboarding &&
+        (!_showFirstLaunchIntro ||
+            _overlayTransition == _OverlayTransition.introToShell);
+    final showBottomNavigationInBody =
+        _overlayTransition == _OverlayTransition.introToShell;
+    final useNativeIosDock = showBottomNavigation &&
+        supportsIosNativeDock(Theme.of(context).platform);
+    final bottomNavigation = !showBottomNavigation
+        ? null
+        : useNativeIosDock
+            ? _buildIosNativeDock(context, store)
+            : _PetNoteBottomNav(
+                store: store,
+                onAdd: () => _openAddSheet(context, store),
+              );
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: Scaffold(
         extendBody: true,
-        body: _PetCareBody(
+        body: _PetNoteBody(
           store: store,
           activeChecklistKey: _activeChecklistKey,
           showFirstLaunchIntro: _showFirstLaunchIntro,
           showOnboarding: _showOnboarding,
+          overlayTransition: _overlayTransition,
+          overlayTransitionProgress: _overlayTransitionController.value,
           settingsController: widget.settingsController,
+          notificationCoordinator: _notificationCoordinator,
+          highlightedChecklistItemKey: _highlightedChecklistItemKey,
           onSectionChanged: (value) =>
               setState(() => _activeChecklistKey = value),
           onAddFirstPet: _openManualOnboarding,
@@ -90,19 +182,44 @@ class _PetCareRootState extends State<PetCareRoot> {
           onEditPet: (pet) => _openEditPetSheet(context, store, pet),
           onSubmitOnboarding: _submitOnboarding,
           onDeferOnboarding: _deferOnboarding,
+          onReturnToIntroFromOnboarding:
+              _onboardingEntryPoint == _OnboardingEntryPoint.intro
+                  ? _returnToIntroFromOnboarding
+                  : null,
+          bottomNavigationOverlay:
+              showBottomNavigationInBody ? bottomNavigation : null,
         ),
-        bottomNavigationBar: _showFirstLaunchIntro || _showOnboarding
-            ? null
-            : _PetCareBottomNav(
-                store: store,
-                onAdd: () => _openAddSheet(context, store),
-              ),
+        bottomNavigationBar:
+            showBottomNavigationInBody ? null : bottomNavigation,
       ),
     );
   }
 
-  Future<void> _openAddSheet(BuildContext context, PetCareStore store) async {
-    final tokens = context.petCareTokens;
+  Widget _buildIosNativeDock(BuildContext context, PetNoteStore store) {
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final builder = widget.iosDockBuilder;
+        if (builder != null) {
+          return builder(
+            context,
+            store.activeTab,
+            store.setActiveTab,
+            () => _openAddSheet(context, store),
+          );
+        }
+
+        return IosNativeDockHost(
+          selectedTab: store.activeTab,
+          onTabSelected: store.setActiveTab,
+          onAddTap: () => _openAddSheet(context, store),
+        );
+      },
+    );
+  }
+
+  Future<void> _openAddSheet(BuildContext context, PetNoteStore store) async {
+    final tokens = context.petNoteTokens;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -118,7 +235,7 @@ class _PetCareRootState extends State<PetCareRoot> {
 
   Future<void> _openEditPetSheet(
     BuildContext context,
-    PetCareStore store,
+    PetNoteStore store,
     Pet pet,
   ) async {
     await showModalBottomSheet<void>(
@@ -131,6 +248,7 @@ class _PetCareRootState extends State<PetCareRoot> {
   }
 
   void _openManualOnboarding() {
+    _resetOverlayTransition();
     setState(() {
       _showFirstLaunchIntro = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
@@ -148,11 +266,22 @@ class _PetCareRootState extends State<PetCareRoot> {
     if (!mounted) {
       return;
     }
+
     setState(() {
-      _showFirstLaunchIntro = false;
+      _showFirstLaunchIntro = true;
       _onboardingEntryPoint = _OnboardingEntryPoint.intro;
       _showOnboarding = true;
+      _overlayTransition = _OverlayTransition.introToOnboarding;
     });
+    await _overlayTransitionController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _overlayTransition = _OverlayTransition.none;
+    });
+    _overlayTransitionController.value = 0;
   }
 
   Future<void> _dismissFirstLaunchIntro() async {
@@ -165,20 +294,30 @@ class _PetCareRootState extends State<PetCareRoot> {
     if (!mounted) {
       return;
     }
+    store.setActiveTab(AppTab.checklist);
     setState(() {
-      _showFirstLaunchIntro = false;
+      _showFirstLaunchIntro = true;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.introToShell;
     });
+    await _overlayTransitionController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _overlayTransition = _OverlayTransition.none;
+    });
+    _overlayTransitionController.value = 0;
   }
 
-  void _openAddPetOnboardingFromSheet() {
-    Navigator.of(context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _openManualOnboarding();
+  void _returnToIntroFromOnboarding() {
+    _resetOverlayTransition();
+    setState(() {
+      _showOnboarding = false;
+      _showFirstLaunchIntro = true;
+      _onboardingEntryPoint = _OnboardingEntryPoint.intro;
     });
   }
 
@@ -207,24 +346,103 @@ class _PetCareRootState extends State<PetCareRoot> {
       _showFirstLaunchIntro = false;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _overlayTransition = _OverlayTransition.none;
     });
+    _overlayTransitionController.value = 0;
   }
 
   Future<void> _deferOnboarding() async {
+    _resetOverlayTransition();
     setState(() {
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
     });
   }
+
+  void _handleStoreChanged() {
+    final store = _store;
+    final coordinator = _notificationCoordinator;
+    if (store == null || coordinator == null) {
+      return;
+    }
+    unawaited(coordinator.syncFromStore(store));
+    unawaited(_consumeForegroundNotificationTap(store));
+  }
+
+  Future<void> _consumeForegroundNotificationTap(PetNoteStore store) async {
+    final coordinator = _notificationCoordinator;
+    if (coordinator == null) {
+      return;
+    }
+    final intent = await coordinator.consumeForegroundTap();
+    if (intent != null && mounted) {
+      _applyNotificationIntent(store, intent);
+    }
+  }
+
+  void _applyNotificationIntent(
+    PetNoteStore store,
+    NotificationLaunchIntent intent,
+  ) {
+    final sectionKey = _sectionKeyForPayload(store, intent.payload);
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _showOnboarding = false;
+      _activeChecklistKey = sectionKey;
+      _highlightedChecklistItemKey = intent.payload.key;
+      _overlayTransition = _OverlayTransition.none;
+    });
+    _overlayTransitionController.value = 0;
+    store.setActiveTab(AppTab.checklist);
+  }
+
+  String _sectionKeyForPayload(
+    PetNoteStore store,
+    NotificationPayload payload,
+  ) {
+    for (final section in store.checklistSections) {
+      for (final item in section.items) {
+        final itemKey = '${item.sourceType}:${item.id}';
+        if (itemKey == payload.key) {
+          return section.key;
+        }
+      }
+    }
+    return 'today';
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timeRefreshTimer?.cancel();
+    _store?.removeListener(_handleStoreChanged);
+    _notificationCoordinator?.dispose();
+    _overlayTransitionController.dispose();
+    super.dispose();
+  }
+
+  void _resetOverlayTransition() {
+    if (_overlayTransitionController.isAnimating) {
+      _overlayTransitionController.stop();
+    }
+    if (_overlayTransitionController.value != 0) {
+      _overlayTransitionController.value = 0;
+    }
+    _overlayTransition = _OverlayTransition.none;
+  }
 }
 
-class _PetCareBody extends StatelessWidget {
-  const _PetCareBody({
+class _PetNoteBody extends StatelessWidget {
+  const _PetNoteBody({
     required this.store,
     required this.activeChecklistKey,
     required this.showFirstLaunchIntro,
     required this.showOnboarding,
+    required this.overlayTransition,
+    required this.overlayTransitionProgress,
     required this.settingsController,
+    required this.notificationCoordinator,
+    required this.highlightedChecklistItemKey,
     required this.onSectionChanged,
     required this.onAddFirstPet,
     required this.onStartOnboardingFromIntro,
@@ -232,13 +450,19 @@ class _PetCareBody extends StatelessWidget {
     required this.onEditPet,
     required this.onSubmitOnboarding,
     required this.onDeferOnboarding,
+    required this.onReturnToIntroFromOnboarding,
+    this.bottomNavigationOverlay,
   });
 
-  final PetCareStore store;
+  final PetNoteStore store;
   final String activeChecklistKey;
   final bool showFirstLaunchIntro;
   final bool showOnboarding;
+  final _OverlayTransition overlayTransition;
+  final double overlayTransitionProgress;
   final AppSettingsController? settingsController;
+  final NotificationCoordinator? notificationCoordinator;
+  final String? highlightedChecklistItemKey;
   final ValueChanged<String> onSectionChanged;
   final VoidCallback onAddFirstPet;
   final Future<void> Function() onStartOnboardingFromIntro;
@@ -246,6 +470,8 @@ class _PetCareBody extends StatelessWidget {
   final ValueChanged<Pet> onEditPet;
   final Future<void> Function(PetOnboardingResult result) onSubmitOnboarding;
   final Future<void> Function() onDeferOnboarding;
+  final VoidCallback? onReturnToIntroFromOnboarding;
+  final Widget? bottomNavigationOverlay;
 
   @override
   Widget build(BuildContext context) {
@@ -253,6 +479,18 @@ class _PetCareBody extends StatelessWidget {
       animation: store,
       builder: (context, _) {
         final activeTab = store.activeTab;
+        final notificationCoordinator = this.notificationCoordinator;
+        final introToOnboarding =
+            overlayTransition == _OverlayTransition.introToOnboarding;
+        final introToShell =
+            overlayTransition == _OverlayTransition.introToShell;
+        final introShellExitProgress = introToShell
+            ? Curves.easeOutQuart
+                .transform((overlayTransitionProgress / 0.34).clamp(0.0, 1.0))
+            : 0.0;
+        final introShellExitOffset =
+            introToShell ? -introShellExitProgress * 260 : 0.0;
+        final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
         return RepaintBoundary(
           key: const ValueKey('page_content_boundary'),
           child: Stack(
@@ -262,6 +500,7 @@ class _PetCareBody extends StatelessWidget {
                   AppTab.checklist => ChecklistPage(
                       store: store,
                       activeSectionKey: activeChecklistKey,
+                      highlightedChecklistItemKey: highlightedChecklistItemKey,
                       onSectionChanged: onSectionChanged,
                       onAddFirstPet: onAddFirstPet,
                     ),
@@ -279,19 +518,81 @@ class _PetCareBody extends StatelessWidget {
                           AppThemePreference.system,
                       onThemePreferenceChanged: (value) =>
                           settingsController?.setThemePreference(value),
+                      notificationPermissionState:
+                          notificationCoordinator?.permissionState ??
+                              NotificationPermissionState.unknown,
+                      notificationPushToken: notificationCoordinator?.pushToken,
+                      onRequestNotificationPermission:
+                          notificationCoordinator == null
+                              ? null
+                              : () async {
+                                  await notificationCoordinator
+                                      .requestPermission();
+                                },
+                      onOpenNotificationSettings:
+                          notificationCoordinator == null
+                              ? null
+                              : () async {
+                                  await notificationCoordinator
+                                      .openNotificationSettings();
+                                },
                     ),
                 },
               ),
-              if (showFirstLaunchIntro)
-                PetFirstLaunchIntro(
-                  onStartOnboarding: onStartOnboardingFromIntro,
-                  onExploreFirst: onExploreFirstLaunchIntro,
+              if (bottomNavigationOverlay != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: bottomNavigationOverlay!,
+                  ),
                 ),
-              if (showOnboarding)
-                PetOnboardingOverlay(
-                  onSubmit: onSubmitOnboarding,
-                  onDefer: onDeferOnboarding,
-                ),
+              Positioned.fill(
+                key: const ValueKey('onboarding_overlay_layer'),
+                child: showOnboarding
+                    ? IgnorePointer(
+                        ignoring: introToOnboarding &&
+                            overlayTransitionProgress < 0.96,
+                        child: PetOnboardingOverlay(
+                          animateInitialEntry: !introToOnboarding,
+                          externalRevealProgress: introToOnboarding
+                              ? overlayTransitionProgress
+                              : null,
+                          onSubmit: onSubmitOnboarding,
+                          onDefer: onDeferOnboarding,
+                          onReturnToIntro: onReturnToIntroFromOnboarding,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              Positioned.fill(
+                key: const ValueKey('intro_overlay_layer'),
+                child: showFirstLaunchIntro
+                    ? IgnorePointer(
+                        ignoring: overlayTransition != _OverlayTransition.none,
+                        child: Opacity(
+                          key: const ValueKey('intro_shell_exit_opacity'),
+                          opacity: introOpacity,
+                          child: SizedBox.expand(
+                            key: const ValueKey('intro_shell_exit_motion'),
+                            child: Transform.translate(
+                              offset: Offset(0, introShellExitOffset),
+                              child: PetFirstLaunchIntro(
+                                fillParent: false,
+                                onboardingExitProgress: introToOnboarding
+                                    ? overlayTransitionProgress
+                                    : 0,
+                                onStartOnboarding: onStartOnboardingFromIntro,
+                                onExploreFirst: onExploreFirstLaunchIntro,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ],
           ),
         );
@@ -300,13 +601,13 @@ class _PetCareBody extends StatelessWidget {
   }
 }
 
-class _PetCareBottomNav extends StatelessWidget {
-  const _PetCareBottomNav({
+class _PetNoteBottomNav extends StatelessWidget {
+  const _PetNoteBottomNav({
     required this.store,
     required this.onAdd,
   });
 
-  final PetCareStore store;
+  final PetNoteStore store;
   final VoidCallback onAdd;
 
   @override
@@ -316,7 +617,7 @@ class _PetCareBottomNav extends StatelessWidget {
       builder: (context, _) {
         final insets = MediaQuery.viewPaddingOf(context);
         final dockLayout = dockLayoutForInsets(insets);
-        final tokens = context.petCareTokens;
+        final tokens = context.petNoteTokens;
         final activeTab = store.activeTab;
 
         return RepaintBoundary(
@@ -465,7 +766,7 @@ class _TabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(24),

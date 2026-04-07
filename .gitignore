@@ -44,6 +44,8 @@ package-lock.json
 # Signing
 ohos/sign/
 .signing-temp/
+android/key.properties
+android/signing/
 
 # Temporary files
 *.log

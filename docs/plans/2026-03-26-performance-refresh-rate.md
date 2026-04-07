@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Reduce redundant Flutter rebuild work in the pet care app and add a lower-level Android frame-rate request path on top of the existing refresh-rate hint.
+**Goal:** Reduce redundant Flutter rebuild work in the PetNote app and add a lower-level Android frame-rate request path on top of the existing refresh-rate hint.
 
 **Architecture:** Keep the current page structure intact, but memoize high-cost derived store data and stop reading the same derived getters multiple times per build. On Android, preserve `preferredRefreshRate` and add a guarded `View.setFrameRate()` request so devices that honor the lower-level API can opt into higher refresh behavior.
 
@@ -27,7 +27,7 @@ Run: `flutter test test/pet_care_store_cache_test.dart`
 
 **Step 3: Write minimal implementation**
 
-- Add private cache fields to `PetCareStore`.
+- Add private cache fields to `PetNoteStore`.
 - Centralize cache invalidation into helper methods.
 - Recompute cached values lazily only when invalid.
 

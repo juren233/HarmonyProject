@@ -1,14 +1,14 @@
-# Pet Care MVP Design
+# PetNote MVP Design
 
 ## Goal
 
-Build a HarmonyOS high-fidelity runnable prototype for a pet care app focused on daily task handling, pet-centered records, and local AI-style care summaries.
+Build a HarmonyOS high-fidelity runnable prototype for a PetNote app focused on daily task handling, pet-centered records, and local AI-style care summaries.
 
 ## Product Scope
 
 ### In Scope
 
-- Offline-first pet care tool
+- Offline-first PetNote tool
 - `Checklist` page for todos and reminders
 - `Overview` page for local rule-generated AI-style summaries
 - `Pets` page for pet list and per-pet details

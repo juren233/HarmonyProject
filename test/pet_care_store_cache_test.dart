@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 void main() {
-  group('PetCareStore derived data caching', () {
+  group('PetNoteStore derived data caching', () {
     test('memoizes checklist sections until checklist data changes', () {
-      final store = PetCareStore.seeded();
+      final store = PetNoteStore.seeded();
 
       final first = store.checklistSections;
       final second = store.checklistSections;
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('memoizes overview snapshot until overview inputs change', () {
-      final store = PetCareStore.seeded();
+      final store = PetNoteStore.seeded();
 
       final first = store.overviewSnapshot;
       final second = store.overviewSnapshot;
@@ -35,7 +35,7 @@ void main() {
     });
 
     test('memoizes selected pet reminders until selected pet changes', () {
-      final store = PetCareStore.seeded();
+      final store = PetNoteStore.seeded();
 
       final first = store.remindersForSelectedPet;
       final second = store.remindersForSelectedPet;
@@ -49,7 +49,7 @@ void main() {
     });
 
     test('memoizes selected pet records until record data changes', () {
-      final store = PetCareStore.seeded();
+      final store = PetNoteStore.seeded();
 
       final first = store.recordsForSelectedPet;
       final second = store.recordsForSelectedPet;

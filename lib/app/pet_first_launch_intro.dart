@@ -2,17 +2,21 @@ import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:pet_care_harmony/app/app_theme.dart';
+import 'package:petnote/app/app_theme.dart';
 
 class PetFirstLaunchIntro extends StatefulWidget {
   const PetFirstLaunchIntro({
     super.key,
     required this.onStartOnboarding,
     required this.onExploreFirst,
+    this.fillParent = true,
+    this.onboardingExitProgress = 0,
   });
 
   final Future<void> Function() onStartOnboarding;
   final Future<void> Function() onExploreFirst;
+  final bool fillParent;
+  final double onboardingExitProgress;
 
   @override
   State<PetFirstLaunchIntro> createState() => _PetFirstLaunchIntroState();
@@ -23,22 +27,18 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _launchPawStartColor = Color(0xFFB8BEC8);
   static const _launchPawStartSize = 208.0;
   static const _launchPawEndSize = 112.0;
+  static const _sharedIndicatorColor = Color(0xFFF2A65A);
   static const _pageHorizontalPadding = 20.0;
   static const _pageContentRevealDuration = Duration(milliseconds: 680);
-  static const _privacyLockAnimationDuration =
-      Duration(milliseconds: 1220);
+  static const _privacyLockAnimationDuration = Duration(milliseconds: 1220);
   static const _firstPageIndicatorDelay = Duration(milliseconds: 500);
-  static const _firstPageIndicatorRevealDuration =
-      Duration(milliseconds: 240);
+  static const _firstPageIndicatorRevealDuration = Duration(milliseconds: 240);
   static const _firstPageButtonDelayAfterIndicator =
       Duration(milliseconds: 360);
-  static const _firstPageButtonRevealDuration =
-      Duration(milliseconds: 320);
-  static const _firstPageFooterTimelineDuration =
-      Duration(milliseconds: 1500);
+  static const _firstPageButtonRevealDuration = Duration(milliseconds: 320);
+  static const _firstPageFooterTimelineDuration = Duration(milliseconds: 1500);
   static const _finalPageIndicatorDelay = Duration(milliseconds: 700);
-  static const _finalPageIndicatorRevealDuration =
-      Duration(milliseconds: 180);
+  static const _finalPageIndicatorRevealDuration = Duration(milliseconds: 180);
   static const _finalPagePrimaryButtonDelayAfterIndicator =
       Duration(milliseconds: 360);
   static const _finalPagePrimaryButtonRevealDuration =
@@ -47,8 +47,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       Duration(milliseconds: 180);
   static const _finalPageSecondaryButtonRevealDuration =
       Duration(milliseconds: 280);
-  static const _finalPageFooterTimelineDuration =
-      Duration(milliseconds: 2100);
+  static const _finalPageFooterTimelineDuration = Duration(milliseconds: 2100);
 
   late final PageController _pageController;
   late final AnimationController _launchController;
@@ -57,14 +56,17 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
 
   int _pageIndex = 0;
   bool _showLaunchPaw = true;
+  bool _isPrimaryNavigating = false;
+  bool _isSecondaryNavigating = false;
   final Set<int> _revealedPages = <int>{};
 
   static const _pages = [
     _IntroPageData(
-      title: '欢迎来到宠伴',
+      title: '欢迎来到宠记',
       subtitle: '把毛孩子的日常照顾、重要提醒和成长记录，放进一个更省心的小空间里。',
       icon: Icons.pets_rounded,
       accentColor: Color(0xFFF2A65A),
+      heroAccentColor: Color(0xFFF2A65A),
       values: [
         _IntroValueData(title: '提醒更清楚'),
         _IntroValueData(title: '记录更集中'),
@@ -73,36 +75,38 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     ),
     _IntroPageData(
       title: '照顾它的每一天，都能更从容一点',
-      subtitle: '从待办提醒到资料记录，宠伴会把重要的照护信息收在顺手的位置。',
+      subtitle: '从待办提醒到资料记录，宠记会把重要的照护信息收在顺手的位置。',
       icon: Icons.auto_awesome_rounded,
       accentColor: Color(0xFFD9822B),
+      heroAccentColor: Color(0xFF8D63D2),
       listStyle: _IntroListStyle.cards,
       values: [
         _IntroValueData(
           title: '日常提醒更清楚',
           subtitle: '喂养、驱虫、洗护、复查都能安排得更稳当。',
           icon: Icons.checklist_rounded,
-          iconColor: Color(0xFF335FCA),
+          iconColor: Color(0xFFF2C94C),
         ),
         _IntroValueData(
           title: '宠物信息更集中',
           subtitle: '基础资料、喂养偏好和过敏禁忌等一站式管理。',
           icon: Icons.description_rounded,
-          iconColor: Color(0xFF4A8C5B),
+          iconColor: Color(0xFF335FCA),
         ),
         _IntroValueData(
-          title: '爱宠照顾更加省心',
-          subtitle: '通过总览模块，辅助你更好地照护小宝。',
+          title: '爱宠照顾更省心',
+          subtitle: '通过总览模块，辅助你更好地照护毛孩子。',
           icon: Icons.favorite_rounded,
           iconColor: Color(0xFFE88FB0),
         ),
       ],
     ),
     _IntroPageData(
-      title: '先认识一下你的小宝吧',
-      subtitle: '添加爱宠信息才能够更好地照顾你的小宝~',
+      title: '先认识一下你的毛孩子吧',
+      subtitle: '添加爱宠信息才能够更好地照顾你的毛孩子~',
       icon: Icons.pets_rounded,
       accentColor: Color(0xFF90CE9B),
+      heroAccentColor: Color(0xFF90CE9B),
       values: [
         _IntroValueData(
           title: '你的隐私安全我们始终第一',
@@ -113,7 +117,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
         _IntroValueData(
-          title: '即使是 AI 总结也不会泄露',
+          title: '除了AI谁都看不到你的数据',
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
       ],
@@ -165,73 +169,135 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     final isDark = theme.brightness == Brightness.dark;
     final page = _pages[_pageIndex];
     final isFinalPage = _pageIndex == _pages.length - 1;
     final insets = MediaQuery.viewPaddingOf(context);
+    final onboardingExitProgress =
+        widget.onboardingExitProgress.clamp(0.0, 1.0);
+    final onboardingHeroScale = _onboardingHeroScale(onboardingExitProgress);
+    final onboardingContentFade =
+        _onboardingContentFadeProgress(onboardingExitProgress);
+    final onboardingOverlayFade =
+        _onboardingOverlayFadeProgress(onboardingExitProgress);
+    final onboardingOverlayScale =
+        _onboardingOverlayScale(onboardingExitProgress);
 
-    return Positioned.fill(
-      child: Material(
-        key: const ValueKey('first_launch_intro_overlay'),
-        color: theme.scaffoldBackgroundColor.withValues(
-          alpha: isDark ? 0.92 : 0.80,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
-            ),
+    final content = Transform.scale(
+      key: const ValueKey('intro_onboarding_exit_scale'),
+      scale: onboardingOverlayScale,
+      child: Opacity(
+        key: const ValueKey('intro_onboarding_exit_opacity'),
+        opacity: 1 - onboardingOverlayFade,
+        child: Material(
+          key: const ValueKey('first_launch_intro_overlay'),
+          color: theme.scaffoldBackgroundColor.withValues(
+            alpha: isDark ? 0.92 : 0.80,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(height: insets.top + 20),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return Stack(
-                      children: [
-                        PageView(
-                          key: const ValueKey('first_launch_intro_page_view'),
-                          controller: _pageController,
-                          physics: _showLaunchPaw
-                              ? const NeverScrollableScrollPhysics()
-                              : null,
-                          onPageChanged: _handlePageChanged,
-                          children: List.generate(_pages.length, (index) {
-                            final item = _pages[index];
-                            return _IntroPage(
-                              key: ValueKey('intro_page_$index'),
-                              index: index,
-                              data: item,
-                              isRevealed: _revealedPages.contains(index),
-                            );
-                          }),
-                        ),
-                        if (_showLaunchPaw)
-                          _LaunchPawOverlay(
-                            progress: _launchController,
-                            endColor: _pages.first.accentColor,
-                            width: constraints.maxWidth,
-                            height: constraints.maxHeight,
-                          ),
-                      ],
-                    );
-                  },
-                ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
               ),
-              if (!_showLaunchPaw)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(20, 18, 20, insets.bottom + 20),
-                  child: _buildFooterChrome(page, isFinalPage),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: insets.top + 20),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Stack(
+                        children: [
+                          Column(
+                            children: [
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: _launchPawEndSize,
+                                child: _showLaunchPaw
+                                    ? const SizedBox.shrink()
+                                    : Center(
+                                        child: Transform.scale(
+                                          key: const ValueKey(
+                                            'intro_onboarding_exit_hero_scale',
+                                          ),
+                                          scale: onboardingHeroScale,
+                                          child: _buildFixedHero(page),
+                                        ),
+                                      ),
+                              ),
+                              const SizedBox(height: 22),
+                              Expanded(
+                                child: Opacity(
+                                  key: const ValueKey(
+                                    'intro_onboarding_exit_content_opacity',
+                                  ),
+                                  opacity: 1 - onboardingContentFade,
+                                  child: PageView(
+                                    key: const ValueKey(
+                                      'first_launch_intro_page_view',
+                                    ),
+                                    controller: _pageController,
+                                    physics: _showLaunchPaw
+                                        ? const NeverScrollableScrollPhysics()
+                                        : null,
+                                    onPageChanged: _handlePageChanged,
+                                    children:
+                                        List.generate(_pages.length, (index) {
+                                      final item = _pages[index];
+                                      return _IntroPage(
+                                        key: ValueKey('intro_page_$index'),
+                                        index: index,
+                                        data: item,
+                                        isRevealed:
+                                            _revealedPages.contains(index),
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_showLaunchPaw)
+                            _LaunchPawOverlay(
+                              progress: _launchController,
+                              endColor: _pages.first.accentColor,
+                              width: constraints.maxWidth,
+                              height: constraints.maxHeight,
+                            ),
+                        ],
+                      );
+                    },
+                  ),
                 ),
-            ],
+                if (!_showLaunchPaw)
+                  Padding(
+                    padding:
+                        EdgeInsets.fromLTRB(20, 18, 20, insets.bottom + 20),
+                    child: Opacity(
+                      key: const ValueKey(
+                        'intro_onboarding_exit_footer_opacity',
+                      ),
+                      opacity: 1 - onboardingContentFade,
+                      child: _buildFooterChrome(page, isFinalPage),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
+    );
+
+    if (!widget.fillParent) {
+      return content;
+    }
+
+    return Positioned.fill(
+      child: content,
     );
   }
 
@@ -283,7 +349,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
             _FooterReveal(
               key: const ValueKey('first_page_indicator_reveal'),
               progress: indicatorProgress,
-              child: _buildIndicator(page.accentColor),
+              child: _buildIndicator(_sharedIndicatorColor),
             ),
             const SizedBox(height: 18),
             _FooterReveal(
@@ -329,7 +395,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
               _FooterReveal(
                 key: const ValueKey('final_page_indicator_reveal'),
                 progress: indicatorProgress,
-                child: _buildIndicator(page.accentColor),
+                child: _buildIndicator(_sharedIndicatorColor),
               ),
               const SizedBox(height: 18),
               _FooterReveal(
@@ -350,7 +416,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     }
     return Column(
       children: [
-        _buildIndicator(page.accentColor),
+        _buildIndicator(_sharedIndicatorColor),
         const SizedBox(height: 18),
         _buildPrimaryButton(isFinalPage),
       ],
@@ -368,6 +434,13 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     );
   }
 
+  Widget _buildFixedHero(_IntroPageData page) {
+    return _AnimatedIntroHero(
+      page: page,
+      pageIndex: _pageIndex,
+    );
+  }
+
   Widget _buildPrimaryButton(bool isFinalPage) {
     return SizedBox(
       width: double.infinity,
@@ -377,7 +450,9 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
               ? 'first_launch_intro_primary_button'
               : 'first_launch_intro_continue_button',
         ),
-        onPressed: isFinalPage ? widget.onStartOnboarding : _goNext,
+        onPressed: isFinalPage
+            ? (_isPrimaryNavigating ? null : _handleStartOnboarding)
+            : _goNext,
         child: Text(isFinalPage ? '那我们开始吧' : '继续'),
       ),
     );
@@ -388,10 +463,38 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       width: double.infinity,
       child: TextButton(
         key: const ValueKey('first_launch_intro_secondary_button'),
-        onPressed: widget.onExploreFirst,
-        child: const Text('先看看宠伴'),
+        onPressed: _isSecondaryNavigating ? null : _handleExploreFirst,
+        child: const Text('先看看宠记'),
       ),
     );
+  }
+
+  Future<void> _handleStartOnboarding() async {
+    if (_isPrimaryNavigating) {
+      return;
+    }
+    setState(() => _isPrimaryNavigating = true);
+    try {
+      await widget.onStartOnboarding();
+    } finally {
+      if (mounted) {
+        setState(() => _isPrimaryNavigating = false);
+      }
+    }
+  }
+
+  Future<void> _handleExploreFirst() async {
+    if (_isSecondaryNavigating) {
+      return;
+    }
+    setState(() => _isSecondaryNavigating = true);
+    try {
+      await widget.onExploreFirst();
+    } finally {
+      if (mounted) {
+        setState(() => _isSecondaryNavigating = false);
+      }
+    }
   }
 
   void _startFirstPageFooterReveal() {
@@ -431,6 +534,59 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
             revealDuration.inMilliseconds)
         .clamp(0.0, 1.0);
     return progress.toDouble();
+  }
+
+  double _onboardingHeroScale(double progress) {
+    if (progress <= 0) {
+      return 1.0;
+    }
+    if (progress < 0.24) {
+      return lerpDouble(
+        1.0,
+        1.2,
+        Curves.easeOutCubic.transform(progress / 0.24),
+      )!;
+    }
+    if (progress < 0.34) {
+      return lerpDouble(
+        1.2,
+        0.38,
+        Curves.easeInQuart.transform((progress - 0.24) / 0.10),
+      )!;
+    }
+    return lerpDouble(
+      0.38,
+      0.06,
+      Curves.easeOutQuart.transform(((progress - 0.34) / 0.42).clamp(0.0, 1.0)),
+    )!;
+  }
+
+  double _onboardingContentFadeProgress(double progress) {
+    if (progress <= 0.40) {
+      return 0.0;
+    }
+    return Curves.easeInOutCubic
+        .transform(((progress - 0.40) / 0.26).clamp(0.0, 1.0));
+  }
+
+  double _onboardingOverlayFadeProgress(double progress) {
+    if (progress <= 0.40) {
+      return 0.0;
+    }
+    return Curves.easeInOutCubic
+        .transform(((progress - 0.40) / 0.46).clamp(0.0, 1.0));
+  }
+
+  double _onboardingOverlayScale(double progress) {
+    if (progress <= 0.40) {
+      return 1.0;
+    }
+    return lerpDouble(
+      1.0,
+      0.94,
+      Curves.easeInOutCubic
+          .transform(((progress - 0.40) / 0.46).clamp(0.0, 1.0)),
+    )!;
   }
 }
 
@@ -591,7 +747,7 @@ class _IntroPageState extends State<_IntroPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     if (!widget.isRevealed) {
       return const SizedBox.shrink();
     }
@@ -604,27 +760,6 @@ class _IntroPageState extends State<_IntroPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 12),
-          if (widget.index == 0)
-            Center(
-              child: _IntroHeroIcon(
-                heroKey: ValueKey('intro_page_${widget.index}_hero_icon'),
-                icon: widget.data.icon,
-                accentColor: widget.data.accentColor,
-              ),
-            )
-          else
-            _buildReveal(
-              interval: const Interval(0.0, 0.34, curve: Curves.easeOutCubic),
-              child: Center(
-                child: _IntroHeroIcon(
-                  heroKey: ValueKey('intro_page_${widget.index}_hero_icon'),
-                  icon: widget.data.icon,
-                  accentColor: widget.data.accentColor,
-                ),
-              ),
-            ),
-          const SizedBox(height: 22),
           _buildReveal(
             interval: const Interval(0.12, 0.52, curve: Curves.easeOutCubic),
             child: Column(
@@ -684,11 +819,10 @@ class _IntroPageState extends State<_IntroPage>
             lockAnimationDelay: widget.data.values[index].leadingStyle ==
                     _IntroValueLeadingStyle.animatedPrivacyLock
                 ? Duration(
-                    milliseconds:
-                        (_PetFirstLaunchIntroState._pageContentRevealDuration
-                                    .inMilliseconds *
-                                start)
-                            .round(),
+                    milliseconds: (_PetFirstLaunchIntroState
+                                ._pageContentRevealDuration.inMilliseconds *
+                            start)
+                        .round(),
                   )
                 : null,
           ),
@@ -774,6 +908,149 @@ class _IntroHeroIcon extends StatelessWidget {
   }
 }
 
+class _AnimatedIntroHero extends StatefulWidget {
+  const _AnimatedIntroHero({
+    required this.page,
+    required this.pageIndex,
+  });
+
+  final _IntroPageData page;
+  final int pageIndex;
+
+  @override
+  State<_AnimatedIntroHero> createState() => _AnimatedIntroHeroState();
+}
+
+class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
+    with SingleTickerProviderStateMixin {
+  static const _transitionDuration = Duration(milliseconds: 400);
+
+  late final AnimationController _controller;
+  late _IntroPageData _displayedPage;
+  late int _displayedPageIndex;
+  _IntroPageData? _nextPage;
+  int? _nextPageIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayedPage = widget.page;
+    _displayedPageIndex = widget.pageIndex;
+    _controller = AnimationController(
+      vsync: this,
+      duration: _transitionDuration,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedIntroHero oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pageIndex == _displayedPageIndex) {
+      _cancelPendingTransition();
+      return;
+    }
+    if (widget.pageIndex == _nextPageIndex) {
+      return;
+    }
+    _nextPage = widget.page;
+    _nextPageIndex = widget.pageIndex;
+    _controller.forward(from: 0);
+  }
+
+  void _cancelPendingTransition() {
+    _nextPage = null;
+    _nextPageIndex = null;
+    if (_controller.isAnimating || _controller.value != 0) {
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const ValueKey('intro_fixed_hero_host'),
+      width: _PetFirstLaunchIntroState._launchPawEndSize,
+      height: _PetFirstLaunchIntroState._launchPawEndSize,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final progress = _controller.value.clamp(0.0, 1.0);
+          if (_nextPage != null && progress >= 0.42) {
+            _displayedPage = _nextPage!;
+            _displayedPageIndex = _nextPageIndex!;
+            _nextPage = null;
+            _nextPageIndex = null;
+          }
+          return Transform.scale(
+            scale: _scaleFor(progress),
+            child: Opacity(
+              opacity: _opacityFor(progress),
+              child: _IntroHeroIcon(
+                heroKey:
+                    ValueKey('intro_page_${_displayedPageIndex}_hero_icon'),
+                icon: _displayedPage.icon,
+                accentColor: _displayedPage.heroAccentColor,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  double _scaleFor(double value) {
+    final elapsedMs = _transitionDuration.inMilliseconds * value;
+    if (elapsedMs < 96) {
+      return lerpDouble(
+        1.0,
+        1.12,
+        _segmentValue(elapsedMs, 0, 96, Curves.linear),
+      )!;
+    }
+    if (elapsedMs < 176) {
+      return lerpDouble(
+        1.12,
+        0.72,
+        _segmentValue(elapsedMs, 96, 176, Curves.easeInQuart),
+      )!;
+    }
+    return lerpDouble(
+      0.72,
+      1.0,
+      _segmentValue(elapsedMs, 176, 400, Curves.easeOutQuart),
+    )!;
+  }
+
+  double _opacityFor(double value) {
+    final elapsedMs = _transitionDuration.inMilliseconds * value;
+    if (elapsedMs < 96) {
+      return lerpDouble(
+        1.0,
+        0.96,
+        _segmentValue(elapsedMs, 0, 96, Curves.easeOutCubic),
+      )!;
+    }
+    return lerpDouble(
+      0.96,
+      1.0,
+      _segmentValue(elapsedMs, 96, 400, Curves.easeOutCubic),
+    )!;
+  }
+
+  double _segmentValue(num value, num start, num end, Curve curve) {
+    final segment =
+        (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
+    return curve.transform(segment);
+  }
+}
+
 class _IntroValueRow extends StatelessWidget {
   const _IntroValueRow({
     required this.data,
@@ -787,7 +1064,7 @@ class _IntroValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -893,11 +1170,10 @@ class _AnimatedPrivacyLockIconState extends State<_AnimatedPrivacyLockIcon>
       animation: _controller,
       builder: (context, _) {
         final value = _controller.value.clamp(0.0, 1.0);
-        final elapsedMs =
-            (_PetFirstLaunchIntroState._privacyLockAnimationDuration
-                        .inMilliseconds *
-                    value)
-                .round();
+        final elapsedMs = (_PetFirstLaunchIntroState
+                    ._privacyLockAnimationDuration.inMilliseconds *
+                value)
+            .round();
         final scale = _scaleFor(value);
         final icon = elapsedMs == 0 || scale > 1.0
             ? CupertinoIcons.lock_open_fill
@@ -920,36 +1196,37 @@ class _AnimatedPrivacyLockIconState extends State<_AnimatedPrivacyLockIcon>
     final elapsedMs =
         _PetFirstLaunchIntroState._privacyLockAnimationDuration.inMilliseconds *
             value;
-    if (elapsedMs < 360) {
+    if (elapsedMs < 300) {
       return lerpDouble(
         1.0,
         1.38,
-        _segmentValue(elapsedMs, 0, 360, Curves.linear),
+        _segmentValue(elapsedMs, 0, 300, Curves.linear),
       )!;
     }
-    if (elapsedMs < 560) {
+    if (elapsedMs < 460) {
       return lerpDouble(
         1.38,
         1.5,
-        _segmentValue(elapsedMs, 360, 560, Curves.linear),
+        _segmentValue(elapsedMs, 300, 460, Curves.linear),
       )!;
     }
-    if (elapsedMs < 1000) {
+    if (elapsedMs < 900) {
       return lerpDouble(
         1.5,
         0.6,
-        _segmentValue(elapsedMs, 560, 1000, Curves.easeInQuart),
+        _segmentValue(elapsedMs, 460, 900, Curves.easeInQuart),
       )!;
     }
     return lerpDouble(
       0.6,
       1.0,
-      _segmentValue(elapsedMs, 1000, 1220, Curves.easeOutQuart),
+      _segmentValue(elapsedMs, 900, 1120, Curves.easeOutQuart),
     )!;
   }
 
   double _segmentValue(num value, num start, num end, Curve curve) {
-    final segment = (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
+    final segment =
+        (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
     return curve.transform(segment);
   }
 }
@@ -961,7 +1238,7 @@ class _IntroFeatureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
@@ -1055,6 +1332,7 @@ class _IntroPageData {
     required this.subtitle,
     required this.icon,
     required this.accentColor,
+    required this.heroAccentColor,
     this.values = const [],
     this.listStyle = _IntroListStyle.checks,
   });
@@ -1063,6 +1341,7 @@ class _IntroPageData {
   final String subtitle;
   final IconData icon;
   final Color accentColor;
+  final Color heroAccentColor;
   final List<_IntroValueData> values;
   final _IntroListStyle listStyle;
 }

@@ -1,0 +1,37 @@
+enabled: true
+tag: v1.0.0-beta.2
+
+android:
+  enabled: true
+  artifacts:
+    - arm64-v8a
+    - armeabi-v7a
+    - x86_64
+
+# Release control file
+# 1. enabled 必须写成字面量 true；只有 enabled=true 时，push 后工作流才会尝试构建。
+# 2. main 分支 + enabled=true：创建正式 Release。
+# 3. beta 分支 + enabled=true：创建 pre-release。
+# 4. 其他分支 + enabled=true：只上传 Actions artifacts，不创建 Release。
+# 5. tag 必须与 pubspec.yaml 的版本号（去掉 +build 后）一致，并且必须在前面加 v。
+#    例如：tag=v1.0.0 对应 version: 1.0.0+1
+#    例如：tag=v1.0.0-beta.1 对应 version: 1.0.0-beta.1+2
+# 6. pubspec.yaml 的预发布版本必须使用标准 SemVer 格式，
+#    例如 1.0.0-beta.1、1.0.0-rc.1，不能写成 1.0.0beta.1。
+# 7. Android Release / pre-release 的类型不由文件控制，而是由分支决定：
+#    main -> Release
+#    beta -> pre-release
+#    other branches -> artifacts only
+# 8. android.enabled=true 表示本次构建包含 Android 安装包。
+# 9. artifacts 用于声明要构建的 APK CPU 架构：
+#    arm64-v8a = 大多数 64 位 Android 真机，推荐优先提供
+#    armeabi-v7a = 较老的 32 位 Android 设备
+#    x86_64 = Android 模拟器或少量 x86_64 设备
+# 10. 每个架构生成独立 APK，便于用户按设备选择安装。
+# 11. 如果同名 tag/release 已存在，工作流会跳过后续构建与发布，避免重复创建。
+# 12. 如果需要重新创建同名 release（例如内部 build number 变化，但外显版本号不变），
+#     先手动删除 GitHub 上同名 release 和 tag，再重新 push 触发创建。
+# 13. Release / pre-release 说明内容使用中文版，并直接提取本次 push 携带的提交说明。
+# 14. beta 分支生成的 pre-release 顶部会自动加入 GitHub 原生 `IMPORTANT` 提示块，提醒用户这是测试版。
+# 15. 所有已发布版本的说明底部都会自动加入中文“版本选择”区块，
+#     并为每个 APK 提供可直接点击下载的蓝字链接。

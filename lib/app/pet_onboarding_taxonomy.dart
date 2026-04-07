@@ -1,4 +1,4 @@
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 const String otherBreedLabel = '其他';
 

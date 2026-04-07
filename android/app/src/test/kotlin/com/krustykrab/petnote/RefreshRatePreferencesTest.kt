@@ -1,4 +1,4 @@
-package com.harmony.pet.pet_care_harmony
+package com.krustykrab.petnote
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

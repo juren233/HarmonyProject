@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Replace the current auto-open pet onboarding with a 3-screen first-launch intro for "宠伴" that explains app value first, then routes users into the existing 9-step pet onboarding or into the empty-state shell.
+**Goal:** Replace the current auto-open pet onboarding with a 3-screen first-launch intro for "宠记" that explains app value first, then routes users into the existing 9-step pet onboarding or into the empty-state shell.
 
-**Architecture:** Keep the existing pet onboarding overlay intact and add a separate intro overlay component rendered by `PetCareRoot`. Move the persisted first-launch flag from "auto show onboarding" semantics to "auto show intro" semantics so startup, defer, and manual entry remain easy to reason about.
+**Architecture:** Keep the existing pet onboarding overlay intact and add a separate intro overlay component rendered by `PetNoteRoot`. Move the persisted first-launch flag from "auto show onboarding" semantics to "auto show intro" semantics so startup, defer, and manual entry remain easy to reason about.
 
 **Tech Stack:** Flutter, Material 3 widgets, `shared_preferences`, Flutter widget tests, file-structure tests
 
@@ -44,11 +44,11 @@ Add a store test that loads empty preferences, expects the new intro flag getter
 
 ```dart
 test('dismissing first-launch intro persists auto-show disabled', () async {
-  final store = await PetCareStore.load();
+  final store = await PetNoteStore.load();
 
   await store.dismissFirstLaunchIntro();
 
-  final reloaded = await PetCareStore.load();
+  final reloaded = await PetNoteStore.load();
   expect(reloaded.shouldAutoShowFirstLaunchIntro, isFalse);
 });
 ```
@@ -87,15 +87,15 @@ git commit -m "refactor: rename first-launch intro state"
 
 **Step 1: Write the failing test**
 
-Add a widget test that pumps `PetCareApp`, waits for startup, and expects a first-launch intro overlay with page-one copy and a continue button.
+Add a widget test that pumps `PetNoteApp`, waits for startup, and expects a first-launch intro overlay with page-one copy and a continue button.
 
 ```dart
 testWidgets('shows first-launch intro before pet onboarding', (tester) async {
-  await tester.pumpWidget(const PetCareApp());
+  await tester.pumpWidget(const PetNoteApp());
   await tester.pumpAndSettle();
 
   expect(find.byKey(const ValueKey('first_launch_intro_overlay')), findsOneWidget);
-  expect(find.text('欢迎来到宠伴'), findsOneWidget);
+  expect(find.text('欢迎来到宠记'), findsOneWidget);
   expect(find.widgetWithText(FilledButton, '继续'), findsOneWidget);
 });
 ```
@@ -115,7 +115,7 @@ Create `lib/app/pet_first_launch_intro.dart` with:
 - page indicator
 - primary CTA for page 1 and 2: `继续`
 - final-page primary CTA: `添加第一只宠物`
-- final-page secondary CTA: `先看看宠伴`
+- final-page secondary CTA: `先看看宠记`
 - keys for stable widget testing
 
 **Step 4: Run test to verify it passes**
@@ -148,7 +148,7 @@ Add widget coverage for:
 
 ```dart
 testWidgets('intro primary CTA opens pet onboarding on final page', (tester) async {
-  await tester.pumpWidget(const PetCareApp());
+  await tester.pumpWidget(const PetNoteApp());
   await tester.pumpAndSettle();
 
   await tester.tap(find.widgetWithText(FilledButton, '继续'));
@@ -194,7 +194,7 @@ git add F:/HarmonyProject/Pet/lib/app/pet_care_root.dart F:/HarmonyProject/Pet/l
 git commit -m "feat: show first-launch intro before onboarding"
 ```
 
-### Task 4: Persist "先看看宠伴" dismissal and preserve manual onboarding entry
+### Task 4: Persist "先看看宠记" dismissal and preserve manual onboarding entry
 
 **Files:**
 - Modify: `F:/HarmonyProject/Pet/lib/app/pet_care_root.dart`
@@ -205,20 +205,20 @@ git commit -m "feat: show first-launch intro before onboarding"
 
 Add widget coverage for:
 
-- choosing `先看看宠伴` hides intro
+- choosing `先看看宠记` hides intro
 - the intro does not auto-reappear on a fresh app pump
 - empty-state CTA still opens the onboarding overlay manually
 
 ```dart
 testWidgets('choosing explore first hides intro and preserves manual add flow', (tester) async {
-  await tester.pumpWidget(const PetCareApp());
+  await tester.pumpWidget(const PetNoteApp());
   await tester.pumpAndSettle();
 
   await tester.tap(find.widgetWithText(FilledButton, '继续'));
   await tester.pumpAndSettle();
   await tester.tap(find.widgetWithText(FilledButton, '继续'));
   await tester.pumpAndSettle();
-  await tester.tap(find.widgetWithText(TextButton, '先看看宠伴'));
+  await tester.tap(find.widgetWithText(TextButton, '先看看宠记'));
   await tester.pumpAndSettle();
 
   expect(find.byKey(const ValueKey('first_launch_intro_overlay')), findsNothing);
@@ -268,7 +268,7 @@ Add widget coverage for:
 
 ```dart
 testWidgets('deferring onboarding after intro returns to shell without reopening intro', (tester) async {
-  await tester.pumpWidget(const PetCareApp());
+  await tester.pumpWidget(const PetNoteApp());
   await tester.pumpAndSettle();
 
   await tester.tap(find.widgetWithText(FilledButton, '继续'));
@@ -319,18 +319,18 @@ git commit -m "fix: keep onboarding defer consistent after intro"
 
 Create a file-structure test that reads `lib/app/pet_first_launch_intro.dart` and checks for:
 
-- approved brand copy `欢迎来到宠伴`
+- approved brand copy `欢迎来到宠记`
 - final CTA `添加第一只宠物`
-- secondary CTA `先看看宠伴`
+- secondary CTA `先看看宠记`
 - approved icon references
 
 ```dart
 test('first-launch intro keeps approved brand copy and icon set', () {
   final source = File('lib/app/pet_first_launch_intro.dart').readAsStringSync();
 
-  expect(source.contains('欢迎来到宠伴'), isTrue);
+  expect(source.contains('欢迎来到宠记'), isTrue);
   expect(source.contains('添加第一只宠物'), isTrue);
-  expect(source.contains('先看看宠伴'), isTrue);
+  expect(source.contains('先看看宠记'), isTrue);
   expect(source.contains('Icons.pets_rounded'), isTrue);
 });
 ```

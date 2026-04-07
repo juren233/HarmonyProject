@@ -1,8 +1,8 @@
-# Pet Care MVP Implementation Plan
+# PetNote MVP Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a HarmonyOS high-fidelity runnable prototype for the pet care MVP with fixed bottom navigation, a global add sheet, pet-centered records, and local rule-based overview reports.
+**Goal:** Build a HarmonyOS high-fidelity runnable prototype for the PetNote MVP with fixed bottom navigation, a global add sheet, pet-centered records, and local rule-based overview reports.
 
 **Architecture:** Replace the starter page with an in-app shell that composes five fixed bottom-nav destinations and modal add flows. Keep business logic in typed models, a local in-memory store, and pure analysis services so the prototype feels complete now and can later swap in real HarmonyOS persistence, reminder, picker, and export implementations.
 
@@ -25,7 +25,7 @@ Replace the template local test with a simple smoke expectation that references 
 import { APP_TITLE } from '../main/ets/common/AppConstants'
 
 it('exposes app title', 0, () => {
-  expect(APP_TITLE).assertEqual('Pet Care')
+  expect(APP_TITLE).assertEqual('PetNote')
 })
 ```
 
@@ -67,7 +67,7 @@ git commit -m "chore: add pet app verification scaffold"
 ```ts
 import { samplePets, sampleTodos, sampleReminders, sampleRecords } from '../../main/ets/common/SampleData'
 
-it('builds sample pet care data', 0, () => {
+it('builds sample PetNote data', 0, () => {
   expect(samplePets.length).assertLarger(0)
   expect(sampleTodos.length).assertLarger(0)
   expect(sampleReminders.length).assertLarger(0)
@@ -106,7 +106,7 @@ Expected: PASS for the new sample-data test.
 
 ```bash
 git add entry/src/main/ets/common/AppConstants.ets entry/src/main/ets/models/PetModels.ets entry/src/main/ets/common/SampleData.ets entry/src/test/models/PetModels.test.ets
-git commit -m "feat: add pet care models and sample data"
+git commit -m "feat: add PetNote models and sample data"
 ```
 
 ### Task 3: Local Overview Analyzer
@@ -476,5 +476,5 @@ Check the prototype in HarmonyOS Preview or on-device for:
 
 ```bash
 git add entry/src/main/ets/pages/Index.ets entry/src/main/resources/base/element/string.json entry/src/main/resources/base/element/color.json entry/src/main/resources/base/element/float.json
-git commit -m "feat: finalize pet care MVP prototype"
+git commit -m "feat: finalize PetNote MVP prototype"
 ```

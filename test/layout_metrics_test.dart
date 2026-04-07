@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pet_care_harmony/app/layout_metrics.dart';
+import 'package:petnote/app/layout_metrics.dart';
 
 void main() {
   test('page padding uses a single set of explicit system insets', () {
@@ -13,7 +13,9 @@ void main() {
     expect(padding.bottom, 146);
   });
 
-  test('dock layout reserves gesture area inside the dock instead of outside it', () {
+  test(
+      'dock layout reserves gesture area inside the dock instead of outside it',
+      () {
     const insets = EdgeInsets.only(bottom: 24);
     final layout = dockLayoutForInsets(insets);
 

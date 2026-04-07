@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pet_care_harmony/state/app_settings_controller.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

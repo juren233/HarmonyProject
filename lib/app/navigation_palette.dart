@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:pet_care_harmony/app/app_theme.dart';
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 class NavigationAccent {
   const NavigationAccent(this.fill, this.label);
@@ -21,14 +21,17 @@ class NavigationAccent {
 
 NavigationAccent tabAccentFor(BuildContext context, AppTab tab) {
   final scheme = Theme.of(context).colorScheme;
-  final tokens = context.petCareTokens;
   return switch (tab) {
     AppTab.checklist => NavigationAccent(scheme.primary, scheme.primary),
     AppTab.overview =>
-      NavigationAccent(tokens.badgeBlueForeground, tokens.badgeBlueForeground),
-    AppTab.pets =>
-      NavigationAccent(tokens.badgeRedForeground, tokens.badgeRedForeground),
-    AppTab.me =>
-      NavigationAccent(tokens.badgeGoldForeground, tokens.badgeGoldForeground),
+      const NavigationAccent(Color(0xFF9B84E8), Color(0xFF9B84E8)),
+    AppTab.pets => NavigationAccent(
+        darkPetNoteTokens.badgeRedForeground,
+        darkPetNoteTokens.badgeRedForeground,
+      ),
+    AppTab.me => NavigationAccent(
+        darkPetNoteTokens.badgeBlueForeground,
+        darkPetNoteTokens.badgeBlueForeground,
+      ),
   };
 }

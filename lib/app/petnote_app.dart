@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:pet_care_harmony/app/app_theme.dart';
-import 'package:pet_care_harmony/app/pet_care_root.dart';
-import 'package:pet_care_harmony/state/app_settings_controller.dart';
+import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/petnote_root.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 
-class PetCareApp extends StatefulWidget {
-  const PetCareApp({super.key});
+class PetNoteApp extends StatefulWidget {
+  const PetNoteApp({super.key});
 
   @override
-  State<PetCareApp> createState() => _PetCareAppState();
+  State<PetNoteApp> createState() => _PetNoteAppState();
 }
 
-class _PetCareAppState extends State<PetCareApp> {
+class _PetNoteAppState extends State<PetNoteApp> {
   AppSettingsController? _settingsController;
 
   @override
@@ -35,7 +35,7 @@ class _PetCareAppState extends State<PetCareApp> {
     final settingsController = _settingsController;
     if (settingsController == null) {
       return MaterialApp(
-        title: 'Pet Care Harmony',
+        title: 'PetNote',
         debugShowCheckedModeBanner: false,
         locale: const Locale('zh', 'CN'),
         supportedLocales: const [
@@ -47,10 +47,10 @@ class _PetCareAppState extends State<PetCareApp> {
           GlobalCupertinoLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
         ],
-        theme: buildPetCareTheme(Brightness.light),
-        darkTheme: buildPetCareTheme(Brightness.dark),
+        theme: buildPetNoteTheme(Brightness.light),
+        darkTheme: buildPetNoteTheme(Brightness.dark),
         themeMode: ThemeMode.system,
-        home: const PetCareRoot(),
+        home: const PetNoteRoot(),
       );
     }
 
@@ -58,7 +58,7 @@ class _PetCareAppState extends State<PetCareApp> {
       animation: settingsController,
       builder: (context, _) {
         return MaterialApp(
-          title: 'Pet Care Harmony',
+          title: 'PetNote',
           debugShowCheckedModeBanner: false,
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [
@@ -70,10 +70,10 @@ class _PetCareAppState extends State<PetCareApp> {
             GlobalCupertinoLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
           ],
-          theme: buildPetCareTheme(Brightness.light),
-          darkTheme: buildPetCareTheme(Brightness.dark),
+          theme: buildPetNoteTheme(Brightness.light),
+          darkTheme: buildPetNoteTheme(Brightness.dark),
           themeMode: settingsController.themeMode,
-          home: PetCareRoot(settingsController: settingsController),
+          home: PetNoteRoot(settingsController: settingsController),
         );
       },
     );

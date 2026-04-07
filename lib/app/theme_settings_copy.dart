@@ -1,4 +1,4 @@
-import 'package:pet_care_harmony/state/app_settings_controller.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 
 const String themeSectionTitle = '主题与外观';
 const String currentThemeTitle = '当前主题';

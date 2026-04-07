@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:pet_care_harmony/app/common_widgets.dart';
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 class PetEditSheet extends StatefulWidget {
   const PetEditSheet({
@@ -9,7 +9,7 @@ class PetEditSheet extends StatefulWidget {
     required this.pet,
   });
 
-  final PetCareStore store;
+  final PetNoteStore store;
   final Pet pet;
 
   @override
@@ -142,10 +142,12 @@ class _PetEditSheetState extends State<PetEditSheet> {
                           const SizedBox(height: 6),
                           Text(
                             '更新名字、基础资料和照护备注，保存后会立刻同步到当前档案。',
-                            style:
-                                Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: const Color(0xFF6C7280),
-                                    ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: const Color(0xFF6C7280),
+                                ),
                           ),
                         ],
                       ),
@@ -245,8 +247,7 @@ class _PetEditSheetState extends State<PetEditSheet> {
                   width: double.infinity,
                   child: FilledButton(
                     key: const ValueKey('edit_pet_save_button'),
-                    onPressed:
-                        _isSaving || !_canSave ? null : _saveChanges,
+                    onPressed: _isSaving || !_canSave ? null : _saveChanges,
                     child: const Text('保存修改'),
                   ),
                 ),

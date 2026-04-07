@@ -1,11 +1,12 @@
-import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:pet_care_harmony/app/app_theme.dart';
-import 'package:pet_care_harmony/app/common_widgets.dart';
-import 'package:pet_care_harmony/app/pet_care_pages.dart';
-import 'package:pet_care_harmony/app/pet_onboarding_overlay.dart';
-import 'package:pet_care_harmony/state/pet_care_store.dart';
+import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/petnote_pages.dart';
+import 'package:petnote/app/pet_onboarding_overlay.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 enum AddAction { none, todo, reminder, record, pet }
 
@@ -17,193 +18,311 @@ class AddActionSheet extends StatefulWidget {
     required this.store,
   });
 
-  final PetCareStore store;
+  final PetNoteStore store;
 
   @override
-  State<AddActionSheet> createState() => _AddActionSheetState();
+  State<AddActionSheet> createState() => _AddSheetState();
 }
 
-class _AddActionSheetState extends State<AddActionSheet> {
-  static const _compactSheetHeight = 430.0;
+class _AddSheetState extends State<AddActionSheet>
+    with SingleTickerProviderStateMixin {
+  static const _compactSheetHeight = 448.0;
   static const _sheetRadius = 36.0;
+  static const _expandedTransitionDuration = Duration(milliseconds: 360);
+  static const _actionsRevealStart = 0.24;
+  static const _headerOverlayHeight = 112.0;
+  static const _actionsContentTopInset = 74.0;
+  static const _expandedContentTopInset = 112.0;
 
+  late final AnimationController _transitionController;
   AddAction _action = AddAction.none;
-  Timer? _transitionTimer;
-  bool _showTransitionGrid = false;
+  bool _isCollapsing = false;
 
-  bool get _isActionGrid => _action == AddAction.none;
-  bool get _isPetOnboarding => _action == AddAction.pet;
+  bool get _hasExpandedStage => _action != AddAction.none;
+  AddAction get _transitionAction => _action;
+  bool get _isPetOnboarding =>
+      _hasExpandedStage && _transitionAction == AddAction.pet;
+  Curve get _sheetMotionCurve =>
+      _isCollapsing ? Curves.easeInCubic : Curves.easeOutCubic;
+  double get _sheetMotionProgress =>
+      _sheetMotionCurve.transform(_transitionController.value);
+  double get _actionsRevealOpacity {
+    if (!_isCollapsing) {
+      return 0;
+    }
+    final progress = _transitionController.value;
+    if (progress >= _actionsRevealStart) {
+      return 0;
+    }
+    final revealProgress =
+        (1 - (progress / _actionsRevealStart)).clamp(0.0, 1.0);
+    return Curves.easeOutQuad.transform(revealProgress);
+  }
+
+  bool get _shouldRevealActions => _actionsRevealOpacity > 0;
   _AddSheetStage get _stage {
     if (_isPetOnboarding) {
       return _AddSheetStage.petOnboarding;
     }
-    if (_isActionGrid) {
+    if (!_hasExpandedStage) {
       return _AddSheetStage.actions;
     }
     return _AddSheetStage.expandedForm;
   }
 
   @override
+  void initState() {
+    super.initState();
+    _transitionController = AnimationController(
+      vsync: this,
+      duration: _expandedTransitionDuration,
+      reverseDuration: _expandedTransitionDuration,
+    )..addStatusListener(_handleTransitionStatus);
+  }
+
+  @override
   void dispose() {
-    _transitionTimer?.cancel();
+    _transitionController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final availableHeight =
-        mediaQuery.size.height - mediaQuery.padding.top - 12;
-    final isPetOnboarding = _isPetOnboarding;
-    final tokens = context.petCareTokens;
-    final sheetHeight = switch (_stage) {
-      _AddSheetStage.actions => _compactSheetHeight,
-      _AddSheetStage.expandedForm => availableHeight,
-      _AddSheetStage.petOnboarding => availableHeight,
-    };
+    return AnimatedBuilder(
+      animation: _transitionController,
+      builder: (context, _) {
+        final mediaQuery = MediaQuery.of(context);
+        final availableHeight =
+            mediaQuery.size.height - mediaQuery.padding.top - 12;
+        final tokens = context.petNoteTokens;
+        final shellProgress = _hasExpandedStage ? _sheetMotionProgress : 0.0;
+        final sheetHeight =
+            lerpDouble(_compactSheetHeight, availableHeight, shellProgress)!;
 
-    return ClipRRect(
-      key: const ValueKey('add_sheet_shell'),
-      borderRadius:
-          const BorderRadius.vertical(top: Radius.circular(_sheetRadius)),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-        height: sheetHeight,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 18,
-              right: 18,
-              top: 4,
-              bottom: mediaQuery.viewInsets.bottom + 18,
+        return ClipRRect(
+          key: const ValueKey('add_sheet_shell'),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(_sheetRadius)),
+          child: Container(
+            key: const ValueKey('add_sheet_surface'),
+            height: sheetHeight,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+              ),
             ),
-            child: Column(
-              children: [
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.topCenter,
-                  child: _buildHeader(context),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 18,
+                  right: 18,
+                  top: 4,
+                  bottom: mediaQuery.viewInsets.bottom + 18,
                 ),
-                Expanded(
-                  child: _buildBody(),
-                ),
-              ],
+                child: _buildSheetContent(context),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    if (!_isActionGrid) {
-      return const SizedBox.shrink();
+  Widget _buildSheetContent(BuildContext context) {
+    if (_stage == _AddSheetStage.petOnboarding) {
+      return _buildBody();
     }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildBody(),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          child: _buildHeaderTransition(context),
+        ),
+      ],
+    );
+  }
 
-    final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
-    return Padding(
-      key: ValueKey(_stage),
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
+  Widget _buildHeaderTransition(BuildContext context) {
+    final showExpandedHeader = _hasExpandedStage || _isCollapsing;
+    final showActionsHeader = !_hasExpandedStage || _shouldRevealActions;
+    final expandedOpacity =
+        _isCollapsing ? (1 - _actionsRevealOpacity).clamp(0.0, 1.0) : 1.0;
+    final actionsOpacity =
+        _hasExpandedStage ? _actionsRevealOpacity.clamp(0.0, 1.0) : 1.0;
+
+    return SizedBox(
+      key: const ValueKey('add_sheet_header_transition'),
+      height: _headerOverlayHeight,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _action == AddAction.none ? '新增内容' : _sheetTitle(_action),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: tokens.primaryText,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.8,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _action == AddAction.none
-                      ? '今天要给小宝加点什么新内容？'
-                      : '保存后会自动跳转详情页面。',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: tokens.secondaryText,
-                  ),
-                ),
-              ],
+          if (showActionsHeader)
+            _HeaderTransitionLayer(
+              key: const ValueKey('add_sheet_actions_header_transition'),
+              opacity: actionsOpacity,
+              translateY: 10 * (1 - actionsOpacity),
+              child: _ActionsHeader(),
             ),
-          ),
-          if (!_isActionGrid)
-            IconButton(
-              onPressed: () => setState(() => _action = AddAction.none),
-              icon: const Icon(Icons.arrow_forward_ios_rounded, size: 18),
-              color: tokens.secondaryText,
-              splashRadius: 18,
-              tooltip: '返回',
+          if (showExpandedHeader)
+            _HeaderTransitionLayer(
+              key: const ValueKey('add_sheet_expanded_header_transition'),
+              opacity: expandedOpacity,
+              translateY: -8 * _actionsRevealOpacity,
+              child: _ExpandedHeader(
+                title: _sheetTitle(_transitionAction),
+                onBack: _beginCollapseToActions,
+              ),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildExpandedPage(BuildContext context, {Key? key}) {
     if (_isPetOnboarding) {
-      return _buildExpandedTransition(
-        key: const ValueKey('manual_onboarding_sheet_transition'),
+      return KeyedSubtree(
+        key: key,
         child: PetOnboardingFlow(
           embedded: true,
           onSubmit: _submitPetOnboarding,
           onDefer: _closePetOnboarding,
+          onReturnToActions: _beginCollapseToActions,
         ),
       );
     }
 
-    if (_isActionGrid) {
-      return Align(
-        key: const ValueKey('add_actions_boundary'),
-        alignment: Alignment.topCenter,
-        child: RepaintBoundary(
-          child: _ActionGrid(
-            key: const ValueKey('actions'),
-            onSelect: _selectAction,
-          ),
-        ),
-      );
-    }
-
-    return _buildExpandedTransition(
-      key: const ValueKey('manual_expanded_form_transition'),
+    return KeyedSubtree(
+      key: key,
       child: RepaintBoundary(
         key: const ValueKey('add_form_boundary'),
         child: _ExpandedFormShell(
-          title: _sheetTitle(_action),
-          onBack: _resetToActions,
           child: KeyedSubtree(
-            key: ValueKey('${_action.name}_${widget.store.pets.isEmpty}'),
-            child: _buildExpandedFormBody(),
+            key: ValueKey(
+                '${_transitionAction.name}_${widget.store.pets.isEmpty}'),
+            child: _buildExpandedFormBody(_transitionAction),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildExpandedFormBody() {
+  Widget _buildBody() {
+    if (_stage == _AddSheetStage.petOnboarding) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_stage == _AddSheetStage.actions || _shouldRevealActions)
+            _buildActionsContent(
+              interactive: false,
+              opacity: _actionsRevealOpacity,
+              opacityKey: const ValueKey('add_sheet_actions_reveal_opacity'),
+              ignorePointerKey:
+                  const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+            ),
+          _buildExpandedTransition(
+            key: const ValueKey('manual_onboarding_sheet_transition'),
+            child: _buildExpandedPage(
+              context,
+              key: const ValueKey('expanded_pet_page'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_stage == _AddSheetStage.actions) {
+      return _buildActionsContent(
+        interactive: true,
+        opacity: 1,
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_stage == _AddSheetStage.actions || _shouldRevealActions)
+          _buildActionsContent(
+            interactive: false,
+            opacity: _actionsRevealOpacity,
+            opacityKey: const ValueKey('add_sheet_actions_reveal_opacity'),
+            ignorePointerKey:
+                const ValueKey('add_sheet_actions_reveal_ignore_pointer'),
+          ),
+        _buildExpandedTransition(
+          key: const ValueKey('manual_expanded_form_transition'),
+          child: _buildExpandedPage(
+            context,
+            key: ValueKey('expanded_page_${_transitionAction.name}'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionsContent({
+    required bool interactive,
+    required double opacity,
+    ValueKey<String>? opacityKey,
+    ValueKey<String>? ignorePointerKey,
+  }) {
+    final useReducedEffects = !interactive;
+    final actionsContent = useReducedEffects
+        ? ClipRect(
+            child: SingleChildScrollView(
+              key: const ValueKey('add_sheet_actions_content'),
+              physics: const NeverScrollableScrollPhysics(),
+              child: const Padding(
+                padding: EdgeInsets.only(top: _actionsContentTopInset),
+                child: _ActionGridPreview(),
+              ),
+            ),
+          )
+        : SingleChildScrollView(
+            key: const ValueKey('add_sheet_actions_content'),
+            child: Padding(
+              padding: const EdgeInsets.only(top: _actionsContentTopInset),
+              child: _ActionGrid(
+                key: const ValueKey('actions'),
+                onSelect: _selectAction,
+              ),
+            ),
+          );
+
+    return IgnorePointer(
+      key: ignorePointerKey,
+      ignoring: !interactive,
+      child: KeyedSubtree(
+        key: opacityKey,
+        child: Opacity(
+          opacity: opacity,
+          child: Align(
+            key: const ValueKey('add_actions_boundary'),
+            alignment: Alignment.topCenter,
+            child: RepaintBoundary(
+              child: actionsContent,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedFormBody(AddAction action) {
     if (widget.store.pets.isEmpty) {
       return _MissingPetPrerequisite(
-        action: _action,
+        action: action,
         onAddPet: _openPetOnboarding,
       );
     }
 
-    return switch (_action) {
+    return switch (action) {
       AddAction.todo =>
         _TodoForm(key: const ValueKey('todo'), store: widget.store),
       AddAction.reminder =>
@@ -219,51 +338,41 @@ class _AddActionSheetState extends State<AddActionSheet> {
     required Key key,
     required Widget child,
   }) {
-    return TweenAnimationBuilder<double>(
+    return AnimatedBuilder(
       key: key,
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
+      animation: _transitionController,
       child: child,
-      builder: (context, progress, expandedChild) {
-        final collapseProgress =
-            Curves.easeInCubic.transform((progress / 0.3).clamp(0.0, 1.0));
-        final revealProgress = Curves.easeOutCubic
-            .transform(((progress - 0.38) / 0.62).clamp(0.0, 1.0));
+      builder: (context, expandedChild) {
+        final progress = _sheetMotionProgress;
+        final tokens = context.petNoteTokens;
+        final foregroundOffset = 40.0 * (1 - progress);
+        final foregroundSurfaceOpacity =
+            _isCollapsing ? 1 - _actionsRevealOpacity : 1.0;
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            if (_showTransitionGrid)
-              IgnorePointer(
-                child: ClipRect(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    heightFactor: 1 - collapseProgress,
-                    child: Transform.translate(
-                      offset: Offset(0, -48 * collapseProgress),
-                      child: Opacity(
-                        opacity: 1 - collapseProgress,
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: RepaintBoundary(
-                            child: _ActionGrid(
-                              onSelect: (_) {},
-                            ),
-                          ),
-                        ),
+            IgnorePointer(
+              ignoring: _isCollapsing || progress < 0.999,
+              child: Transform.translate(
+                offset: Offset(0, foregroundOffset),
+                child: Opacity(
+                  key: const ValueKey('add_sheet_foreground_surface_opacity'),
+                  opacity: foregroundSurfaceOpacity.clamp(0.0, 1.0),
+                  child: DecoratedBox(
+                    key: const ValueKey('add_sheet_foreground_surface'),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          tokens.pageGradientTop,
+                          tokens.pageGradientBottom,
+                        ],
                       ),
                     ),
+                    child: expandedChild,
                   ),
-                ),
-              ),
-            IgnorePointer(
-              ignoring: revealProgress < 0.999,
-              child: Transform.translate(
-                offset: Offset(0, 44 * (1 - revealProgress)),
-                child: Opacity(
-                  opacity: revealProgress,
-                  child: expandedChild,
                 ),
               ),
             ),
@@ -299,50 +408,66 @@ class _AddActionSheetState extends State<AddActionSheet> {
     Navigator.of(context).pop();
   }
 
+  void _handleTransitionStatus(AnimationStatus status) {
+    if (!mounted) {
+      return;
+    }
+    if (status == AnimationStatus.dismissed && _isCollapsing) {
+      setState(() {
+        _isCollapsing = false;
+        _action = AddAction.none;
+      });
+    }
+  }
+
   void _selectAction(AddAction action) {
-    _transitionTimer?.cancel();
     if (action == AddAction.none) {
-      _resetToActions();
+      _beginCollapseToActions();
       return;
     }
 
+    _transitionController.stop();
     setState(() {
+      _isCollapsing = false;
       _action = action;
-      _showTransitionGrid = true;
     });
-    _transitionTimer = Timer(const Duration(milliseconds: 96), () {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _showTransitionGrid = false);
-    });
+    _transitionController.forward(from: 0);
   }
 
-  void _resetToActions() {
-    _transitionTimer?.cancel();
+  void _beginCollapseToActions() {
+    if (!_hasExpandedStage || _isCollapsing) {
+      return;
+    }
     setState(() {
-      _action = AddAction.none;
-      _showTransitionGrid = false;
+      _isCollapsing = true;
     });
+    if (_transitionController.value >= 1.0) {
+      _transitionController.reverse();
+      return;
+    }
+    _transitionController.reverse(from: _transitionController.value);
   }
 
   void _openPetOnboarding() {
-    _transitionTimer?.cancel();
+    _transitionController.stop();
     setState(() {
+      _isCollapsing = false;
       _action = AddAction.pet;
-      _showTransitionGrid = false;
     });
   }
 }
 
 class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({super.key, required this.onSelect});
+  const _ActionGrid({
+    super.key,
+    required this.onSelect,
+  });
 
   final ValueChanged<AddAction> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
@@ -406,6 +531,179 @@ class _ActionGrid extends StatelessWidget {
   }
 }
 
+class _ActionGridPreview extends StatelessWidget {
+  const _ActionGridPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增待办',
+                subtitle: '补货、清洁和轻任务',
+                icon: Icons.check_circle_outline_rounded,
+                color: tokens.badgeBlueBackground,
+                iconColor: tokens.badgeBlueForeground,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增提醒',
+                subtitle: '疫苗、驱虫和复诊',
+                icon: Icons.notifications_active_rounded,
+                color: tokens.badgeGoldBackground,
+                iconColor: tokens.badgeGoldForeground,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增记录',
+                subtitle: '病历、票据和照片',
+                icon: Icons.description_rounded,
+                color:
+                    isDark ? const Color(0xFF271F3B) : const Color(0xFFF4EEFF),
+                iconColor:
+                    isDark ? const Color(0xFFD2BEFF) : const Color(0xFF7250D0),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionPreviewCard(
+                title: '新增爱宠',
+                subtitle: '新建宠物完整档案',
+                icon: Icons.pets_rounded,
+                color:
+                    isDark ? const Color(0xFF173126) : const Color(0xFFEAF8EF),
+                iconColor:
+                    isDark ? const Color(0xFF9EDBBC) : const Color(0xFF2F8B63),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HeaderTransitionLayer extends StatelessWidget {
+  const _HeaderTransitionLayer({
+    super.key,
+    required this.opacity,
+    required this.translateY,
+    required this.child,
+  });
+
+  final double opacity;
+  final double translateY;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: opacity < 0.999,
+      child: Transform.translate(
+        offset: Offset(0, translateY),
+        child: Opacity(
+          opacity: opacity,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionsHeader extends StatelessWidget {
+  const _ActionsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    return Padding(
+      key: const ValueKey('add_actions_header_boundary'),
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '新增内容',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: tokens.primaryText,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.8,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '今天要给毛孩子加点什么新内容？',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: tokens.secondaryText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpandedHeader extends StatelessWidget {
+  const _ExpandedHeader({
+    required this.title,
+    required this.onBack,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: IconButton(
+                  key: const ValueKey('expanded_form_back_button'),
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  color: tokens.secondaryText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          title,
+          style: theme.textTheme.displaySmall?.copyWith(
+            color: tokens.primaryText,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.8,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ActionCard extends StatelessWidget {
   const _ActionCard({
     required this.title,
@@ -426,7 +724,7 @@ class _ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return FrostedPanel(
       padding: EdgeInsets.zero,
       child: Material(
@@ -474,10 +772,73 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
+class _ActionPreviewCard extends StatelessWidget {
+  const _ActionPreviewCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.iconColor,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.panelBackground,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: tokens.panelBorder, width: 1.0),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, color: iconColor),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: tokens.primaryText,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: tokens.secondaryText,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TodoForm extends StatefulWidget {
   const _TodoForm({super.key, required this.store});
 
-  final PetCareStore store;
+  final PetNoteStore store;
 
   @override
   State<_TodoForm> createState() => _TodoFormState();
@@ -487,13 +848,15 @@ class _TodoFormState extends State<_TodoForm> {
   final _title = TextEditingController();
   final _note = TextEditingController();
   late String _petId;
-  final _dueAt = DateTime.parse('2026-03-25T09:00:00+08:00');
+  late DateTime _dueAt;
   late final TextEditingController _dueAtText;
+  NotificationLeadTime _notificationLeadTime = NotificationLeadTime.none;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _dueAt = _defaultFutureDateTime();
     _dueAtText = TextEditingController(text: formatDate(_dueAt));
   }
 
@@ -507,45 +870,107 @@ class _TodoFormState extends State<_TodoForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SectionCard(
-          title: '基础信息',
-          children: [
-            const SectionLabel(text: '标题'),
-            HyperTextField(controller: _title, hintText: '例如：补货主粮'),
-            const SectionLabel(text: '关联爱宠'),
-            _PetSelector(
-                pets: widget.store.pets,
-                value: _petId,
-                onChanged: (value) => setState(() => _petId = value)),
-            const SectionLabel(text: '时间'),
-            HyperTextField(controller: _dueAtText, readOnly: true),
-            const SectionLabel(text: '备注'),
-            HyperTextField(
-                controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
-          ],
-        ),
-        FilledButton(
-          onPressed: () {
-            widget.store.addTodo(
-                title: _title.text.trim(),
-                petId: _petId,
-                dueAt: _dueAt,
-                note: _note.text.trim());
-            Navigator.pop(context);
-          },
-          child: const Text('保存待办'),
-        ),
-      ],
+    return _ExpandedFormContent(
+      actionLabel: '保存待办',
+      actionColor: const Color(0xFF4F7BFF),
+      onSubmit: () async {
+        await widget.store.addTodo(
+          title: _title.text.trim(),
+          petId: _petId,
+          dueAt: _dueAt,
+          notificationLeadTime: _notificationLeadTime,
+          note: _note.text.trim(),
+        );
+        if (!context.mounted) {
+          return;
+        }
+        Navigator.pop(context);
+      },
+      child: SectionCard(
+        title: '基础信息',
+        children: [
+          const SectionLabel(text: '标题'),
+          HyperTextField(controller: _title, hintText: '例如：补货主粮'),
+          const SectionLabel(text: '关联爱宠'),
+          _PetSelector(
+              pets: widget.store.pets,
+              value: _petId,
+              onChanged: (value) => setState(() => _petId = value)),
+          const SectionLabel(text: '时间'),
+          _AdaptiveDateTimeField(
+            materialFieldKey: const ValueKey('todo_due_at_field'),
+            iosDateFieldKey: const ValueKey('todo_due_date_field'),
+            iosTimeFieldKey: const ValueKey('todo_due_time_field'),
+            value: _dueAt,
+            onPickDateTime: _pickDueAt,
+            onPickDate: _pickDueDateOnIos,
+            onPickTime: _pickDueTimeOnIos,
+          ),
+          const SectionLabel(text: '提前通知'),
+          _ChoiceWrap<NotificationLeadTime>(
+            values: NotificationLeadTime.values,
+            selected: _notificationLeadTime,
+            labelBuilder: notificationLeadTimeLabel,
+            onChanged: (value) => setState(() => _notificationLeadTime = value),
+          ),
+          const SectionLabel(text: '备注'),
+          HyperTextField(controller: _note, hintText: '记录一下补货偏好', maxLines: 3),
+        ],
+      ),
     );
+  }
+
+  Future<void> _pickDueAt() async {
+    final nextDateTime = await _pickDateTime(context, initialValue: _dueAt);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _dueAt = nextDateTime;
+      _dueAtText.text = formatDate(_dueAt);
+    });
+  }
+
+  Future<void> _pickDueDateOnIos() async {
+    final nextDate = await _pickCupertinoDate(context, initialValue: _dueAt);
+    if (nextDate == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _dueAt = DateTime(
+        nextDate.year,
+        nextDate.month,
+        nextDate.day,
+        _dueAt.hour,
+        _dueAt.minute,
+      );
+      _dueAtText.text = formatDate(_dueAt);
+    });
+  }
+
+  Future<void> _pickDueTimeOnIos() async {
+    final nextDateTime =
+        await _pickCupertinoTime(context, initialValue: _dueAt);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _dueAt = DateTime(
+        _dueAt.year,
+        _dueAt.month,
+        _dueAt.day,
+        nextDateTime.hour,
+        nextDateTime.minute,
+      );
+      _dueAtText.text = formatDate(_dueAt);
+    });
   }
 }
 
 class _ReminderForm extends StatefulWidget {
   const _ReminderForm({super.key, required this.store});
 
-  final PetCareStore store;
+  final PetNoteStore store;
 
   @override
   State<_ReminderForm> createState() => _ReminderFormState();
@@ -557,13 +982,15 @@ class _ReminderFormState extends State<_ReminderForm> {
   final _recurrence = TextEditingController(text: '单次');
   late String _petId;
   ReminderKind _kind = ReminderKind.custom;
-  final _scheduledAt = DateTime.parse('2026-03-25T20:00:00+08:00');
+  late DateTime _scheduledAt;
   late final TextEditingController _scheduledAtText;
+  NotificationLeadTime _notificationLeadTime = NotificationLeadTime.none;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _scheduledAt = _defaultFutureDateTime();
     _scheduledAtText = TextEditingController(text: formatDate(_scheduledAt));
   }
 
@@ -578,56 +1005,120 @@ class _ReminderFormState extends State<_ReminderForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SectionCard(
-          title: '提醒信息',
-          children: [
-            const SectionLabel(text: '标题'),
-            HyperTextField(controller: _title, hintText: '例如：体内驱虫'),
-            const SectionLabel(text: '关联爱宠'),
-            _PetSelector(
-                pets: widget.store.pets,
-                value: _petId,
-                onChanged: (value) => setState(() => _petId = value)),
-            const SectionLabel(text: '提醒类型'),
-            _ChoiceWrap<ReminderKind>(
-              values: ReminderKind.values,
-              selected: _kind,
-              labelBuilder: _reminderKindLabel,
-              onChanged: (value) => setState(() => _kind = value),
-            ),
-            const SectionLabel(text: '时间'),
-            HyperTextField(controller: _scheduledAtText, readOnly: true),
-            const SectionLabel(text: '重复规则'),
-            HyperTextField(controller: _recurrence),
-            const SectionLabel(text: '备注'),
-            HyperTextField(controller: _note, maxLines: 3),
-          ],
-        ),
-        FilledButton(
-          onPressed: () {
-            widget.store.addReminder(
-              title: _title.text.trim(),
-              petId: _petId,
-              scheduledAt: _scheduledAt,
-              kind: _kind,
-              recurrence: _recurrence.text.trim(),
-              note: _note.text.trim(),
-            );
-            Navigator.pop(context);
-          },
-          child: const Text('保存提醒'),
-        ),
-      ],
+    return _ExpandedFormContent(
+      actionLabel: '保存提醒',
+      actionColor: const Color(0xFFF2A65A),
+      onSubmit: () async {
+        await widget.store.addReminder(
+          title: _title.text.trim(),
+          petId: _petId,
+          scheduledAt: _scheduledAt,
+          notificationLeadTime: _notificationLeadTime,
+          kind: _kind,
+          recurrence: _recurrence.text.trim(),
+          note: _note.text.trim(),
+        );
+        if (!context.mounted) {
+          return;
+        }
+        Navigator.pop(context);
+      },
+      child: SectionCard(
+        title: '提醒信息',
+        children: [
+          const SectionLabel(text: '标题'),
+          HyperTextField(controller: _title, hintText: '例如：体内驱虫'),
+          const SectionLabel(text: '关联爱宠'),
+          _PetSelector(
+              pets: widget.store.pets,
+              value: _petId,
+              onChanged: (value) => setState(() => _petId = value)),
+          const SectionLabel(text: '提醒类型'),
+          _ChoiceWrap<ReminderKind>(
+            values: ReminderKind.values,
+            selected: _kind,
+            labelBuilder: _reminderKindLabel,
+            onChanged: (value) => setState(() => _kind = value),
+          ),
+          const SectionLabel(text: '时间'),
+          _AdaptiveDateTimeField(
+            materialFieldKey: const ValueKey('reminder_scheduled_at_field'),
+            iosDateFieldKey: const ValueKey('reminder_scheduled_date_field'),
+            iosTimeFieldKey: const ValueKey('reminder_scheduled_time_field'),
+            value: _scheduledAt,
+            onPickDateTime: _pickScheduledAt,
+            onPickDate: _pickScheduledDateOnIos,
+            onPickTime: _pickScheduledTimeOnIos,
+          ),
+          const SectionLabel(text: '提前通知'),
+          _ChoiceWrap<NotificationLeadTime>(
+            values: NotificationLeadTime.values,
+            selected: _notificationLeadTime,
+            labelBuilder: notificationLeadTimeLabel,
+            onChanged: (value) => setState(() => _notificationLeadTime = value),
+          ),
+          const SectionLabel(text: '重复规则'),
+          HyperTextField(controller: _recurrence),
+          const SectionLabel(text: '备注'),
+          HyperTextField(controller: _note, maxLines: 3),
+        ],
+      ),
     );
+  }
+
+  Future<void> _pickScheduledAt() async {
+    final nextDateTime =
+        await _pickDateTime(context, initialValue: _scheduledAt);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _scheduledAt = nextDateTime;
+      _scheduledAtText.text = formatDate(_scheduledAt);
+    });
+  }
+
+  Future<void> _pickScheduledDateOnIos() async {
+    final nextDate =
+        await _pickCupertinoDate(context, initialValue: _scheduledAt);
+    if (nextDate == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _scheduledAt = DateTime(
+        nextDate.year,
+        nextDate.month,
+        nextDate.day,
+        _scheduledAt.hour,
+        _scheduledAt.minute,
+      );
+      _scheduledAtText.text = formatDate(_scheduledAt);
+    });
+  }
+
+  Future<void> _pickScheduledTimeOnIos() async {
+    final nextDateTime =
+        await _pickCupertinoTime(context, initialValue: _scheduledAt);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _scheduledAt = DateTime(
+        _scheduledAt.year,
+        _scheduledAt.month,
+        _scheduledAt.day,
+        nextDateTime.hour,
+        nextDateTime.minute,
+      );
+      _scheduledAtText.text = formatDate(_scheduledAt);
+    });
   }
 }
 
 class _RecordForm extends StatefulWidget {
   const _RecordForm({super.key, required this.store});
 
-  final PetCareStore store;
+  final PetNoteStore store;
 
   @override
   State<_RecordForm> createState() => _RecordFormState();
@@ -639,13 +1130,14 @@ class _RecordFormState extends State<_RecordForm> {
   final _note = TextEditingController();
   late String _petId;
   PetRecordType _type = PetRecordType.other;
-  final _recordDate = DateTime.parse('2026-03-24T19:00:00+08:00');
+  late DateTime _recordDate;
   late final TextEditingController _recordDateText;
 
   @override
   void initState() {
     super.initState();
     _petId = widget.store.pets.first.id;
+    _recordDate = DateTime.now();
     _recordDateText = TextEditingController(text: formatDate(_recordDate));
   }
 
@@ -660,56 +1152,112 @@ class _RecordFormState extends State<_RecordForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SectionCard(
-          title: '资料信息',
-          children: [
-            const SectionLabel(text: '关联爱宠'),
-            _PetSelector(
-                pets: widget.store.pets,
-                value: _petId,
-                onChanged: (value) => setState(() => _petId = value)),
-            const SectionLabel(text: '记录类型'),
-            _ChoiceWrap<PetRecordType>(
-              values: PetRecordType.values,
-              selected: _type,
-              labelBuilder: _recordTypeLabel,
-              onChanged: (value) => setState(() => _type = value),
-            ),
-            const SectionLabel(text: '标题'),
-            HyperTextField(controller: _title, hintText: '例如：体检结果'),
-            const SectionLabel(text: '时间'),
-            HyperTextField(controller: _recordDateText, readOnly: true),
-            const SectionLabel(text: '摘要'),
-            HyperTextField(controller: _summary, maxLines: 3),
-            const SectionLabel(text: '备注'),
-            HyperTextField(controller: _note, maxLines: 3),
-          ],
-        ),
-        FilledButton(
-          onPressed: () {
-            widget.store.addRecord(
-              petId: _petId,
-              type: _type,
-              title: _title.text.trim(),
-              recordDate: _recordDate,
-              summary: _summary.text.trim(),
-              note: _note.text.trim(),
-            );
-            Navigator.pop(context);
-          },
-          child: const Text('保存记录'),
-        ),
-      ],
+    return _ExpandedFormContent(
+      actionLabel: '保存记录',
+      actionColor: const Color(0xFF4FB57C),
+      onSubmit: () async {
+        await widget.store.addRecord(
+          petId: _petId,
+          type: _type,
+          title: _title.text.trim(),
+          recordDate: _recordDate,
+          summary: _summary.text.trim(),
+          note: _note.text.trim(),
+        );
+        if (!context.mounted) {
+          return;
+        }
+        Navigator.pop(context);
+      },
+      child: SectionCard(
+        title: '资料信息',
+        children: [
+          const SectionLabel(text: '关联爱宠'),
+          _PetSelector(
+              pets: widget.store.pets,
+              value: _petId,
+              onChanged: (value) => setState(() => _petId = value)),
+          const SectionLabel(text: '记录类型'),
+          _ChoiceWrap<PetRecordType>(
+            values: PetRecordType.values,
+            selected: _type,
+            labelBuilder: _recordTypeLabel,
+            onChanged: (value) => setState(() => _type = value),
+          ),
+          const SectionLabel(text: '标题'),
+          HyperTextField(controller: _title, hintText: '例如：体检结果'),
+          const SectionLabel(text: '时间'),
+          _AdaptiveDateTimeField(
+            materialFieldKey: const ValueKey('record_date_field'),
+            iosDateFieldKey: const ValueKey('record_date_date_field'),
+            iosTimeFieldKey: const ValueKey('record_date_time_field'),
+            value: _recordDate,
+            onPickDateTime: _pickRecordDate,
+            onPickDate: _pickRecordDateOnIos,
+            onPickTime: _pickRecordTimeOnIos,
+          ),
+          const SectionLabel(text: '摘要'),
+          HyperTextField(controller: _summary, maxLines: 3),
+          const SectionLabel(text: '备注'),
+          HyperTextField(controller: _note, maxLines: 3),
+        ],
+      ),
     );
+  }
+
+  Future<void> _pickRecordDate() async {
+    final nextDateTime =
+        await _pickDateTime(context, initialValue: _recordDate);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _recordDate = nextDateTime;
+      _recordDateText.text = formatDate(_recordDate);
+    });
+  }
+
+  Future<void> _pickRecordDateOnIos() async {
+    final nextDate =
+        await _pickCupertinoDate(context, initialValue: _recordDate);
+    if (nextDate == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _recordDate = DateTime(
+        nextDate.year,
+        nextDate.month,
+        nextDate.day,
+        _recordDate.hour,
+        _recordDate.minute,
+      );
+      _recordDateText.text = formatDate(_recordDate);
+    });
+  }
+
+  Future<void> _pickRecordTimeOnIos() async {
+    final nextDateTime =
+        await _pickCupertinoTime(context, initialValue: _recordDate);
+    if (nextDateTime == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _recordDate = DateTime(
+        _recordDate.year,
+        _recordDate.month,
+        _recordDate.day,
+        nextDateTime.hour,
+        nextDateTime.minute,
+      );
+      _recordDateText.text = formatDate(_recordDate);
+    });
   }
 }
 
 class _PetForm extends StatefulWidget {
-  const _PetForm({super.key, required this.store});
+  const _PetForm({required this.store});
 
-  final PetCareStore store;
+  final PetNoteStore store;
 
   @override
   State<_PetForm> createState() => _PetFormState();
@@ -819,57 +1367,321 @@ class _FormShell extends StatelessWidget {
 
 class _ExpandedFormShell extends StatelessWidget {
   const _ExpandedFormShell({
-    required this.title,
-    required this.onBack,
     required this.child,
   });
 
-  final String title;
-  final VoidCallback onBack;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petCareTokens;
+    return Padding(
+      padding:
+          const EdgeInsets.only(top: _AddSheetState._expandedContentTopInset),
+      child: child,
+    );
+  }
+}
+
+class _ExpandedFormContent extends StatelessWidget {
+  const _ExpandedFormContent({
+    required this.child,
+    required this.actionLabel,
+    required this.onSubmit,
+    required this.actionColor,
+  });
+
+  final Widget child;
+  final String actionLabel;
+  final Future<void> Function() onSubmit;
+  final Color actionColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          height: 48,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: IconButton(
-                  key: const ValueKey('expanded_form_back_button'),
-                  onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  color: tokens.secondaryText,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          title,
-          style: theme.textTheme.displaySmall?.copyWith(
-            color: tokens.primaryText,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.8,
-          ),
-        ),
-        const SizedBox(height: 18),
         Expanded(
           child: SingleChildScrollView(
+            padding: EdgeInsets.only(bottom: bottomInset + 24),
             child: child,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SafeArea(
+          top: false,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: actionColor,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: onSubmit,
+            child: Text(actionLabel),
           ),
         ),
       ],
     );
   }
+}
+
+class _AdaptiveDateTimeField extends StatelessWidget {
+  const _AdaptiveDateTimeField({
+    required this.materialFieldKey,
+    required this.iosDateFieldKey,
+    required this.iosTimeFieldKey,
+    required this.value,
+    required this.onPickDateTime,
+    required this.onPickDate,
+    required this.onPickTime,
+  });
+
+  final Key materialFieldKey;
+  final Key iosDateFieldKey;
+  final Key iosTimeFieldKey;
+  final DateTime value;
+  final Future<void> Function() onPickDateTime;
+  final Future<void> Function() onPickDate;
+  final Future<void> Function() onPickTime;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Theme.of(context).platform != TargetPlatform.iOS) {
+      final tokens = context.petNoteTokens;
+      return InkWell(
+        key: materialFieldKey,
+        borderRadius: BorderRadius.circular(22),
+        onTap: onPickDateTime,
+        child: InputDecorator(
+          decoration: const InputDecoration(),
+          child: Text(
+            formatDate(value),
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: tokens.primaryText,
+                ),
+          ),
+        ),
+      );
+    }
+
+    final tokens = context.petNoteTokens;
+    return Container(
+      decoration: BoxDecoration(
+        color: tokens.panelBackground,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: tokens.panelBorder, width: 1.1),
+      ),
+      child: Column(
+        children: [
+          _IosPickerRow(
+            key: iosDateFieldKey,
+            icon: CupertinoIcons.calendar,
+            label: '日期',
+            value: _formatIosDate(value),
+            onTap: onPickDate,
+          ),
+          Divider(height: 1, color: tokens.panelBorder),
+          _IosPickerRow(
+            key: iosTimeFieldKey,
+            icon: CupertinoIcons.time,
+            label: '时间',
+            value: _formatIosTime(value),
+            onTap: onPickTime,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IosPickerRow extends StatelessWidget {
+  const _IosPickerRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: tokens.secondaryText, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: tokens.primaryText,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+DateTime _defaultFutureDateTime() {
+  final now = DateTime.now().add(const Duration(hours: 1));
+  final nextMinute = ((now.minute / 5).ceil() * 5) % 60;
+  final nextHour = nextMinute == 0 ? now.hour + 1 : now.hour;
+  return DateTime(
+    now.year,
+    now.month,
+    now.day,
+    nextHour,
+    nextMinute,
+  );
+}
+
+Future<DateTime?> _pickDateTime(
+  BuildContext context, {
+  required DateTime initialValue,
+}) async {
+  final date = await showDatePicker(
+    context: context,
+    initialDate: initialValue,
+    firstDate: DateTime(2020),
+    lastDate: DateTime(2100),
+  );
+  if (date == null || !context.mounted) {
+    return null;
+  }
+
+  final time = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.fromDateTime(initialValue),
+  );
+  if (time == null) {
+    return null;
+  }
+
+  return DateTime(
+    date.year,
+    date.month,
+    date.day,
+    time.hour,
+    time.minute,
+  );
+}
+
+Future<DateTime?> _pickCupertinoDate(
+  BuildContext context, {
+  required DateTime initialValue,
+}) {
+  return _showCupertinoPickerSheet(
+    context,
+    initialValue: initialValue,
+    mode: CupertinoDatePickerMode.date,
+  );
+}
+
+Future<DateTime?> _pickCupertinoTime(
+  BuildContext context, {
+  required DateTime initialValue,
+}) {
+  return _showCupertinoPickerSheet(
+    context,
+    initialValue: initialValue,
+    mode: CupertinoDatePickerMode.time,
+  );
+}
+
+Future<DateTime?> _showCupertinoPickerSheet(
+  BuildContext context, {
+  required DateTime initialValue,
+  required CupertinoDatePickerMode mode,
+}) {
+  var pickedValue = initialValue;
+  return showCupertinoModalPopup<DateTime>(
+    context: context,
+    builder: (popupContext) {
+      final brightness = Theme.of(context).brightness;
+      final backgroundColor = brightness == Brightness.dark
+          ? const Color(0xFF1C1C1E)
+          : Colors.white;
+      return Container(
+        height: 320,
+        padding: const EdgeInsets.only(top: 12),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(popupContext).pop(),
+                    child: const Text('取消'),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () =>
+                        Navigator.of(popupContext).pop(pickedValue),
+                    child: const Text('完成'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: mode,
+                use24hFormat: false,
+                initialDateTime: initialValue,
+                onDateTimeChanged: (value) {
+                  pickedValue = value;
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+String _formatIosDate(DateTime value) {
+  final now = DateTime.now();
+  final isToday = value.year == now.year &&
+      value.month == now.month &&
+      value.day == now.day;
+  if (isToday) {
+    return '今天';
+  }
+  return '${value.year}年${value.month}月${value.day}日';
+}
+
+String _formatIosTime(DateTime value) {
+  final period = value.hour < 12 ? '上午' : '下午';
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$period $hour:$minute';
 }
 
 class _MissingPetPrerequisite extends StatelessWidget {
@@ -913,7 +1725,7 @@ class _PetSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return Wrap(
       spacing: 10,
       runSpacing: 10,
@@ -963,7 +1775,7 @@ class _ChoiceWrap<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petCareTokens;
+    final tokens = context.petNoteTokens;
     return Wrap(
       spacing: 10,
       runSpacing: 10,
