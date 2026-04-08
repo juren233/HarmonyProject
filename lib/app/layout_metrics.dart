@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 const double _pageHorizontalPadding = 18;
+const double onboardingPageHorizontalPadding = 20;
 const double _pageTopSpacing = 8;
 const double _pageBottomReserve = 122;
 const double _dockShellBaseHeight = 78;

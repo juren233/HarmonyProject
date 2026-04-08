@@ -4,6 +4,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/pet_onboarding_taxonomy.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -250,22 +251,30 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
 
     final externalRevealProgress = _externalRevealProgress();
 
-    return AnimatedBuilder(
-      animation: _entryController,
-      builder: (context, _) {
-        return SizedBox.expand(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, topInset, 20, bottomInset),
+    return WillPopScope(
+      onWillPop: _handleSystemBack,
+      child: AnimatedBuilder(
+        animation: _entryController,
+        builder: (context, _) {
+          return SizedBox.expand(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildEntranceReveal(
-                  key: const ValueKey('onboarding_top_bar_reveal'),
-                  progress: widget.animateInitialEntry
-                      ? _stageProgress(_entryController.value, 0.02, 0.54)
-                      : externalRevealProgress,
-                  offsetY: 0,
-                  child: _buildTopBar(context),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    onboardingPageHorizontalPadding,
+                    topInset,
+                    onboardingPageHorizontalPadding,
+                    0,
+                  ),
+                  child: _buildEntranceReveal(
+                    key: const ValueKey('onboarding_top_bar_reveal'),
+                    progress: widget.animateInitialEntry
+                        ? _stageProgress(_entryController.value, 0.02, 0.54)
+                        : externalRevealProgress,
+                    offsetY: 0,
+                    child: _buildTopBar(context),
+                  ),
                 ),
                 const SizedBox(height: 18),
                 Expanded(
@@ -275,15 +284,15 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _steps.length,
                     itemBuilder: (context, index) {
-                      return _buildStepPage(context, index);
+                      return _buildStepPage(context, index, bottomInset);
                     },
                   ),
                 ),
               ],
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -432,7 +441,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     );
   }
 
-  Widget _buildStepPage(BuildContext context, int index) {
+  Widget _buildStepPage(BuildContext context, int index, double bottomInset) {
     final step = _steps[index];
     final isFirstStep = index == 0;
     final isCurrentStep = index == _stepIndex;
@@ -448,95 +457,103 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
             : externalRevealProgress
         : 1.0;
 
-    return Column(
-      key: ValueKey('onboarding_step_page_$index'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildEntranceReveal(
-          key: isFirstStep
-              ? const ValueKey('onboarding_first_step_content_reveal')
-              : ValueKey('onboarding_step_${index}_content_reveal'),
-          progress: contentProgress,
-          offsetY: 24,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                step.title,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: context.petNoteTokens.primaryText,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -1,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                step.subtitle,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: context.petNoteTokens.secondaryText,
-                      fontWeight: FontWeight.w500,
-                    ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _buildEntranceReveal(
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        onboardingPageHorizontalPadding,
+        0,
+        onboardingPageHorizontalPadding,
+        bottomInset,
+      ),
+      child: Column(
+        key: ValueKey('onboarding_step_page_$index'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildEntranceReveal(
+            key: isFirstStep
+                ? const ValueKey('onboarding_first_step_content_reveal')
+                : ValueKey('onboarding_step_${index}_content_reveal'),
             progress: contentProgress,
-            offsetY: 18,
-            child: SingleChildScrollView(
-              child: _buildStepCardFor(context, index),
+            offsetY: 24,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  step.title,
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        color: context.petNoteTokens.primaryText,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -1,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  step.subtitle,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.petNoteTokens.secondaryText,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+                const SizedBox(height: 20),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _buildEntranceReveal(
-          key: isFirstStep
-              ? const ValueKey('onboarding_first_step_actions_reveal')
-              : ValueKey('onboarding_step_${index}_actions_reveal'),
-          progress: actionProgress,
-          offsetY: 20,
-          child: Column(
-            children: [
-              if (_showSkipButtonFor(index))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      key: isCurrentStep
-                          ? const ValueKey('onboarding_skip_button')
-                          : null,
-                      onPressed: !isCurrentStep || _isSubmitting
-                          ? null
-                          : _skipCurrentStep,
-                      child: const Text('跳过'),
+          Expanded(
+            child: _buildEntranceReveal(
+              progress: contentProgress,
+              offsetY: 18,
+              child: SingleChildScrollView(
+                child: _buildStepCardFor(context, index),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildEntranceReveal(
+            key: isFirstStep
+                ? const ValueKey('onboarding_first_step_actions_reveal')
+                : ValueKey('onboarding_step_${index}_actions_reveal'),
+            progress: actionProgress,
+            offsetY: 20,
+            child: Column(
+              children: [
+                if (_showSkipButtonFor(index))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        key: isCurrentStep
+                            ? const ValueKey('onboarding_skip_button')
+                            : null,
+                        onPressed: !isCurrentStep || _isSubmitting
+                            ? null
+                            : _skipCurrentStep,
+                        child: const Text('跳过'),
+                      ),
                     ),
                   ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: isCurrentStep
+                        ? ValueKey(
+                            index == _steps.length - 1
+                                ? 'onboarding_save_button'
+                                : 'onboarding_continue_button',
+                          )
+                        : null,
+                    onPressed: !isCurrentStep || _isSubmitting
+                        ? null
+                        : index == _steps.length - 1
+                            ? _save
+                            : (_canContinue ? _goNext : null),
+                    child: Text(index == _steps.length - 1 ? '保存爱宠' : '继续'),
+                  ),
                 ),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: isCurrentStep
-                      ? ValueKey(
-                          index == _steps.length - 1
-                              ? 'onboarding_save_button'
-                              : 'onboarding_continue_button',
-                        )
-                      : null,
-                  onPressed: !isCurrentStep || _isSubmitting
-                      ? null
-                      : index == _steps.length - 1
-                          ? _save
-                          : (_canContinue ? _goNext : null),
-                  child: Text(index == _steps.length - 1 ? '保存爱宠' : '继续'),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -763,6 +780,32 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     if (mounted) {
       setState(() {});
     }
+  }
+
+  Future<bool> _handleSystemBack() async {
+    if (_isSubmitting) {
+      return false;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    if (_stepIndex > 0) {
+      _goBack();
+      return false;
+    }
+
+    if (widget.embedded && widget.onReturnToActions != null) {
+      widget.onReturnToActions!.call();
+      return false;
+    }
+
+    if (widget.onReturnToIntro != null) {
+      widget.onReturnToIntro!.call();
+      return false;
+    }
+
+    await widget.onDefer();
+    return false;
   }
 
   void _goBack() {

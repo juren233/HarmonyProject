@@ -117,8 +117,8 @@ class _AddSheetState extends State<AddActionSheet>
               top: false,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left: 18,
-                  right: 18,
+                  left: _stage == _AddSheetStage.petOnboarding ? 0 : 18,
+                  right: _stage == _AddSheetStage.petOnboarding ? 0 : 18,
                   top: 4,
                   bottom: mediaQuery.viewInsets.bottom + 18,
                 ),

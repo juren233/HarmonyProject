@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/layout_metrics.dart';
 
 class PetFirstLaunchIntro extends StatefulWidget {
   const PetFirstLaunchIntro({
@@ -28,7 +29,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _launchPawStartSize = 208.0;
   static const _launchPawEndSize = 112.0;
   static const _sharedIndicatorColor = Color(0xFFF2A65A);
-  static const _pageHorizontalPadding = 20.0;
+  static const _pageHorizontalPadding = onboardingPageHorizontalPadding;
   static const _pageContentRevealDuration = Duration(milliseconds: 680);
   static const _privacyLockAnimationDuration = Duration(milliseconds: 1220);
   static const _firstPageIndicatorDelay = Duration(milliseconds: 500);

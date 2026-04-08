@@ -370,8 +370,10 @@ void main() {
       find.byKey(const ValueKey('first_launch_intro_page_view')),
     );
     final controller = pageView.controller!;
+    final titleRect = tester.getRect(find.text('欢迎来到宠记'));
 
     expect(controller.viewportFraction, 1.0);
+    expect(titleRect.left, closeTo(20, 0.5));
   });
 
   testWidgets(
@@ -1848,8 +1850,61 @@ void main() {
     expect(find.text('新增爱宠'), findsOneWidget);
   });
 
-  testWidgets(
-      'dock add pet transition keeps the foreground settling without revealing the action grid',
+  testWidgets('system back from dock add-pet onboarding returns to actions instead of exiting',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('新增内容'), findsOneWidget);
+    expect(find.text('新增爱宠'), findsOneWidget);
+    expect(find.byKey(const ValueKey('manual_onboarding_sheet_transition')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+  });
+
+  testWidgets('system back from a later add-pet onboarding step returns to the previous step',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_name_field')),
+      'Mochi',
+    );
+    await tester.tap(find.text('猫'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择品种'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('先认识一下'), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding_name_field')), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+  });
+
+  testWidgets('dock add pet transition keeps the foreground settling without revealing the action grid',
       (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
     await tester.pumpWidget(const PetNoteApp());
@@ -1912,6 +1967,53 @@ void main() {
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool(_firstLaunchIntroAutoEnabledKey), isTrue);
+  });
+
+  testWidgets('embedded add-pet onboarding PageView spans the sheet width',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final pageViewRect =
+        tester.getRect(find.byKey(const ValueKey('onboarding_step_page_view')));
+
+    expect(pageViewRect.left, closeTo(shellRect.left, 0.5));
+    expect(pageViewRect.right, closeTo(shellRect.right, 0.5));
+  });
+
+
+
+  testWidgets('embedded add-pet onboarding content keeps intro-aligned padding',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final pageRect =
+        tester.getRect(find.byKey(const ValueKey('onboarding_step_page_0')));
+
+    expect(pageRect.left - shellRect.left, closeTo(20, 0.5));
   });
 
   testWidgets('uses an enlarged dock with unified 17px outer margins',
