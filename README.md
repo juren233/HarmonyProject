@@ -107,9 +107,16 @@ git submodule update --init --recursive
 - 在 DevEco Studio 里打开 [ohos](./ohos)
 - 使用 OHOS Flutter
 - 在这个工程里调试鸿蒙真机 / 虚拟机
-- 现在可以直接点 DevEco 的运行按钮，不需要再手动先跑一次 Harmony 脚本来切状态
+- 新机器首次拉仓库后，先执行一次 `powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
+- 初始化完成后可以直接点 DevEco 的运行按钮，不需要再手动先跑一次 Harmony 脚本来切状态
 - DevEco Studio 直接运行会使用仓库内自管的 OHOS hvigor 插件副本，而不是直接改动子模块里的 upstream 插件源码
 - DevEco Studio 的一键编译 / 运行流程可用于 Windows，也可用于 macOS
+
+当前仓库对 DevEco / Harmony 的协作约定补充如下：
+
+- [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 现在作为“共享调试 profile 基线文件”提交到仓库，用来保证 bundle name 与仓库内应用配置保持一致，并作为本地设备绑定 profile 的生成基线
+- `ohos/local.properties` 仍然是本地文件，不进仓库；它由 `scripts/flutter-ohos.ps1 -Mode init` 按当前机器的 DevEco SDK、Node.js 和项目内 OHOS Flutter 路径自动生成 / 校正
+- `ohos/sign/` 目录下其余证书、签名链、`p7b`、`cer`、设备绑定 profile 等内容，仍然属于本地生成物，不要提交
 
 你在 `ohos` 子工程里通常会看到：
 
@@ -226,6 +233,9 @@ flutter run --debug -d <device-id>
 Windows PowerShell：
 
 ```powershell
+# 新机器首次初始化 Harmony 本地环境
+powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init
+
 # 跑测试
 powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode test
 
@@ -244,6 +254,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode run -T
 # 构建、安装并启动 Harmony 真机
 powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode run -TargetPlatform arm64 -DeviceId <hdc-device-id>
 ```
+
+如果你的 DevEco Studio、SDK 或 OpenHarmony toolchains 不在默认安装路径，先在当前终端设置 `DEVECO_HOME`、`DEVECO_SDK_HOME` 或 `HARMONY_TOOLCHAIN_HOME`，再执行上面的 `-Mode init`。
 
 macOS 终端：
 
@@ -333,7 +345,9 @@ open -a "DevEco Studio" .
 - Harmony 真机通常使用 `arm64`
 - Harmony 命令行脚本当前按 Windows + DevEco Studio 工具链编写，建议只在 Windows 上执行
 - macOS 可走 DevEco Studio 一键编译 / 运行，也可以走上面的 `ohpm + hvigorw` 终端构建命令
+- Windows 新机器第一次使用 Harmony / DevEco 前，先执行一次 `powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
 - 脚本会自动处理本地调试签名
+- `-Mode init` 会自动生成 / 校正本机的 [ohos/local.properties](./ohos/local.properties)，并固定让 Harmony 继续使用项目内 OHOS Flutter，不会把 Android / iOS 切到 OHOS Flutter
 - 脚本也会自动校验仓库内 hvigor 插件副本，避免 IDE / hvigor 误读根目录的官方 Flutter `package_config`
 - DevEco 直跑链路也会做同样的状态隔离，不需要额外手动切 Flutter SDK
 
@@ -403,9 +417,10 @@ open -a "DevEco Studio" .
 - `.dart_tool/`
 - `.flutter-plugins`
 - `.flutter-plugins-dependencies`
+- `ohos/.idea/` 本地 IDE 状态文件
 - `ohos/node_modules/`
 - `ohos/oh_modules/`
-- `ohos/sign/`
+- `ohos/sign/` 下除 [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 之外的本地签名产物
 - `.signing-temp/`
 - `android/key.properties`
 - `android/signing/`
@@ -450,7 +465,7 @@ open -a "DevEco Studio" .
   因为 hvigor 插件会在构建前自动备份共享状态、切换到 OHOS Flutter、必要时刷新 `package_config`，构建后再恢复。
 
 - “为什么 DevEco 运行前有时仍然建议先跑一次 Harmony 脚本？”
-  因为脚本会顺手完成子模块初始化、签名修复和 hvigor 补丁兜底，适合首次拉仓库或本地环境刚变化之后使用。
+  因为脚本会顺手完成子模块初始化、本机 `ohos/local.properties` 校正、签名修复和 hvigor 补丁兜底，适合首次拉仓库或本地环境刚变化之后使用。
 
 - “为什么不要直接把 OHOS Flutter SDK 当普通目录提交？”
   因为体积太大，而且不利于升级和团队同步，子模块更可控。

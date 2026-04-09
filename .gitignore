@@ -43,7 +43,8 @@ node_modules/
 package-lock.json
 
 # Signing
-ohos/sign/
+ohos/sign/*
+!ohos/sign/debug-profile.json
 .signing-temp/
 android/key.properties
 android/signing/

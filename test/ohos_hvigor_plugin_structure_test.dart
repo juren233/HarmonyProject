@@ -128,6 +128,10 @@ void main() {
         script.contains(
             'restoreFlutterSharedState(flutterProjectPath, sessionStateBackupRoot)'),
         isTrue);
+    expect(
+      script.contains(r'if ($content -eq $originalContent) {'),
+      isTrue,
+    );
   });
 
   test('OHOS hvigor plugin refreshes stale package_graph snapshots for the current app package', () {

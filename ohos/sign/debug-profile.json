@@ -1,0 +1,17 @@
+{
+  "type": "debug",
+  "app-distribution-type": "debug",
+  "version-name": "1.0.0",
+  "version-code": 1,
+  "uuid": "00000000-0000-0000-0000-000000000000",
+  "validity": {
+    "not-before": 0,
+    "not-after": 315360000
+  },
+  "bundle-info": {
+    "bundle-name": "com.krustykrab.petnote"
+  },
+  "debug-info": {
+    "device-ids": []
+  }
+}

@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('test', 'build', 'install', 'run')]
+  [ValidateSet('init', 'test', 'build', 'install', 'run')]
   [string]$Mode = 'build',
   [ValidateSet('x64', 'arm64', 'arm')]
   [string]$TargetPlatform = 'x64',
@@ -31,6 +31,39 @@ function Resolve-ExistingPath {
   }
 
   throw "$Label was not found."
+}
+
+function Resolve-CommandDirectory {
+  param(
+    [string[]]$Candidates,
+    [string]$Label
+  )
+
+  foreach ($candidate in $Candidates) {
+    if (-not $candidate) {
+      continue
+    }
+
+    $command = Get-Command $candidate -ErrorAction SilentlyContinue
+    if ($command) {
+      return (Split-Path $command.Source -Parent)
+    }
+  }
+
+  throw "$Label was not found."
+}
+
+function Get-OptionalCommandDirectory {
+  param(
+    [string[]]$Candidates
+  )
+
+  try {
+    return Resolve-CommandDirectory -Candidates $Candidates -Label ($Candidates -join '/')
+  }
+  catch {
+    return $null
+  }
 }
 
 function Invoke-Checked {
@@ -71,6 +104,88 @@ function Ensure-OhosFlutterSubmodule {
   Invoke-Checked -Executable $git -Arguments @('-C', $RepoRoot, 'submodule', 'update', '--init', '--recursive', '.flutter_ohos_sdk_gitcode')
 }
 
+function Get-PropertiesMap {
+  param(
+    [string]$Path
+  )
+
+  $properties = @{}
+  if (-not (Test-Path $Path)) {
+    return $properties
+  }
+
+  foreach ($line in Get-Content -Path $Path) {
+    if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith('#')) {
+      continue
+    }
+
+    $parts = $line -split '=', 2
+    if ($parts.Count -ne 2) {
+      continue
+    }
+
+    $key = $parts[0].Trim()
+    $value = $parts[1].Trim().Replace('\\', '\')
+    $properties[$key] = $value
+  }
+
+  return $properties
+}
+
+function Convert-ToPropertiesPathValue {
+  param(
+    [string]$Value
+  )
+
+  return $Value.Replace('\', '\\')
+}
+
+function Ensure-OhosLocalProperties {
+  param(
+    [string]$LocalPropertiesPath,
+    [string]$DevEcoSdkHome,
+    [string]$NodejsDir,
+    [string]$FlutterSdkRoot
+  )
+
+  $existingProperties = Get-PropertiesMap -Path $LocalPropertiesPath
+  $versionName = if ($existingProperties.ContainsKey('flutter.versionName')) {
+    [string]$existingProperties['flutter.versionName']
+  }
+  else {
+    '1.0.0'
+  }
+  $versionCode = if ($existingProperties.ContainsKey('flutter.versionCode')) {
+    [string]$existingProperties['flutter.versionCode']
+  }
+  else {
+    '1000000'
+  }
+
+  $content = @(
+    "hwsdk.dir=$(Convert-ToPropertiesPathValue -Value $DevEcoSdkHome)"
+    "nodejs.dir=$(Convert-ToPropertiesPathValue -Value $NodejsDir)"
+    "flutter.sdk=$(Convert-ToPropertiesPathValue -Value $FlutterSdkRoot)"
+    "flutter.versionName=$versionName"
+    "flutter.versionCode=$versionCode"
+  ) -join "`r`n"
+  $desiredContent = $content + "`r`n"
+
+  $currentContent = if (Test-Path $LocalPropertiesPath) {
+    (Get-Content -Path $LocalPropertiesPath -Raw).Replace("`r`n", "`n")
+  }
+  else {
+    $null
+  }
+  $normalizedDesiredContent = $desiredContent.Replace("`r`n", "`n")
+
+  if ($currentContent -eq $normalizedDesiredContent) {
+    return
+  }
+
+  Set-Content -Path $LocalPropertiesPath -Value $desiredContent -Encoding ascii
+}
+
 function Ensure-HvigorPluginPatched {
   param(
     [string]$FilePath
@@ -80,7 +195,8 @@ function Ensure-HvigorPluginPatched {
     return
   }
 
-  $content = (Get-Content -Path $FilePath -Raw).Replace("`r`n", "`n")
+  $originalContent = (Get-Content -Path $FilePath -Raw).Replace("`r`n", "`n")
+  $content = $originalContent
 
   $refreshStartMarker = "console.info('Refresh Flutter package config for OHOS IDE run start')"
   $backupStateMarker = "console.info('Backup Flutter shared state start')"
@@ -371,6 +487,10 @@ function restoreFlutterSharedState(flutterProjectPath: string, sessionStateBacku
     $content = $content.Replace($oldPluginSnippet, $newPluginSnippet)
   }
 
+  if ($content -eq $originalContent) {
+    return
+  }
+
   Set-Content -Path $FilePath -Value ($content.Replace("`n", "`r`n")) -Encoding utf8
 }
 
@@ -516,14 +636,66 @@ function Get-CompatibleApiVersion {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sdkRepoRoot = Join-Path $repoRoot '.flutter_ohos_sdk_gitcode'
 Ensure-OhosFlutterSubmodule -RepoRoot $repoRoot -SubmodulePath $sdkRepoRoot
+$resolvedSdkRepoRoot = (Resolve-Path $sdkRepoRoot).Path
 $flutterSdk = Resolve-ExistingPath -Candidates @(
   (Join-Path $sdkRepoRoot 'bin\flutter.bat')
 ) -Label 'Flutter OH SDK'
+$ohosLocalPropertiesPath = Join-Path $repoRoot 'ohos\local.properties'
+$existingOhosLocalProperties = Get-PropertiesMap -Path $ohosLocalPropertiesPath
+$devEcoHomeFromEnv = $null
+if ($env:DEVECO_HOME) {
+  $devEcoHomeFromEnv = $env:DEVECO_HOME
+}
+$devEcoSdkHomeFromEnv = $null
+if ($env:DEVECO_SDK_HOME) {
+  $devEcoSdkHomeFromEnv = $env:DEVECO_SDK_HOME
+}
+$devEcoSdkHomeFromDevEcoHome = $null
+if ($devEcoHomeFromEnv) {
+  $devEcoSdkHomeFromDevEcoHome = Join-Path $devEcoHomeFromEnv 'sdk'
+}
+$derivedDevEcoStudioRoot = $null
+if ($existingOhosLocalProperties['nodejs.dir']) {
+  try {
+    $derivedDevEcoStudioRoot = Split-Path (Split-Path $existingOhosLocalProperties['nodejs.dir'] -Parent) -Parent
+  }
+  catch {
+    $derivedDevEcoStudioRoot = $null
+  }
+}
+$devEcoHome = Resolve-ExistingPath -Candidates @(
+  $devEcoHomeFromEnv,
+  $derivedDevEcoStudioRoot,
+  $(if ($devEcoSdkHomeFromEnv) { Split-Path $devEcoSdkHomeFromEnv -Parent }),
+  $(if ($existingOhosLocalProperties['hwsdk.dir']) { Split-Path $existingOhosLocalProperties['hwsdk.dir'] -Parent }),
+  'E:\Huawei\DevEco Studio'
+) -Label 'DevEco Studio'
 $devEcoSdkHome = Resolve-ExistingPath -Candidates @(
-  $env:DEVECO_SDK_HOME,
+  $devEcoSdkHomeFromEnv,
+  $devEcoSdkHomeFromDevEcoHome,
+  (Join-Path $devEcoHome 'sdk'),
+  $existingOhosLocalProperties['hwsdk.dir'],
   'E:\Huawei\DevEco Studio\sdk'
 ) -Label 'DevEco SDK'
+$devEcoNodeDir = Resolve-ExistingPath -Candidates @(
+  $env:DEVECO_NODEJS_HOME,
+  $existingOhosLocalProperties['nodejs.dir'],
+  $(if ($devEcoHomeFromEnv) { Join-Path $devEcoHomeFromEnv 'tools\node' }),
+  (Join-Path $devEcoHome 'tools\node'),
+  (Get-OptionalCommandDirectory -Candidates @('node.exe', 'node'))
+) -Label 'DevEco Node.js'
+$devEcoOhpmBin = Resolve-ExistingPath -Candidates @(
+  $(if ($devEcoHomeFromEnv) { Join-Path $devEcoHomeFromEnv 'tools\ohpm\bin' }),
+  (Join-Path $devEcoHome 'tools\ohpm\bin'),
+  (Get-OptionalCommandDirectory -Candidates @('ohpm.cmd', 'ohpm'))
+) -Label 'DevEco ohpm'
+$devEcoHvigorBin = Resolve-ExistingPath -Candidates @(
+  $(if ($devEcoHomeFromEnv) { Join-Path $devEcoHomeFromEnv 'tools\hvigor\bin' }),
+  (Join-Path $devEcoHome 'tools\hvigor\bin'),
+  (Get-OptionalCommandDirectory -Candidates @('hvigorw.bat', 'hvigorw'))
+) -Label 'DevEco hvigor'
 $ohToolchainDir = Resolve-ExistingPath -Candidates @(
+  $env:HARMONY_TOOLCHAIN_HOME,
   (Join-Path $devEcoSdkHome 'default\openharmony\toolchains')
 ) -Label 'OpenHarmony toolchains'
 $hapSignTool = Resolve-ExistingPath -Candidates @(
@@ -536,6 +708,7 @@ $profileCertChain = Resolve-ExistingPath -Candidates @(
   (Join-Path $ohToolchainDir 'lib\OpenHarmonyProfileDebug.pem')
 ) -Label 'OpenHarmonyProfileDebug.pem'
 $profileTemplate = Resolve-ExistingPath -Candidates @(
+  (Join-Path $repoRoot 'ohos\sign\debug-profile.json'),
   (Join-Path $ohToolchainDir 'lib\UnsgnedDebugProfileTemplate.json')
 ) -Label 'UnsgnedDebugProfileTemplate.json'
 
@@ -546,9 +719,9 @@ $env:FLUTTER_STORAGE_BASE_URL = 'https://storage.flutter-io.cn'
 $env:FLUTTER_GIT_URL = 'https://gitcode.com/openharmony-tpc/flutter_flutter.git'
 $env:Path = @(
   (Split-Path $flutterSdk -Parent),
-  'E:\Huawei\DevEco Studio\tools\ohpm\bin',
-  'E:\Huawei\DevEco Studio\tools\hvigor\bin',
-  'E:\Huawei\DevEco Studio\tools\node',
+  $devEcoOhpmBin,
+  $devEcoHvigorBin,
+  $devEcoNodeDir,
   $ohToolchainDir,
   $env:Path
 ) -join ';'
@@ -569,6 +742,18 @@ try {
   Ensure-HvigorPluginPatched -FilePath (Join-Path $repoRoot 'tooling\ohos-hvigor-plugin\src\plugin\flutter-hvigor-plugin.ts')
 
   Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos' | Out-Null
+  Ensure-OhosLocalProperties `
+    -LocalPropertiesPath $ohosLocalPropertiesPath `
+    -DevEcoSdkHome $devEcoSdkHome `
+    -NodejsDir $devEcoNodeDir `
+    -FlutterSdkRoot $resolvedSdkRepoRoot
+
+  if ($Mode -eq 'init') {
+    Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
+    Ensure-RepoOwnedHvigorPluginDependency -RepoRoot $repoRoot
+    Save-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
+    return
+  }
 
   if ($Mode -eq 'test') {
     Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
