@@ -6,9 +6,9 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private var notificationBridge: PetNoteNotificationBridge? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -18,6 +18,13 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory(
+                "petnote/android_liquid_glass_dock",
+                AndroidLiquidGlassDockFactory(flutterEngine.dartExecutor.binaryMessenger),
+            )
         notificationBridge = PetNoteNotificationBridge(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,

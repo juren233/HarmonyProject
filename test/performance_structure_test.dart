@@ -28,6 +28,8 @@ void main() {
   test('routes dock chrome through overlay and bar handoff during transitions',
       () {
     expect(rootSource, contains('final showBottomNavigationInBody ='));
+    expect(rootSource, contains('supportsAndroidLiquidGlassDock(platform)'));
+    expect(rootSource, contains('supportsIosNativeDock(platform)'));
     expect(rootSource, contains('bottomNavigationOverlay:'));
     expect(
       rootSource,
@@ -38,7 +40,6 @@ void main() {
       rootSource,
       contains('showBottomNavigationInBody ? null : bottomNavigation'),
     );
-    expect(rootSource, contains('supportsIosNativeDock(Theme.of(context).platform)'));
   });
 
   test('wraps frosted panels in repaint boundaries for scroll reuse', () {

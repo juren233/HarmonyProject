@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:petnote/app/add_sheet.dart';
+import 'package:petnote/app/android_native_dock.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_dock.dart';
@@ -145,16 +146,21 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
 
     final overlayStyle = petNoteOverlayStyleForTheme(Theme.of(context));
+    final platform = Theme.of(context).platform;
     final showBottomNavigation = !_showOnboarding &&
         (!_showFirstLaunchIntro ||
             _overlayTransition == _OverlayTransition.introToShell);
     final showBottomNavigationInBody =
         _overlayTransition == _OverlayTransition.introToShell;
-    final useNativeIosDock = showBottomNavigation &&
-        supportsIosNativeDock(Theme.of(context).platform);
+    final useNativeAndroidDock =
+        showBottomNavigation && supportsAndroidLiquidGlassDock(platform);
+    final useNativeIosDock =
+        showBottomNavigation && supportsIosNativeDock(platform);
     final bottomNavigation = !showBottomNavigation
         ? null
-        : useNativeIosDock
+        : useNativeAndroidDock
+            ? _buildAndroidNativeDock(context, store)
+            : useNativeIosDock
             ? _buildIosNativeDock(context, store)
             : _PetNoteBottomNav(
                 store: store,
@@ -210,6 +216,19 @@ class _PetNoteRootState extends State<PetNoteRoot>
         }
 
         return IosNativeDockHost(
+          selectedTab: store.activeTab,
+          onTabSelected: store.setActiveTab,
+          onAddTap: () => _openAddSheet(context, store),
+        );
+      },
+    );
+  }
+
+  Widget _buildAndroidNativeDock(BuildContext context, PetNoteStore store) {
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        return AndroidLiquidGlassDockHost(
           selectedTab: store.activeTab,
           onTabSelected: store.setActiveTab,
           onAddTap: () => _openAddSheet(context, store),
