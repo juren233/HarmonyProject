@@ -146,7 +146,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   String? _breed;
   String? _sex;
   DateTime? _birthday;
-  late DateTime _birthdayDisplayedMonth;
   PetNeuterStatus? _neuterStatus;
   bool _isSubmitting = false;
 
@@ -171,7 +170,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
       duration: const Duration(milliseconds: 640),
       value: widget.animateInitialEntry ? 0 : 1,
     );
-    _birthdayDisplayedMonth = _monthDate(DateTime.now());
     if (widget.animateInitialEntry) {
       _entryController.forward();
     }
@@ -253,8 +251,14 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
 
     final externalRevealProgress = _externalRevealProgress();
 
-    return WillPopScope(
-      onWillPop: _handleSystemBack,
+    return PopScope(
+      canPop: _canPopForSystemBack(),
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          return;
+        }
+        await _handleSystemBack();
+      },
       child: AnimatedBuilder(
         animation: _entryController,
         builder: (context, _) {
@@ -415,9 +419,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   }
 
   Widget _buildStepCardFor(BuildContext context, int stepIndex) {
-    if (stepIndex == 3) {
-      return _buildBirthdayStepCard(context, stepIndex);
-    }
     return SectionCard(
       title: '步骤 ${stepIndex + 1}',
       children: switch (stepIndex) {
@@ -443,14 +444,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
             hintText: '比如洗澡会紧张、外出需要安抚等',
           ),
       },
-    );
-  }
-
-  Widget _buildBirthdayStepCard(BuildContext context, int stepIndex) {
-    return SectionCard(
-      title: '步骤 ${stepIndex + 1}',
-      trailing: _buildBirthdayYearButton(context),
-      children: _birthdayStep(),
     );
   }
 
@@ -630,7 +623,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     final theme = Theme.of(context);
     final tokens = context.petNoteTokens;
     final now = DateTime.now();
-    final firstDate = DateTime(now.year - 25);
     final latestBirthday = DateTime(now.year + 25, 12, 31);
     final calendarTheme = theme.copyWith(
       datePickerTheme: DatePickerThemeData(
@@ -671,72 +663,17 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
           fontWeight: FontWeight.w700,
         ),
       ),
-      const SizedBox(height: 12),
       Theme(
         data: calendarTheme,
-        child: _VerticalDragLock(
-          child: _OnboardingBirthdayCalendar(
-            key: const ValueKey('onboarding_birthday_calendar'),
-            selectedDate: _birthday,
-            displayedMonth: _birthdayDisplayedMonth,
-            currentDate: now,
-            firstDate: firstDate,
-            lastDate: latestBirthday,
-            onDateChanged: _setBirthday,
-            onDisplayedMonthChanged: _setBirthdayDisplayedMonth,
-          ),
+        child: CalendarDatePicker(
+          initialDate: _birthday,
+          currentDate: now,
+          firstDate: DateTime(now.year - 25),
+          lastDate: latestBirthday,
+          onDateChanged: (value) => setState(() => _birthday = value),
         ),
       ),
     ];
-  }
-
-  Widget _buildBirthdayYearButton(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petNoteTokens;
-    final displayedYear = (_birthday ?? _birthdayDisplayedMonth).year;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: const ValueKey('onboarding_birthday_year_button'),
-        borderRadius: BorderRadius.circular(16),
-        onTap: _isSubmitting ? null : _pickBirthdayYear,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: tokens.secondarySurface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: tokens.panelBorder, width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '年份',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: tokens.primaryText,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$displayedYear',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.unfold_more_rounded,
-                size: 18,
-                color: tokens.secondaryText,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   List<Widget> _weightStep() {
@@ -845,172 +782,44 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     return '${value.year}年$month月$day日';
   }
 
-  Future<void> _pickBirthdayYear() async {
-    final now = DateTime.now();
-    final firstDate = DateTime(now.year - 25);
-    final lastDate = DateTime(now.year + 25, 12, 31);
-    final referenceDate = _birthday ?? _birthdayDisplayedMonth;
-    final pickedYear = await _showMaterialBirthdayYearPicker(
-      initialYear: referenceDate.year,
-      firstDate: firstDate,
-      lastDate: lastDate,
-    );
-    if (pickedYear == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      if (_birthday != null) {
-        _birthday = _birthdayWithUpdatedYear(_birthday!, pickedYear);
-        _birthdayDisplayedMonth = _monthDate(_birthday!);
-      } else {
-        _birthdayDisplayedMonth = DateTime(
-          pickedYear,
-          _birthdayDisplayedMonth.month,
-        );
-      }
-    });
-  }
-
-  Future<int?> _showMaterialBirthdayYearPicker({
-    required int initialYear,
-    required DateTime firstDate,
-    required DateTime lastDate,
-  }) {
-    return showDialog<int>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-        final tokens = dialogContext.petNoteTokens;
-        final localizations = MaterialLocalizations.of(dialogContext);
-        final isDark = theme.brightness == Brightness.dark;
-        return Dialog(
-          key: const ValueKey('onboarding_birthday_year_dialog'),
-          backgroundColor: Colors.transparent,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 520),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? tokens.panelStrongBackground
-                  : tokens.pageGradientTop,
-              borderRadius: BorderRadius.circular(34),
-              border: Border.all(color: tokens.panelBorder, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: tokens.panelShadow,
-                  blurRadius: 32,
-                  offset: const Offset(0, 16),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 22, 24, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '选择年份',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: tokens.primaryText,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 360,
-                    child: _OnboardingBirthdayYearGrid(
-                      key: const ValueKey('onboarding_birthday_year_grid'),
-                      firstYear: firstDate.year,
-                      lastYear: lastDate.year,
-                      selectedYear: initialYear,
-                      currentYear: DateTime.now().year,
-                      onYearSelected: (year) {
-                        Navigator.of(dialogContext).pop(year);
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      child: Text(localizations.cancelButtonLabel),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _setBirthday(DateTime value) {
-    setState(() {
-      _birthday = value;
-      _birthdayDisplayedMonth = _monthDate(value);
-    });
-  }
-
-  void _setBirthdayDisplayedMonth(DateTime value) {
-    final month = _monthDate(value);
-    if (_isSameMonth(month, _birthdayDisplayedMonth)) {
-      return;
-    }
-    setState(() => _birthdayDisplayedMonth = month);
-  }
-
-  DateTime _birthdayWithUpdatedYear(DateTime value, int year) {
-    final clampedDay = math.min(
-      value.day,
-      DateUtils.getDaysInMonth(year, value.month),
-    );
-    return DateTime(year, value.month, clampedDay);
-  }
-
-  DateTime _monthDate(DateTime value) {
-    return DateTime(value.year, value.month);
-  }
-
-  bool _isSameMonth(DateTime left, DateTime right) {
-    return left.year == right.year && left.month == right.month;
-  }
-
   void _onFieldChanged() {
     if (mounted) {
       setState(() {});
     }
   }
 
-  Future<bool> _handleSystemBack() async {
+  bool _canPopForSystemBack() {
+    // 允许系统返回手势（即 canPop = true）会导致直接 pop 当前 Route，
+    // 但是这里我们的 overlay 是用 Stack 伪造的，并非真实的 ModalRoute。
+    // 如果返回 true，就会把根 Route pop 掉（直接退出应用）。
+    // 因此在 overlay 这种非 Navigator 路由栈的实现中，必须始终保持 false，
+    // 以拦截并触发 onPopInvokedWithResult 来手动执行 _handleSystemBack 退栈逻辑。
+    return false;
+  }
+
+  Future<void> _handleSystemBack() async {
     if (_isSubmitting) {
-      return false;
+      return;
     }
 
     FocusManager.instance.primaryFocus?.unfocus();
 
     if (_stepIndex > 0) {
       _goBack();
-      return false;
+      return;
     }
 
     if (widget.embedded && widget.onReturnToActions != null) {
       widget.onReturnToActions!.call();
-      return false;
+      return;
     }
 
     if (widget.onReturnToIntro != null) {
       widget.onReturnToIntro!.call();
-      return false;
+      return;
     }
 
     await widget.onDefer();
-    return false;
   }
 
   void _goBack() {
@@ -1074,585 +883,6 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
           child: child,
         ),
       ),
-    );
-  }
-}
-
-class _OnboardingBirthdayCalendar extends StatefulWidget {
-  const _OnboardingBirthdayCalendar({
-    super.key,
-    required this.selectedDate,
-    required this.displayedMonth,
-    required this.currentDate,
-    required this.firstDate,
-    required this.lastDate,
-    required this.onDateChanged,
-    required this.onDisplayedMonthChanged,
-  });
-
-  final DateTime? selectedDate;
-  final DateTime displayedMonth;
-  final DateTime currentDate;
-  final DateTime firstDate;
-  final DateTime lastDate;
-  final ValueChanged<DateTime> onDateChanged;
-  final ValueChanged<DateTime> onDisplayedMonthChanged;
-
-  @override
-  State<_OnboardingBirthdayCalendar> createState() =>
-      _OnboardingBirthdayCalendarState();
-}
-
-class _OnboardingBirthdayCalendarState
-    extends State<_OnboardingBirthdayCalendar> {
-  static const double _calendarHeight = 360;
-
-  late final PageController _pageController;
-
-  DateTime get _firstMonth =>
-      DateTime(widget.firstDate.year, widget.firstDate.month);
-  DateTime get _lastMonth =>
-      DateTime(widget.lastDate.year, widget.lastDate.month);
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController =
-        PageController(initialPage: _pageForMonth(widget.displayedMonth));
-  }
-
-  @override
-  void didUpdateWidget(covariant _OnboardingBirthdayCalendar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_isSameMonth(oldWidget.displayedMonth, widget.displayedMonth)) {
-      return;
-    }
-    final targetPage = _pageForMonth(widget.displayedMonth);
-    if (_pageController.hasClients &&
-        (_pageController.page?.round() ?? _pageController.initialPage) !=
-            targetPage) {
-      _pageController.jumpToPage(targetPage);
-    }
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  int _pageForMonth(DateTime month) => DateUtils.monthDelta(_firstMonth, month);
-
-  DateTime _monthForPage(int page) =>
-      DateUtils.addMonthsToMonthDate(_firstMonth, page);
-
-  bool _isSameMonth(DateTime left, DateTime right) {
-    return left.year == right.year && left.month == right.month;
-  }
-
-  bool get _isDisplayingFirstMonth =>
-      _isSameMonth(widget.displayedMonth, _firstMonth);
-
-  bool get _isDisplayingLastMonth =>
-      _isSameMonth(widget.displayedMonth, _lastMonth);
-
-  void _showMonth(DateTime month) {
-    _pageController.animateToPage(
-      _pageForMonth(month),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petNoteTokens;
-    final localizations = MaterialLocalizations.of(context);
-    final datePickerTheme = DatePickerTheme.of(context);
-    final datePickerDefaults = DatePickerTheme.defaults(context);
-    final monthTitle = localizations.formatMonthYear(widget.displayedMonth);
-    final buttonColor = datePickerTheme.subHeaderForegroundColor ??
-        datePickerDefaults.subHeaderForegroundColor ??
-        tokens.secondaryText;
-
-    return SizedBox(
-      height: _calendarHeight,
-      child: Column(
-        children: [
-          SizedBox(
-            height: 44,
-            child: Row(
-              children: [
-                IconButton(
-                  key: const ValueKey('onboarding_birthday_prev_month_button'),
-                  onPressed: _isDisplayingFirstMonth
-                      ? null
-                      : () => _showMonth(
-                            DateUtils.addMonthsToMonthDate(
-                              widget.displayedMonth,
-                              -1,
-                            ),
-                          ),
-                  icon: const Icon(Icons.chevron_left),
-                  color: buttonColor,
-                ),
-                Expanded(
-                  child: Text(
-                    monthTitle,
-                    key: const ValueKey('onboarding_birthday_month_title'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: tokens.primaryText,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  key: const ValueKey('onboarding_birthday_next_month_button'),
-                  onPressed: _isDisplayingLastMonth
-                      ? null
-                      : () => _showMonth(
-                            DateUtils.addMonthsToMonthDate(
-                              widget.displayedMonth,
-                              1,
-                            ),
-                          ),
-                  icon: const Icon(Icons.chevron_right),
-                  color: buttonColor,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: PageView.builder(
-              key: const ValueKey('onboarding_birthday_page_view'),
-              controller: _pageController,
-              itemCount: DateUtils.monthDelta(_firstMonth, _lastMonth) + 1,
-              onPageChanged: (page) {
-                widget.onDisplayedMonthChanged(_monthForPage(page));
-              },
-              itemBuilder: (context, index) {
-                final month = _monthForPage(index);
-                return _OnboardingBirthdayMonthPage(
-                  month: month,
-                  selectedDate: widget.selectedDate,
-                  currentDate: widget.currentDate,
-                  firstDate: widget.firstDate,
-                  lastDate: widget.lastDate,
-                  onDateChanged: widget.onDateChanged,
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OnboardingBirthdayMonthPage extends StatelessWidget {
-  const _OnboardingBirthdayMonthPage({
-    required this.month,
-    required this.selectedDate,
-    required this.currentDate,
-    required this.firstDate,
-    required this.lastDate,
-    required this.onDateChanged,
-  });
-
-  final DateTime month;
-  final DateTime? selectedDate;
-  final DateTime currentDate;
-  final DateTime firstDate;
-  final DateTime lastDate;
-  final ValueChanged<DateTime> onDateChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petNoteTokens;
-    final localizations = MaterialLocalizations.of(context);
-    final weekdayLabels = List<String>.generate(
-      DateTime.daysPerWeek,
-      (index) => localizations.narrowWeekdays[
-          (localizations.firstDayOfWeekIndex + index) % DateTime.daysPerWeek],
-    );
-    final days = _daysForMonth(localizations.firstDayOfWeekIndex);
-
-    return Column(
-      children: [
-        Row(
-          children: weekdayLabels
-              .map(
-                (label) => Expanded(
-                  child: Center(
-                    child: Text(
-                      label,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: tokens.secondaryText,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: 10),
-        Expanded(
-          child: Column(
-            children: List<Widget>.generate(6, (rowIndex) {
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: rowIndex == 5 ? 0 : 6),
-                  child: Row(
-                    children: List<Widget>.generate(DateTime.daysPerWeek,
-                        (columnIndex) {
-                      final slot =
-                          days[rowIndex * DateTime.daysPerWeek + columnIndex];
-                      return Expanded(
-                        child: Padding(
-                          padding:
-                              EdgeInsets.only(right: columnIndex == 6 ? 0 : 6),
-                          child: slot == null
-                              ? const SizedBox.expand()
-                              : _OnboardingBirthdayDayCell(
-                                  date: slot,
-                                  selectedDate: selectedDate,
-                                  currentDate: currentDate,
-                                  firstDate: firstDate,
-                                  lastDate: lastDate,
-                                  onTap: () => onDateChanged(slot),
-                                ),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-              );
-            }),
-          ),
-        ),
-      ],
-    );
-  }
-
-  List<DateTime?> _daysForMonth(int firstDayOfWeekIndex) {
-    final daysInMonth = DateUtils.getDaysInMonth(month.year, month.month);
-    final firstDay = DateTime(month.year, month.month, 1);
-    final weekdayFromSunday = firstDay.weekday % DateTime.daysPerWeek;
-    final leadingOffset =
-        (weekdayFromSunday - firstDayOfWeekIndex) % DateTime.daysPerWeek;
-    final slots = List<DateTime?>.filled(42, null);
-
-    for (var day = 1; day <= daysInMonth; day += 1) {
-      slots[leadingOffset + day - 1] = DateTime(month.year, month.month, day);
-    }
-
-    return slots;
-  }
-}
-
-class _OnboardingBirthdayDayCell extends StatelessWidget {
-  const _OnboardingBirthdayDayCell({
-    required this.date,
-    required this.selectedDate,
-    required this.currentDate,
-    required this.firstDate,
-    required this.lastDate,
-    required this.onTap,
-  });
-
-  final DateTime date;
-  final DateTime? selectedDate;
-  final DateTime currentDate;
-  final DateTime firstDate;
-  final DateTime lastDate;
-  final VoidCallback onTap;
-
-  bool get _isDisabled => date.isBefore(firstDate) || date.isAfter(lastDate);
-
-  bool get _isSelected => DateUtils.isSameDay(date, selectedDate);
-
-  bool get _isToday => DateUtils.isSameDay(date, currentDate);
-
-  String get _dayKeyValue {
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petNoteTokens;
-    final datePickerTheme = DatePickerTheme.of(context);
-    final defaults = DatePickerTheme.defaults(context);
-    final states = <WidgetState>{
-      if (_isSelected) WidgetState.selected,
-      if (_isDisabled) WidgetState.disabled,
-    };
-
-    Color resolveForeground() {
-      final todayForeground = _resolveStateColor(
-        datePickerTheme: datePickerTheme,
-        defaults: defaults,
-        getter: (theme) => theme.todayForegroundColor,
-        states: states,
-      );
-      final dayForeground = _resolveStateColor(
-        datePickerTheme: datePickerTheme,
-        defaults: defaults,
-        getter: (theme) => theme.dayForegroundColor,
-        states: states,
-      );
-      if (_isToday && todayForeground != null) {
-        return todayForeground;
-      }
-      return dayForeground ?? tokens.primaryText;
-    }
-
-    Color resolveBackground() {
-      final todayBackground = _resolveStateColor(
-        datePickerTheme: datePickerTheme,
-        defaults: defaults,
-        getter: (theme) => theme.todayBackgroundColor,
-        states: states,
-      );
-      final dayBackground = _resolveStateColor(
-        datePickerTheme: datePickerTheme,
-        defaults: defaults,
-        getter: (theme) => theme.dayBackgroundColor,
-        states: states,
-      );
-      if (_isToday && todayBackground != null) {
-        return todayBackground;
-      }
-      return dayBackground ?? Colors.transparent;
-    }
-
-    final textColor = resolveForeground().withValues(
-      alpha: _isDisabled ? 0.38 : 1,
-    );
-    final backgroundColor = resolveBackground();
-    final borderSide =
-        _isToday ? (datePickerTheme.todayBorder ?? defaults.todayBorder) : null;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: ValueKey('onboarding_birthday_day_$_dayKeyValue'),
-        onTap: _isDisabled ? null : onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(18),
-            border:
-                borderSide == null ? null : Border.fromBorderSide(borderSide),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '${date.day}',
-            style: (datePickerTheme.dayStyle ??
-                    defaults.dayStyle ??
-                    theme.textTheme.bodyMedium)
-                ?.copyWith(
-              color: textColor,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color? _resolveStateColor({
-    required DatePickerThemeData datePickerTheme,
-    required DatePickerThemeData defaults,
-    required WidgetStateProperty<Color?>? Function(DatePickerThemeData theme)
-        getter,
-    required Set<WidgetState> states,
-  }) {
-    return getter(datePickerTheme)?.resolve(states) ??
-        getter(defaults)?.resolve(states);
-  }
-}
-
-class _OnboardingBirthdayYearGrid extends StatefulWidget {
-  const _OnboardingBirthdayYearGrid({
-    super.key,
-    required this.firstYear,
-    required this.lastYear,
-    required this.selectedYear,
-    required this.currentYear,
-    required this.onYearSelected,
-  });
-
-  final int firstYear;
-  final int lastYear;
-  final int selectedYear;
-  final int currentYear;
-  final ValueChanged<int> onYearSelected;
-
-  @override
-  State<_OnboardingBirthdayYearGrid> createState() =>
-      _OnboardingBirthdayYearGridState();
-}
-
-class _OnboardingBirthdayYearGridState
-    extends State<_OnboardingBirthdayYearGrid> {
-  static const int _columnCount = 3;
-  static const double _rowHeight = 52;
-  static const double _rowSpacing = 10;
-
-  late final ScrollController _scrollController = ScrollController(
-    initialScrollOffset: _scrollOffsetForYear(widget.selectedYear),
-  );
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _OnboardingBirthdayYearGrid oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedYear == widget.selectedYear) {
-      return;
-    }
-    final targetOffset = _scrollOffsetForYear(widget.selectedYear);
-    if (_scrollController.hasClients) {
-      _scrollController.jumpTo(targetOffset);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      controller: _scrollController,
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: _columnCount,
-        mainAxisExtent: _rowHeight,
-        mainAxisSpacing: _rowSpacing,
-        crossAxisSpacing: 10,
-      ),
-      itemCount: widget.lastYear - widget.firstYear + 1,
-      itemBuilder: (context, index) {
-        final year = widget.firstYear + index;
-        return _OnboardingBirthdayYearCell(
-          year: year,
-          isSelected: year == widget.selectedYear,
-          isCurrentYear: year == widget.currentYear,
-          onTap: () => widget.onYearSelected(year),
-        );
-      },
-    );
-  }
-
-  double _scrollOffsetForYear(int year) {
-    final safeYear = year.clamp(widget.firstYear, widget.lastYear);
-    final row = (safeYear - widget.firstYear) ~/ _columnCount;
-    return math.max(0, (row - 2) * (_rowHeight + _rowSpacing));
-  }
-}
-
-class _OnboardingBirthdayYearCell extends StatelessWidget {
-  const _OnboardingBirthdayYearCell({
-    required this.year,
-    required this.isSelected,
-    required this.isCurrentYear,
-    required this.onTap,
-  });
-
-  final int year;
-  final bool isSelected;
-  final bool isCurrentYear;
-  final VoidCallback onTap;
-
-  static const double _capsuleHeight = 38;
-  static const double _capsuleMinWidth = 74;
-  static const double _textOpticalOffsetY = -1;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = context.petNoteTokens;
-    final selectedColor = theme.colorScheme.primary;
-    final textColor = isSelected
-        ? Colors.white
-        : (isCurrentYear ? selectedColor : tokens.primaryText);
-    final yearTextStyle = theme.textTheme.titleMedium?.copyWith(
-      color: textColor,
-      fontSize: 18,
-      height: 1,
-      leadingDistribution: TextLeadingDistribution.even,
-      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-    );
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: ValueKey('onboarding_birthday_year_$year'),
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: Center(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            key: ValueKey('onboarding_birthday_year_capsule_$year'),
-            height: _capsuleHeight,
-            constraints: const BoxConstraints(
-              minWidth: _capsuleMinWidth,
-            ),
-            decoration: BoxDecoration(
-              color: isSelected ? selectedColor : Colors.transparent,
-              borderRadius: BorderRadius.circular(999),
-              border: !isSelected && isCurrentYear
-                  ? Border.all(
-                      color: selectedColor.withValues(alpha: 0.32),
-                      width: 1,
-                    )
-                  : null,
-            ),
-            alignment: Alignment.center,
-            child: Transform.translate(
-              offset: const Offset(0, _textOpticalOffsetY),
-              child: Text(
-                '$year年',
-                key: ValueKey('onboarding_birthday_year_label_$year'),
-                textAlign: TextAlign.center,
-                style: yearTextStyle,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VerticalDragLock extends StatelessWidget {
-  const _VerticalDragLock({
-    required this.child,
-  });
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onVerticalDragStart: (_) {},
-      onVerticalDragUpdate: (_) {},
-      onVerticalDragEnd: (_) {},
-      onVerticalDragCancel: () {},
-      child: child,
     );
   }
 }

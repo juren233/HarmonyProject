@@ -368,6 +368,11 @@ ThemeData buildPetNoteTheme(Brightness brightness) {
       ),
     ),
     extensions: [tokens],
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+      },
+    ),
   );
 }
 
