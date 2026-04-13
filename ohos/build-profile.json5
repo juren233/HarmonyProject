@@ -7,9 +7,9 @@
         "type": "HarmonyOS",
         "material": {
           "storeFile": "./sign/OpenHarmony.p12",
-          "storePassword": "000000166ace9124a329e5d8fc3a49c25ccec519fb953eb975064ea54568fbf0fc24f0a3f157",
+          "storePassword": "000000166540d8f5ef28ba1236354fe640ab69de5122ad272bcebe513db3a168828ad05b17ff",
           "keyAlias": "openharmony application release",
-          "keyPassword": "00000016762713284a02e305ac7c51dceaffb2c5ef66cb56b658857a077f6e6b3855d59d7260",
+          "keyPassword": "000000162c3ef3585667cb3d954df263f6da0168d59277979f6c2f9df2a08bdb8624bc60918e",
           "signAlg": "SHA256withECDSA",
           "profile": "./sign/debug-profile.p7b",
           "certpath": "./sign/debug-app.cer"
