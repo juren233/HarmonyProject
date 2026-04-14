@@ -1271,112 +1271,43 @@ void main() {
   });
 
   testWidgets(
-      'birthday step uses Chinese month text and keeps selected day visible',
+      'birthday step shows an inline calendar and updates the prompt after selection',
       (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterOnboardingFromIntro(tester);
-
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('英短'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('母'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('月'), findsWidgets);
-
-    final selectedDate =
-        DateTime(DateTime.now().year, DateTime.now().month, 15);
-    final selectedDayKey = _birthdayDayKey(selectedDate);
-    await tester.ensureVisible(find.byKey(selectedDayKey));
-    await tester.tap(find.byKey(selectedDayKey));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('已选择 '), findsOneWidget);
-    expect(find.textContaining('年'), findsWidgets);
-    expect(find.textContaining('月'), findsWidgets);
-    expect(find.textContaining('日'), findsWidgets);
-    expect(find.text('15'), findsWidgets);
-  });
-
-  testWidgets(
-      'birthday step does not preselect today and uses orange text for selected current day',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterOnboardingFromIntro(tester);
-
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('英短'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('母'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    final now = DateTime.now();
-    final todayKey = _birthdayDayKey(now);
+    await _enterBirthdayStep(tester);
 
     expect(find.text('请选择生日'), findsOneWidget);
-    expect(find.byKey(todayKey), findsOneWidget);
+    expect(find.byType(CalendarDatePicker), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(todayKey));
-    await tester.tap(find.byKey(todayKey));
-    await tester.pumpAndSettle();
+    final selectedDate = DateTime(DateTime.now().year, DateTime.now().month, 15);
+    await _selectBirthdayDay(tester, selectedDate);
 
-    final todayText = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(todayKey),
-        matching: find.text('${now.day}'),
-      ),
-    );
+    expect(find.text(_birthdayPromptText(selectedDate)), findsOneWidget);
+  });
 
-    expect(find.text(_birthdayPromptText(now)), findsOneWidget);
-    expect(todayText.style?.color, const Color(0xFFD9822B));
+  testWidgets('birthday step requires selecting a date before continuing',
+      (tester) async {
+    await _enterBirthdayStep(tester);
+
+    final continueButtonFinder =
+        find.byKey(const ValueKey('onboarding_continue_button'));
+    final disabledContinueButton =
+        tester.widget<FilledButton>(continueButtonFinder);
+
+    expect(find.text('请选择生日'), findsOneWidget);
+    expect(disabledContinueButton.onPressed, isNull);
+
+    final today = DateTime.now();
+    await _selectBirthdayDay(tester, today);
+
+    final enabledContinueButton =
+        tester.widget<FilledButton>(continueButtonFinder);
+    expect(find.text(_birthdayPromptText(today)), findsOneWidget);
+    expect(enabledContinueButton.onPressed, isNotNull);
   });
 
   testWidgets('birthday step allows dates after the current day',
       (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterOnboardingFromIntro(tester);
-
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('英短'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('母'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
-    await tester.pumpAndSettle();
+    await _enterBirthdayStep(tester);
 
     final now = DateTime.now();
     final currentMonthDays = DateUtils.getDaysInMonth(now.year, now.month);
@@ -1385,62 +1316,23 @@ void main() {
         : DateTime(now.year, now.month + 1, 1);
 
     if (futureDate.month != now.month || futureDate.year != now.year) {
-      await tester.tap(
-          find.byKey(const ValueKey('onboarding_birthday_next_month_button')));
+      final calendarContext = tester.element(find.byType(CalendarDatePicker));
+      final localizations = MaterialLocalizations.of(calendarContext);
+      await tester.tap(find.byTooltip(localizations.nextMonthTooltip));
       await tester.pumpAndSettle();
     }
 
-    await tester.ensureVisible(find.byKey(_birthdayDayKey(futureDate)));
-    await tester.tap(find.byKey(_birthdayDayKey(futureDate)));
-    await tester.pumpAndSettle();
+    await _selectBirthdayDay(tester, futureDate);
 
     expect(find.text(_birthdayPromptText(futureDate)), findsOneWidget);
   });
 
   testWidgets(
-      'birthday calendar vertical drag does not move the onboarding content and still allows selecting a day',
+      'birthday calendar month navigation buttons switch the displayed month',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(390, 620));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
     await _enterBirthdayStep(tester);
 
-    final onboardingScroll = find.byType(Scrollable).last;
-    final scrollPositionBefore =
-        tester.state<ScrollableState>(onboardingScroll).position.pixels;
-    final now = DateTime.now();
-    final dragTarget = _birthdayDayKey(now);
-
-    await tester.ensureVisible(find.byKey(dragTarget));
-    await tester.drag(
-      find.byKey(dragTarget),
-      const Offset(0, -240),
-    );
-    await tester.pumpAndSettle();
-
-    final scrollPositionAfter =
-        tester.state<ScrollableState>(onboardingScroll).position.pixels;
-    expect(scrollPositionAfter, scrollPositionBefore);
-
-    await tester.tap(find.byKey(dragTarget));
-    await tester.pumpAndSettle();
-
-    expect(find.text(_birthdayPromptText(now)), findsOneWidget);
-  });
-
-  testWidgets('birthday calendar horizontal drag still switches months',
-      (tester) async {
-    await tester.binding.setSurfaceSize(const Size(390, 620));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    final calendarContext = tester
-        .element(find.byKey(const ValueKey('onboarding_birthday_calendar')));
+    final calendarContext = tester.element(find.byType(CalendarDatePicker));
     final localizations = MaterialLocalizations.of(calendarContext);
     final now = DateTime.now();
     final currentMonthTitle = localizations.formatMonthYear(
@@ -1452,252 +1344,24 @@ void main() {
 
     expect(find.text(currentMonthTitle), findsOneWidget);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_page_view')),
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('onboarding_birthday_page_view')),
-      const Offset(-280, 0),
-    );
+    await tester.tap(find.byTooltip(localizations.nextMonthTooltip));
     await tester.pumpAndSettle();
 
     expect(find.text(nextMonthTitle), findsOneWidget);
   });
 
   testWidgets(
-      'birthday step shows a year button in the card header and no quick picker row',
+      'birthday step uses CalendarDatePicker without custom year shortcuts',
       (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
     await _enterBirthdayStep(tester);
 
+    expect(find.byType(CalendarDatePicker), findsOneWidget);
     expect(
       find.byKey(const ValueKey('onboarding_birthday_year_button')),
-      findsOneWidget,
-    );
-    expect(find.text('年份'), findsOneWidget);
-    expect(find.text('快速选择'), findsNothing);
-    expect(find.text('快速选择日期/年份'), findsNothing);
-  });
-
-  testWidgets(
-      'birthday year button opens a custom year grid and only changes displayed month when birthday is empty',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('onboarding_birthday_year_dialog')),
-      findsOneWidget,
-    );
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.byKey(const ValueKey('onboarding_birthday_year_grid')),
-        findsOneWidget);
-    expect(find.byType(YearPicker), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('onboarding_birthday_year_dialog')),
-        matching: find.byType(Divider),
-      ),
       findsNothing,
     );
-
-    final now = DateTime.now();
-    final targetYear = now.year - 1;
-    await _selectBirthdayYear(tester, targetYear);
-    await tester.pumpAndSettle();
-
-    final calendarContext = tester
-        .element(find.byKey(const ValueKey('onboarding_birthday_calendar')));
-    final calendarLocalizations = MaterialLocalizations.of(calendarContext);
-    final targetMonthTitle = calendarLocalizations.formatMonthYear(
-      DateTime(targetYear, now.month),
-    );
-
-    expect(find.text('请选择生日'), findsOneWidget);
-    expect(find.text(targetMonthTitle), findsOneWidget);
-  });
-
-  testWidgets('birthday year capsule keeps the label visually centered',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    final year = DateTime.now().year;
-    final capsuleFinder =
-        find.byKey(_birthdayYearCapsuleKey(year));
-    final labelFinder =
-        find.byKey(_birthdayYearLabelKey(year));
-
-    expect(capsuleFinder, findsOneWidget);
-    expect(labelFinder, findsOneWidget);
-
-    final capsuleRect = tester.getRect(capsuleFinder);
-    final labelRect = tester.getRect(labelFinder);
-
-    expect(capsuleRect.height, closeTo(38, 0.1));
-    expect(
-      (labelRect.center.dy - capsuleRect.center.dy).abs(),
-      lessThanOrEqualTo(1.0),
-    );
-  });
-
-  testWidgets('birthday year button cancel keeps the current birthday empty',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('请选择生日'), findsOneWidget);
-  });
-
-  testWidgets('birthday year button uses the same Flutter year dialog on iOS',
-      (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildPetNoteTheme(Brightness.light)
-            .copyWith(platform: TargetPlatform.iOS),
-        home: Scaffold(
-          body: PetOnboardingFlow(
-            onSubmit: (_) async {},
-            onDefer: () async {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _enterBirthdayStepInCurrentFlow(tester);
-
-    final now = DateTime.now();
-    await _selectBirthdayDay(tester, now);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('onboarding_birthday_year_dialog')),
-      findsOneWidget,
-    );
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.byKey(const ValueKey('onboarding_birthday_year_grid')),
-        findsOneWidget);
-    expect(find.byType(YearPicker), findsNothing);
-
-    await _selectBirthdayYear(tester, 2023);
-    await tester.pumpAndSettle();
-
-    final targetDate = DateTime(2023, now.month, now.day);
-
-    final calendarContext = tester
-        .element(find.byKey(const ValueKey('onboarding_birthday_calendar')));
-    final localizations = MaterialLocalizations.of(calendarContext);
-    final targetMonthTitle = localizations.formatMonthYear(
-      DateTime(targetDate.year, targetDate.month),
-    );
-
-    expect(find.text(_birthdayPromptText(targetDate)), findsOneWidget);
-    expect(find.text(targetMonthTitle), findsOneWidget);
-  });
-
-  testWidgets('birthday year button preserves month and day for selected dates',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    final now = DateTime.now();
-    final selectedDate = DateTime(now.year, now.month, 15);
-    await _selectBirthdayDay(tester, selectedDate);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    final targetYear = now.year - 2;
-    await _selectBirthdayYear(tester, targetYear);
-    await tester.pumpAndSettle();
-
-    final expectedDate = DateTime(targetYear, now.month, 15);
-    expect(find.text(_birthdayPromptText(expectedDate)), findsOneWidget);
-  });
-
-  testWidgets('birthday year button clamps invalid leap day selections',
-      (tester) async {
-    await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
-    await _enterBirthdayStep(tester);
-
-    await _moveBirthdayCalendarToMonth(tester, 2);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    await _selectBirthdayYear(tester, 2024);
-    await tester.pumpAndSettle();
-
-    await tester
-        .ensureVisible(find.byKey(_birthdayDayKey(DateTime(2024, 2, 29))));
-    await tester.tap(find.byKey(_birthdayDayKey(DateTime(2024, 2, 29))));
-    await tester.pumpAndSettle();
-
-    expect(
-        find.text(_birthdayPromptText(DateTime(2024, 2, 29))), findsOneWidget);
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('onboarding_birthday_year_button')),
-    );
-    await tester.pumpAndSettle();
-
-    await _selectBirthdayYear(tester, 2023);
-    await tester.pumpAndSettle();
-
-    expect(
-        find.text(_birthdayPromptText(DateTime(2023, 2, 28))), findsOneWidget);
+    expect(find.text('快速选择'), findsNothing);
+    expect(find.text('快速选择日期/年份'), findsNothing);
   });
 
   testWidgets('neuter step only shows explicit yes or no options',
@@ -3113,6 +2777,8 @@ Future<void> _enterOnboardingFromIntro(WidgetTester tester) async {
 }
 
 Future<void> _enterBirthdayStep(WidgetTester tester) async {
+  await tester.pumpWidget(const PetNoteApp());
+  await tester.pumpAndSettle();
   await _enterOnboardingFromIntro(tester);
   await _enterBirthdayStepInCurrentFlow(tester);
 }
@@ -3136,57 +2802,19 @@ Future<void> _enterBirthdayStepInCurrentFlow(WidgetTester tester) async {
   await tester.pumpAndSettle();
 
   expect(
-    find.byKey(const ValueKey('onboarding_birthday_calendar')),
+    find.byType(CalendarDatePicker),
     findsOneWidget,
   );
 }
 
-ValueKey<String> _birthdayDayKey(DateTime date) {
-  final month = date.month.toString().padLeft(2, '0');
-  final day = date.day.toString().padLeft(2, '0');
-  return ValueKey('onboarding_birthday_day_${date.year}-$month-$day');
-}
-
-ValueKey<String> _birthdayYearCapsuleKey(int year) {
-  return ValueKey('onboarding_birthday_year_capsule_$year');
-}
-
-ValueKey<String> _birthdayYearLabelKey(int year) {
-  return ValueKey('onboarding_birthday_year_label_$year');
-}
-
 Future<void> _selectBirthdayDay(WidgetTester tester, DateTime date) async {
-  final dayKey = _birthdayDayKey(date);
-  await tester.ensureVisible(find.byKey(dayKey));
-  await tester.tap(find.byKey(dayKey));
+  final dayFinder = find.descendant(
+    of: find.byType(CalendarDatePicker),
+    matching: find.text('${date.day}'),
+  );
+  await tester.ensureVisible(dayFinder.first);
+  await tester.tap(dayFinder.first);
   await tester.pumpAndSettle();
-}
-
-Future<void> _selectBirthdayYear(WidgetTester tester, int year) async {
-  final yearLabel = '$year年';
-  await tester.ensureVisible(find.text(yearLabel));
-  await tester.tap(find.text(yearLabel));
-  await tester.pumpAndSettle();
-}
-
-Future<void> _moveBirthdayCalendarToMonth(
-  WidgetTester tester,
-  int targetMonth,
-) async {
-  final currentMonth = DateTime.now().month;
-  if (currentMonth == targetMonth) {
-    return;
-  }
-
-  final buttonKey = currentMonth > targetMonth
-      ? const ValueKey('onboarding_birthday_prev_month_button')
-      : const ValueKey('onboarding_birthday_next_month_button');
-  final taps = (currentMonth - targetMonth).abs();
-
-  for (var index = 0; index < taps; index += 1) {
-    await tester.tap(find.byKey(buttonKey));
-    await tester.pumpAndSettle();
-  }
 }
 
 String _birthdayPromptText(DateTime date) {

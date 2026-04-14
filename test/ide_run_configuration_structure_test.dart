@@ -12,10 +12,10 @@ void main() {
     expect(source.contains(r'$PROJECT_DIR$/lib/main.dart'), isTrue);
   });
 
-  test('DevEco workspace keeps the Flutter run target selected by default', () {
+  test('DevEco workspace keeps the entry run target selected by default', () {
     final source = File('ohos/.idea/workspace.xml').readAsStringSync();
 
-    expect(source.contains('selected="Flutter.main.dart"'), isTrue);
+    expect(source.contains('selected="Application.entry"'), isTrue);
     expect(
       source.contains(
         '<configuration name="entry" type="OhosDebugTask" factoryName="OpenHarmony App">',

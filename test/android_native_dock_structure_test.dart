@@ -122,7 +122,7 @@ void main() {
       'android/app/src/main/kotlin/com/krustykrab/petnote/MainActivity.kt',
     ).readAsStringSync();
 
-    expect(source.contains('FlutterFragmentActivity'), isTrue);
+    expect(source.contains('FlutterActivity'), isTrue);
     expect(source.contains('AndroidLiquidGlassDockFactory('), isTrue);
     expect(source.contains('registerViewFactory('), isTrue);
     expect(source.contains('"petnote/android_liquid_glass_dock"'), isTrue);

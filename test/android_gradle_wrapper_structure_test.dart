@@ -8,7 +8,7 @@ void main() {
 
     expect(source.contains(':findJavaFromKnownLocations'), isTrue);
     expect(source.contains('STUDIO_JDK'), isTrue);
-    expect(source.contains(r'E:\Huawei\DevEco Studio\jbr'), isTrue);
+    expect(source.contains(r"$env:DEVECO_HOME 'jbr'"), isTrue);
     expect(source.contains('jlink.exe'), isTrue);
     expect(source.contains('powershell -NoProfile'), isTrue);
     expect(source.contains(':findJavaFromPath'), isTrue);

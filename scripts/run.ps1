@@ -32,7 +32,7 @@ function Invoke-Checked {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$devEcoHome = 'E:\Huawei\DevEco Studio'
+$devEcoHome = if ($env:DEVECO_HOME) { $env:DEVECO_HOME } elseif (Test-Path 'E:\Huawei\DevEco Studio') { 'E:\Huawei\DevEco Studio' } else { 'C:\Program Files\Huawei\DevEco Studio' }
 $sdkHomeCandidates = @(
   $env:DEVECO_SDK_HOME,
   (Join-Path $devEcoHome 'sdk')

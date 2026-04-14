@@ -2,7 +2,10 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "DEFAULT_HVIGORW=E:\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat"
+set "DEFAULT_HVIGORW=C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat"
+if exist "E:\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat" (
+  set "DEFAULT_HVIGORW=E:\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat"
+)
 
 if defined DEVECO_SDK_HOME (
   for %%i in ("%DEVECO_SDK_HOME%\..") do set "DEVECO_HOME=%%~fi"

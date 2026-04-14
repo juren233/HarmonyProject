@@ -668,6 +668,7 @@ $devEcoHome = Resolve-ExistingPath -Candidates @(
   $derivedDevEcoStudioRoot,
   $(if ($devEcoSdkHomeFromEnv) { Split-Path $devEcoSdkHomeFromEnv -Parent }),
   $(if ($existingOhosLocalProperties['hwsdk.dir']) { Split-Path $existingOhosLocalProperties['hwsdk.dir'] -Parent }),
+  'C:\Program Files\Huawei\DevEco Studio',
   'E:\Huawei\DevEco Studio'
 ) -Label 'DevEco Studio'
 $devEcoSdkHome = Resolve-ExistingPath -Candidates @(
@@ -675,6 +676,7 @@ $devEcoSdkHome = Resolve-ExistingPath -Candidates @(
   $devEcoSdkHomeFromDevEcoHome,
   (Join-Path $devEcoHome 'sdk'),
   $existingOhosLocalProperties['hwsdk.dir'],
+  'C:\Program Files\Huawei\DevEco Studio\sdk',
   'E:\Huawei\DevEco Studio\sdk'
 ) -Label 'DevEco SDK'
 $devEcoNodeDir = Resolve-ExistingPath -Candidates @(
