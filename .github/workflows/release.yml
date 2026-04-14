@@ -290,40 +290,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEYSTORE_BASE64)) {
-            throw 'Missing GitHub secret ANDROID_KEYSTORE_BASE64.'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEYSTORE_PASSWORD)) {
-            throw 'Missing GitHub secret ANDROID_KEYSTORE_PASSWORD.'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEY_ALIAS)) {
-            throw 'Missing GitHub secret ANDROID_KEY_ALIAS.'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEY_PASSWORD)) {
-            throw 'Missing GitHub secret ANDROID_KEY_PASSWORD.'
-          }
-
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          $signingDir = Join-Path $PWD 'android/signing'
-          $keystorePath = Join-Path $signingDir 'pet-release.jks'
-          New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
-          [System.IO.File]::WriteAllBytes(
-            $keystorePath,
-            [System.Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64)
-          )
-
-          $keyPropertiesContent = @"
-          storePassword=$env:ANDROID_KEYSTORE_PASSWORD
-          keyPassword=$env:ANDROID_KEY_PASSWORD
-          keyAlias=$env:ANDROID_KEY_ALIAS
-          storeFile=signing/pet-release.jks
-          "@
-
-          [System.IO.File]::WriteAllText(
-            (Join-Path $PWD 'android/key.properties'),
-            $keyPropertiesContent,
-            $utf8NoBom
-          )
+          & .\scripts\prepare-android-signing.ps1 -RepoRoot $PWD
 
       - name: Build ABI APK
         shell: powershell

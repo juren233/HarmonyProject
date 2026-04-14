@@ -11,6 +11,8 @@ import 'package:petnote/logging/app_crash_diagnostics.dart';
 import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 
+const String _appTaskTitle = '宠记';
+
 class PetNoteApp extends StatefulWidget {
   const PetNoteApp({
     super.key,
@@ -81,7 +83,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
     final appLogController = _appLogController;
     if (settingsController == null || appLogController == null) {
       return MaterialApp(
-        title: 'PetNote',
+        title: _appTaskTitle,
         debugShowCheckedModeBanner: false,
         locale: const Locale('zh', 'CN'),
         supportedLocales: const [
@@ -124,7 +126,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
               appLogController: appLogController,
             );
         return MaterialApp(
-          title: 'PetNote',
+          title: _appTaskTitle,
           debugShowCheckedModeBanner: false,
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [

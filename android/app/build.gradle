@@ -11,6 +11,24 @@ def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+def isReleaseTaskRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
+def requiredSigningKeys = ["keyAlias", "keyPassword", "storeFile", "storePassword"]
+def missingSigningKeys = requiredSigningKeys.findAll { key ->
+    def value = keystoreProperties[key]
+    value == null || value.toString().trim().isEmpty()
+}
+def keystoreFile = missingSigningKeys.isEmpty()
+    ? rootProject.file(keystoreProperties["storeFile"])
+    : null
+def releaseSigningError = null
+if (!keystorePropertiesFile.exists()) {
+    releaseSigningError = "Missing android/key.properties"
+} else if (!missingSigningKeys.isEmpty()) {
+    releaseSigningError = "android/key.properties is missing required keys: ${missingSigningKeys.join(', ')}"
+} else if (!keystoreFile.exists()) {
+    releaseSigningError = "Android keystore file was not found: ${keystoreFile}"
+}
+def releaseSigningReady = releaseSigningError == null
 
 android {
     namespace = "com.krustykrab.petnote"
@@ -19,10 +37,10 @@ android {
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (releaseSigningReady) {
                 keyAlias keystoreProperties["keyAlias"]
                 keyPassword keystoreProperties["keyPassword"]
-                storeFile rootProject.file(keystoreProperties["storeFile"])
+                storeFile keystoreFile
                 storePassword keystoreProperties["storePassword"]
             }
         }
@@ -54,11 +72,19 @@ android {
 
     buildTypes {
         release {
-            signingConfig = keystorePropertiesFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.release
+            }
         }
     }
+}
+
+if (isReleaseTaskRequested && !releaseSigningReady) {
+    throw new GradleException(
+        "Android release signing is not configured. ${releaseSigningError}. " +
+        "Run scripts/prepare-android-signing.ps1 on Windows or scripts/prepare-android-signing.sh on macOS/Linux, " +
+        "or provide android/key.properties and android/signing/pet-release.jks."
+    )
 }
 
 flutter {

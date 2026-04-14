@@ -176,11 +176,113 @@ flutter run --debug -d <adb-device-id>
 - `arm64+arm`：同时兼容 32 位和 64 位真机，适合本地手动发包
 - `x64`：Android 模拟器
 - 如果本机同时连了多台设备，建议显式传 `-DeviceId`
-- release 构建会优先使用 [android/key.properties](./android/key.properties) 指向的正式签名；如果本地没有这份文件，则回退到 debug 签名
+- release 构建统一要求使用正式签名；如果 [android/key.properties](./android/key.properties) 或 [android/signing/pet-release.jks](./android/signing/) 未准备完成，构建会直接失败，不再回退到 debug 签名
 - 上面的 macOS `flutter build apk` 默认产物是 `build/app/outputs/flutter-apk/app-release.apk`
 - 如果你要单独产出 `app-arm64-v8a-release.apk` 这类按 ABI 拆分的包，请执行 `flutter build apk --release --target-platform android-arm64 --split-per-abi`
 - macOS 上默认按上面的终端命令执行
 - 直接走原生命令时，不会自动帮你切换 / 恢复共享 Flutter 状态；执行前请确认仓库根目录当前处于 `official` 状态
+
+#### Android release 签名统一方案
+
+Android release 安装包现在统一走同一套本地忽略文件：
+
+- [android/key.properties](./android/key.properties)
+- `android/signing/pet-release.jks`
+
+这两个文件都不要手写、不要提交，统一通过签名脚本生成。
+
+如果旧正式签名已经丢失，需要直接重建一套新的 Android 正式签名，可在项目根目录执行：
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\create-android-signing.ps1
+```
+
+macOS / Linux 终端：
+
+```bash
+bash ./scripts/create-android-signing.sh
+```
+
+默认行为：
+
+- Windows 默认在 `%USERPROFILE%\.petnote-signing\pet-release.jks` 生成新的正式 keystore 原件
+- Windows 默认在 `%USERPROFILE%\.petnote-signing\pet-release.summary.json` 生成本次 keystore 的摘要信息
+- macOS / Linux 默认在 `$HOME/.petnote-signing/pet-release.jks` 生成新的正式 keystore 原件
+- macOS / Linux 默认在 `$HOME/.petnote-signing/pet-release.summary.json` 生成本次 keystore 的摘要信息
+- 自动把签名接入当前仓库的 [android/key.properties](./android/key.properties) 和 `android/signing/pet-release.jks`
+
+如果你想自定义 keystore 存放目录、alias 或密码，可以显式传参：
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\create-android-signing.ps1 `
+  -OutputDirectory 'D:\secure\petnote' `
+  -Alias 'petnote_release'
+```
+
+macOS / Linux 终端：
+
+```bash
+bash ./scripts/create-android-signing.sh \
+  --output-directory "$HOME/.petnote-signing" \
+  --alias 'petnote_release'
+```
+
+生成完新的正式签名后，再交给协作同事和 GitHub Actions 继续复用。
+
+本机或协作同事拿到同一份 keystore 后，在项目根目录执行：
+
+Windows PowerShell：
+
+```powershell
+$env:ANDROID_KEYSTORE_FILE="$env:USERPROFILE\.petnote-signing\pet-release.jks"
+$env:ANDROID_KEYSTORE_PASSWORD='<store-password>'
+$env:ANDROID_KEY_ALIAS='<key-alias>'
+$env:ANDROID_KEY_PASSWORD='<key-password>'
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-android-signing.ps1
+```
+
+macOS / Linux 终端：
+
+```bash
+export ANDROID_KEYSTORE_FILE="$HOME/.petnote-signing/pet-release.jks"
+export ANDROID_KEYSTORE_PASSWORD='<store-password>'
+export ANDROID_KEY_ALIAS='<key-alias>'
+export ANDROID_KEY_PASSWORD='<key-password>'
+bash ./scripts/prepare-android-signing.sh
+```
+
+说明：
+
+- `ANDROID_KEYSTORE_FILE` 指向你本机保存的正式 keystore 原文件，脚本会把它复制到仓库忽略目录 `android/signing/pet-release.jks`
+- 生成完成后，本机 Android Studio、`flutter build apk --release`、以及 [scripts/flutter-android.ps1](./scripts/flutter-android.ps1) 都会复用同一份正式签名
+- 协作开发同事只需要拿到同一份 keystore 和对应密码 / alias，按同样步骤执行一次即可
+- 如果是新重建的签名，从这一刻起所有 Android release 包都必须统一切到这份新 keystore；旧签名安装包无法直接覆盖升级
+- macOS / Linux 当前可直接使用 [scripts/create-android-signing.sh](./scripts/create-android-signing.sh) 和 [scripts/prepare-android-signing.sh](./scripts/prepare-android-signing.sh)，不依赖 PowerShell 7
+
+GitHub Actions 自动构建也复用同一套字段，只是把 keystore 文件改成 Base64 Secret：
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+如果你需要把本地 `pet-release.jks` 转成 GitHub Secret 可用的 Base64，可以在 PowerShell 执行：
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\.petnote-signing\pet-release.jks"))
+```
+
+macOS / Linux 终端可以执行：
+
+```bash
+base64 < "$HOME/.petnote-signing/pet-release.jks" | tr -d '\n'
+```
+
+当前仓库里的 [`.github/workflows/release.yml`](./.github/workflows/release.yml) 会直接调用同一个 [scripts/prepare-android-signing.ps1](./scripts/prepare-android-signing.ps1)，确保“本机、协作开发、GitHub Actions”三条链路最终落到同一份 `android/key.properties` 结构和同一个 keystore 相对路径上。
 
 ### iOS
 
@@ -457,15 +559,11 @@ open -a "DevEco Studio" .
 
 - “为什么根工程设备列表里没有鸿蒙虚拟机？”
   因为根工程走的是官方 Flutter，不会列出 OHOS 设备。
-
 - “为什么跑完 Harmony 脚本后，根目录又变回官方 Flutter 了？”
   因为这正是分流设计，避免影响 Android / iOS。
-
 - “为什么 DevEco 现在可以直接运行了？”
   因为 hvigor 插件会在构建前自动备份共享状态、切换到 OHOS Flutter、必要时刷新 `package_config`，构建后再恢复。
-
 - “为什么 DevEco 运行前有时仍然建议先跑一次 Harmony 脚本？”
   因为脚本会顺手完成子模块初始化、本机 `ohos/local.properties` 校正、签名修复和 hvigor 补丁兜底，适合首次拉仓库或本地环境刚变化之后使用。
-
 - “为什么不要直接把 OHOS Flutter SDK 当普通目录提交？”
   因为体积太大，而且不利于升级和团队同步，子模块更可控。

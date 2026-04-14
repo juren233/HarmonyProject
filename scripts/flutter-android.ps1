@@ -177,6 +177,18 @@ try {
   Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
   Save-PlatformState -RepoRoot $repoRoot -StateName 'official'
 
+  if ($BuildMode -eq 'release') {
+    $prepareAndroidSigningScript = Join-Path $PSScriptRoot 'prepare-android-signing.ps1'
+    if (-not (Test-Path $prepareAndroidSigningScript)) {
+      throw "Android signing helper script was not found at $prepareAndroidSigningScript"
+    }
+
+    & $prepareAndroidSigningScript -RepoRoot $repoRoot
+    if ($LASTEXITCODE -ne 0) {
+      throw "Android signing helper script failed with exit code ${LASTEXITCODE}: $prepareAndroidSigningScript"
+    }
+  }
+
   $buildArguments = @(
     'build',
     'apk',
