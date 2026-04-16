@@ -660,7 +660,20 @@ void main() {
       secretStore: secretStore,
       connectionTester: AiConnectionTester(
         transport: _FakeAiHttpTransport(
-          handler: (request) => completer.future,
+          handler: (request) async {
+            if (request.uri.toString() ==
+                'https://open.bigmodel.cn/api/paas/v4/models') {
+              return AiHttpResponse(
+                statusCode: 200,
+                body: jsonEncode({
+                  'data': [
+                    {'id': 'glm-4.7'},
+                  ],
+                }),
+              );
+            }
+            return completer.future;
+          },
         ),
       ),
     );
@@ -797,6 +810,163 @@ void main() {
     expect(find.byKey(const ValueKey('ai_config_editor_testing_indicator')),
         findsNothing);
     expect(find.text('测试连接'), findsOneWidget);
+  });
+
+  testWidgets(
+      'saved config test connection keeps timeout message instead of generic unreachable copy',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = AiSettingsCoordinator(
+      settingsController: settingsController,
+      secretStore: secretStore,
+      connectionTester: AiConnectionTester(
+        transport: _FakeAiHttpTransport(
+          handler: (request) async {
+            if (request.uri.toString() ==
+                'https://open.bigmodel.cn/api/paas/v4/models') {
+              return AiHttpResponse(
+                statusCode: 200,
+                body: jsonEncode({
+                  'data': [
+                    {'id': 'glm-5.1'},
+                  ],
+                }),
+              );
+            }
+            if (request.uri.toString() ==
+                    'https://open.bigmodel.cn/api/paas/v4/chat/completions' &&
+                request.method == 'POST') {
+              throw TimeoutException('probe timeout');
+            }
+            return const AiHttpResponse(statusCode: 404, body: '{}');
+          },
+        ),
+      ),
+    );
+    final createdAt = DateTime.parse('2026-04-11T18:00:00+08:00');
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-timeout',
+        displayName: 'GLM',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-5.1',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-timeout', 'sk-glm');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: AiSettingsPage(
+          settingsController: settingsController,
+          coordinator: coordinator,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('ai_config_test_button_cfg-timeout')),
+      160,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ai_config_test_button_cfg-timeout')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('结构化'), findsWidgets);
+    expect(find.text('连接失败，请检查网络和服务地址。'), findsNothing);
+    expect(
+      settingsController.aiProviderConfigs
+          .singleWhere((config) => config.id == 'cfg-timeout')
+          .lastConnectionStatus,
+      AiConnectionStatus.timeout,
+    );
+  });
+
+  testWidgets(
+      'saved config test connection shows model unavailable for missing bigmodel target',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = AiSettingsCoordinator(
+      settingsController: settingsController,
+      secretStore: secretStore,
+      connectionTester: AiConnectionTester(
+        transport: _FakeAiHttpTransport(
+          handler: (request) async {
+            if (request.uri.toString() ==
+                'https://open.bigmodel.cn/api/paas/v4/models') {
+              return AiHttpResponse(
+                statusCode: 200,
+                body: jsonEncode({
+                  'data': [
+                    {'id': 'glm-4.7'},
+                  ],
+                }),
+              );
+            }
+            return const AiHttpResponse(statusCode: 404, body: '{}');
+          },
+        ),
+      ),
+    );
+    final createdAt = DateTime.parse('2026-04-11T18:00:00+08:00');
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-missing-model',
+        displayName: 'GLM',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7-flashx',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-missing-model', 'sk-glm');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: AiSettingsPage(
+          settingsController: settingsController,
+          coordinator: coordinator,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('ai_config_test_button_cfg-missing-model')),
+      160,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ai_config_test_button_cfg-missing-model')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前模型不可用，请检查模型名称。'), findsWidgets);
+    expect(find.text('连接失败，请检查网络和服务地址。'), findsNothing);
+    expect(
+      settingsController.aiProviderConfigs
+          .singleWhere((config) => config.id == 'cfg-missing-model')
+          .lastConnectionStatus,
+      AiConnectionStatus.modelUnavailable,
+    );
   });
 
   testWidgets('api key field can toggle visibility without clearing input',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -441,6 +442,99 @@ void main() {
     );
   });
 
+  test('bigmodel profile stops at model discovery when target model is missing',
+      () async {
+    final requestedUrls = <String>[];
+    final tester = AiConnectionTester(
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          requestedUrls.add(request.uri.toString());
+          if (request.uri.toString() ==
+              'https://open.bigmodel.cn/api/paas/v4/models') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'data': [
+                  {'id': 'glm-4.7'},
+                  {'id': 'glm-5.1'},
+                ],
+              }),
+            );
+          }
+          if (request.uri.toString() ==
+              'https://open.bigmodel.cn/api/paas/v4/chat/completions') {
+            fail('chat probe should not run when target model is missing');
+          }
+          return const AiHttpResponse(statusCode: 404, body: '{}');
+        },
+      ),
+    );
+
+    final result = await tester.testConnection(
+      providerType: AiProviderType.openaiCompatible,
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-4.7-flashx',
+      apiKey: 'sk-test',
+    );
+
+    expect(result.status, AiConnectionStatus.modelUnavailable);
+    expect(result.message, contains('模型名称'));
+    expect(
+      requestedUrls,
+      ['https://open.bigmodel.cn/api/paas/v4/models'],
+    );
+  });
+
+  test('bigmodel profile preserves timeout when strict chat probe times out',
+      () async {
+    final requestedUrls = <String>[];
+    var chatAttempts = 0;
+    final tester = AiConnectionTester(
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          requestedUrls.add(request.uri.toString());
+          if (request.uri.toString() ==
+              'https://open.bigmodel.cn/api/paas/v4/models') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'data': [
+                  {'id': 'glm-5.1'},
+                ],
+              }),
+            );
+          }
+          if (request.uri.toString() ==
+                  'https://open.bigmodel.cn/api/paas/v4/chat/completions' &&
+              request.method == 'POST') {
+            chatAttempts += 1;
+            throw TimeoutException('probe timeout');
+          }
+          return const AiHttpResponse(statusCode: 404, body: '{}');
+        },
+      ),
+    );
+
+    final result = await tester.testConnection(
+      providerType: AiProviderType.openaiCompatible,
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-5.1',
+      apiKey: 'sk-test',
+    );
+
+    expect(result.status, AiConnectionStatus.timeout);
+    expect(result.message, contains('结构化'));
+    expect(result.message, contains('超时'));
+    expect(chatAttempts, 2);
+    expect(
+      requestedUrls,
+      containsAll([
+        'https://open.bigmodel.cn/api/paas/v4/models',
+        'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+      ]),
+    );
+  });
+
   test(
       'openai-compatible probe can still succeed when models endpoint is unavailable but chat completions works',
       () async {
@@ -510,6 +604,168 @@ void main() {
 
     expect(result.status, AiConnectionStatus.unreachable);
     expect(result.message, contains('Base URL'));
+  });
+
+  test(
+      'openai-compatible probe retries without response_format when provider does not support it',
+      () async {
+    final requestedBodies = <Map<String, dynamic>>[];
+    final tester = AiConnectionTester(
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          if (request.uri.toString() == 'https://llm.example.com/v1/models') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'data': [
+                  {'id': 'petnote-ai'},
+                ],
+              }),
+            );
+          }
+          if (request.uri.toString() ==
+                  'https://llm.example.com/v1/chat/completions' &&
+              request.method == 'POST') {
+            final body = jsonDecode(request.body!) as Map<String, dynamic>;
+            requestedBodies.add(body);
+            if (requestedBodies.length == 1) {
+              return const AiHttpResponse(
+                statusCode: 400,
+                body:
+                    '{"error":{"message":"response_format json_object is not supported"}}',
+              );
+            }
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'choices': [
+                  {
+                    'message': {
+                      'content': '{"ok":true}',
+                    },
+                  },
+                ],
+              }),
+            );
+          }
+          return const AiHttpResponse(statusCode: 404, body: '{}');
+        },
+      ),
+    );
+
+    final result = await tester.testConnection(
+      providerType: AiProviderType.openaiCompatible,
+      baseUrl: 'https://llm.example.com/v1',
+      model: 'petnote-ai',
+      apiKey: 'sk-test',
+    );
+
+    expect(result.status, AiConnectionStatus.success);
+    expect(requestedBodies, hasLength(2));
+    expect(requestedBodies.first['response_format'], isNotNull);
+    expect(requestedBodies.last.containsKey('response_format'), isFalse);
+  });
+
+  test(
+      'anthropic strict probe succeeds only when messages endpoint returns parseable json',
+      () async {
+    final requestedUrls = <String>[];
+    final tester = AiConnectionTester(
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          requestedUrls.add(request.uri.toString());
+          if (request.uri.toString() == 'https://api.anthropic.com/v1/models') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'data': [
+                  {'id': 'claude-sonnet-4-20250514'},
+                ],
+              }),
+            );
+          }
+          if (request.uri.toString() ==
+                  'https://api.anthropic.com/v1/messages' &&
+              request.method == 'POST') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'content': [
+                  {
+                    'type': 'text',
+                    'text': '{"ok":true}',
+                  },
+                ],
+              }),
+            );
+          }
+          return const AiHttpResponse(statusCode: 404, body: '{}');
+        },
+      ),
+    );
+
+    final result = await tester.testConnection(
+      providerType: AiProviderType.anthropic,
+      baseUrl: 'https://api.anthropic.com/v1',
+      model: 'claude-sonnet-4-20250514',
+      apiKey: 'sk-test',
+    );
+
+    expect(result.status, AiConnectionStatus.success);
+    expect(
+      requestedUrls,
+      containsAll([
+        'https://api.anthropic.com/v1/models',
+        'https://api.anthropic.com/v1/messages',
+      ]),
+    );
+  });
+
+  test(
+      'anthropic strict probe returns invalid response when messages endpoint does not return json content',
+      () async {
+    final tester = AiConnectionTester(
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          if (request.uri.toString() == 'https://api.anthropic.com/v1/models') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'data': [
+                  {'id': 'claude-sonnet-4-20250514'},
+                ],
+              }),
+            );
+          }
+          if (request.uri.toString() ==
+                  'https://api.anthropic.com/v1/messages' &&
+              request.method == 'POST') {
+            return AiHttpResponse(
+              statusCode: 200,
+              body: jsonEncode({
+                'content': [
+                  {
+                    'type': 'text',
+                    'text': '这不是 JSON',
+                  },
+                ],
+              }),
+            );
+          }
+          return const AiHttpResponse(statusCode: 404, body: '{}');
+        },
+      ),
+    );
+
+    final result = await tester.testConnection(
+      providerType: AiProviderType.anthropic,
+      baseUrl: 'https://api.anthropic.com/v1',
+      model: 'claude-sonnet-4-20250514',
+      apiKey: 'sk-test',
+    );
+
+    expect(result.status, AiConnectionStatus.invalidResponse);
+    expect(result.message, contains('结构化 JSON'));
   });
 
   test(

@@ -185,17 +185,6 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         result.message,
         isError: !_isSuccessfulConnectionStatus(result.status),
       );
-    } catch (_) {
-      await widget.settingsController.updateAiProviderConnectionStatus(
-        configId: config.id,
-        status: AiConnectionStatus.unreachable,
-        checkedAt: DateTime.now(),
-        message: '连接失败，请检查网络和服务地址。',
-      );
-      if (!mounted) {
-        return;
-      }
-      _showFeedback('连接失败，请检查网络和服务地址。', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -556,17 +545,6 @@ class _AiConfigEditorPageState extends State<AiConfigEditorPage> {
         result.message,
         isError: !_isSuccessfulConnectionStatus(result.status),
       );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _testResult = const AiConnectionTestResult(
-          status: AiConnectionStatus.unreachable,
-          message: '连接失败，请检查网络和服务地址。',
-        );
-      });
-      _showFeedback('连接失败，请检查网络和服务地址。', isError: true);
     } finally {
       if (mounted) {
         setState(() {

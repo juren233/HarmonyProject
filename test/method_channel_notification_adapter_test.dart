@@ -41,6 +41,22 @@ void main() {
     expect(result, NotificationSettingsOpenResult.failed);
   });
 
+  test('get capabilities maps native exact alarm status', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'getCapabilities');
+      return <String, Object?>{
+        'exactAlarmStatus': 'unavailable',
+      };
+    });
+
+    final adapter = MethodChannelNotificationPlatformAdapter(channel: channel);
+
+    final result = await adapter.getCapabilities();
+
+    expect(result.exactAlarmStatus, NotificationExactAlarmStatus.unavailable);
+  });
+
   test('open notification settings returns unsupported when plugin is missing',
       () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -53,5 +69,18 @@ void main() {
     final result = await adapter.openNotificationSettings();
 
     expect(result, NotificationSettingsOpenResult.unsupported);
+  });
+
+  test('get capabilities returns unsupported when plugin is missing', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      throw MissingPluginException();
+    });
+
+    final adapter = MethodChannelNotificationPlatformAdapter(channel: channel);
+
+    final result = await adapter.getCapabilities();
+
+    expect(result.exactAlarmStatus, NotificationExactAlarmStatus.unsupported);
   });
 }

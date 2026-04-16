@@ -5,6 +5,14 @@ import 'package:petnote/state/petnote_store.dart';
 
 enum PetNoteDataPackageType { backup }
 
+class DataExportOptions {
+  const DataExportOptions({
+    this.includeSensitiveSettings = false,
+  });
+
+  final bool includeSensitiveSettings;
+}
+
 enum DataOperationKind {
   backupExported,
   importedReplace,
@@ -15,9 +23,11 @@ enum DataOperationKind {
 class DataImportOptions {
   const DataImportOptions({
     this.restoreSettings = false,
+    this.restoreSensitiveSettings = false,
   });
 
   final bool restoreSettings;
+  final bool restoreSensitiveSettings;
 }
 
 class PetNoteDataState {
@@ -92,6 +102,60 @@ class PetNoteSettingsState {
   }
 }
 
+class PetNoteAiSecretSnapshot {
+  const PetNoteAiSecretSnapshot({
+    required this.configId,
+    required this.apiKey,
+  });
+
+  final String configId;
+  final String apiKey;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'configId': configId,
+      'apiKey': apiKey,
+    };
+  }
+
+  factory PetNoteAiSecretSnapshot.fromJson(Map<String, dynamic> json) {
+    return PetNoteAiSecretSnapshot(
+      configId: json['configId'] as String? ?? '',
+      apiKey: json['apiKey'] as String? ?? '',
+    );
+  }
+}
+
+class PetNoteSensitiveSettingsState {
+  const PetNoteSensitiveSettingsState({
+    required this.aiSecrets,
+  });
+
+  final List<PetNoteAiSecretSnapshot> aiSecrets;
+
+  bool get hasSecrets => aiSecrets.isNotEmpty;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'aiSecrets': aiSecrets.map((secret) => secret.toJson()).toList(),
+    };
+  }
+
+  factory PetNoteSensitiveSettingsState.fromJson(Map<String, dynamic> json) {
+    final rawSecrets = json['aiSecrets'];
+    return PetNoteSensitiveSettingsState(
+      aiSecrets: rawSecrets is List
+          ? rawSecrets
+              .whereType<Map>()
+              .map((item) => PetNoteAiSecretSnapshot.fromJson(
+                    Map<String, dynamic>.from(item),
+                  ))
+              .toList()
+          : const <PetNoteAiSecretSnapshot>[],
+    );
+  }
+}
+
 class PetNoteDataPackage {
   const PetNoteDataPackage({
     required this.schemaVersion,
@@ -102,6 +166,7 @@ class PetNoteDataPackage {
     required this.appVersion,
     required this.data,
     required this.settings,
+    this.sensitiveSettings,
     required this.meta,
   });
 
@@ -115,6 +180,7 @@ class PetNoteDataPackage {
   final String appVersion;
   final PetNoteDataState data;
   final PetNoteSettingsState? settings;
+  final PetNoteSensitiveSettingsState? sensitiveSettings;
   final Map<String, Object?> meta;
 
   Map<String, dynamic> toJson() {
@@ -127,6 +193,7 @@ class PetNoteDataPackage {
       'appVersion': appVersion,
       'data': data.toJson(),
       'settings': settings?.toJson(),
+      'sensitiveSettings': sensitiveSettings?.toJson(),
       'meta': meta,
     };
   }
@@ -152,6 +219,11 @@ class PetNoteDataPackage {
       settings: json['settings'] is Map
           ? PetNoteSettingsState.fromJson(
               Map<String, dynamic>.from(json['settings'] as Map),
+            )
+          : null,
+      sensitiveSettings: json['sensitiveSettings'] is Map
+          ? PetNoteSensitiveSettingsState.fromJson(
+              Map<String, dynamic>.from(json['sensitiveSettings'] as Map),
             )
           : null,
       meta: json['meta'] is Map

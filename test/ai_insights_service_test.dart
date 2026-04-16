@@ -9,6 +9,7 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -249,7 +250,7 @@ void main() {
     expect(report.priorityActions, contains('本周补一次耳道观察'));
   });
 
-  test('uses a longer timeout for remote generation requests', () async {
+  test('uses a 10-second timeout budget for care report generation', () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -314,10 +315,11 @@ void main() {
     );
 
     expect(recordedTimeouts, isNotEmpty);
-    expect(recordedTimeouts.first, const Duration(seconds: 45));
+    expect(
+        recordedTimeouts.first!.inMilliseconds, inInclusiveRange(9900, 10000));
   });
 
-  test('retries care report with a smaller prompt after provider overload',
+  test('falls back locally after provider overload instead of retrying remote',
       () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
@@ -347,33 +349,13 @@ void main() {
         handler: (request) async {
           final body = jsonDecode(request.body!) as Map<String, dynamic>;
           final messages = body['messages'] as List<dynamic>;
-          final userPrompt = (messages[1] as Map<String, dynamic>)['content']
-              as String;
+          final userPrompt =
+              (messages[1] as Map<String, dynamic>)['content'] as String;
           userPromptLengths.add(userPrompt.length);
-          if (userPromptLengths.length == 1) {
-            return const AiHttpResponse(
-              statusCode: 503,
-              body:
-                  '{"errors":[{"message":"AiError: Max retries exhausted","code":3050}],"success":false}',
-            );
-          }
-          return AiHttpResponse(
-            statusCode: 200,
-            body: jsonEncode({
-              'choices': [
-                {
-                  'message': {
-                    'content': jsonEncode(
-                      _careReportResponseJson(
-                        petId: 'pet-1',
-                        petName: 'Mochi',
-                        executiveSummary: '经过降载后成功生成报告。',
-                      ),
-                    ),
-                  },
-                },
-              ],
-            }),
+          return const AiHttpResponse(
+            statusCode: 503,
+            body:
+                '{"errors":[{"message":"AiError: Max retries exhausted","code":3050}],"success":false}',
           );
         },
       ),
@@ -381,12 +363,14 @@ void main() {
 
     final report = await service.generateCareReport(_heavyCareContext());
 
-    expect(report.executiveSummary, '经过降载后成功生成报告。');
-    expect(userPromptLengths, hasLength(2));
-    expect(userPromptLengths.last, lessThan(userPromptLengths.first));
+    expect(report.executiveSummary, contains('极速'));
+    expect(report.dataQualityNotes.join(' '), contains('本地'));
+    expect(userPromptLengths, hasLength(1));
   });
 
-  test('retries care report after a timeout with a smaller prompt', () async {
+  test(
+      'falls back locally instead of retrying remote care report after timeout',
+      () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -415,12 +399,60 @@ void main() {
         handler: (request) async {
           final body = jsonDecode(request.body!) as Map<String, dynamic>;
           final messages = body['messages'] as List<dynamic>;
-          final userPrompt = (messages[1] as Map<String, dynamic>)['content']
-              as String;
+          final userPrompt =
+              (messages[1] as Map<String, dynamic>)['content'] as String;
           userPromptLengths.add(userPrompt.length);
-          if (userPromptLengths.length == 1) {
-            throw TimeoutException('future not completed');
-          }
+          throw TimeoutException('future not completed');
+        },
+      ),
+    );
+
+    final report = await service.generateCareReport(_heavyCareContext());
+
+    expect(report.executiveSummary, contains('极速'));
+    expect(report.priorityActions, isNotEmpty);
+    expect(userPromptLengths, hasLength(1));
+  });
+
+  test('bigmodel long-range care report starts with condensed budget profile',
+      () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final appLogController = AppLogController.memory();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+    final userPromptDetails = <String>[];
+    final timeouts = <Duration?>[];
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-bigmodel-budget',
+        displayName: 'BigModel',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-bigmodel-budget', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      appLogController: appLogController,
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          timeouts.add(request.timeout);
+          final body = jsonDecode(request.body!) as Map<String, dynamic>;
+          final messages = body['messages'] as List<dynamic>;
+          final userPrompt =
+              (messages[1] as Map<String, dynamic>)['content'] as String;
+          final detailLevelMatch =
+              RegExp(r'"detailLevel":"([^"]+)"').firstMatch(userPrompt);
+          userPromptDetails.add(detailLevelMatch?.group(1) ?? 'unknown');
           return AiHttpResponse(
             statusCode: 200,
             body: jsonEncode({
@@ -431,7 +463,7 @@ void main() {
                       _careReportResponseJson(
                         petId: 'pet-1',
                         petName: 'Mochi',
-                        executiveSummary: '超时后使用轻量上下文生成成功。',
+                        executiveSummary: '精简事实摘要生成成功。',
                       ),
                     ),
                   },
@@ -445,9 +477,193 @@ void main() {
 
     final report = await service.generateCareReport(_heavyCareContext());
 
-    expect(report.executiveSummary, '超时后使用轻量上下文生成成功。');
-    expect(userPromptLengths, hasLength(2));
-    expect(userPromptLengths.last, lessThan(userPromptLengths.first));
+    expect(report.executiveSummary, '精简事实摘要生成成功。');
+    expect(userPromptDetails, ['distilled']);
+    expect(timeouts.single, isNotNull);
+    expect(
+      appLogController.entries.any(
+        (entry) =>
+            entry.title == 'AI 总览生成画像' &&
+            entry.message.contains('profile=openai-compatible-bigmodel'),
+      ),
+      isTrue,
+    );
+  });
+
+  test('bigmodel 3-month care report starts with distilled prompt budget',
+      () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+    final userPromptDetails = <String>[];
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-bigmodel-quarter-budget',
+        displayName: 'BigModel',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-bigmodel-quarter-budget', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          final body = jsonDecode(request.body!) as Map<String, dynamic>;
+          final messages = body['messages'] as List<dynamic>;
+          final userPrompt =
+              (messages[1] as Map<String, dynamic>)['content'] as String;
+          final detailLevelMatch =
+              RegExp(r'"detailLevel":"([^"]+)"').firstMatch(userPrompt);
+          userPromptDetails.add(detailLevelMatch?.group(1) ?? 'unknown');
+          return AiHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'choices': [
+                {
+                  'message': {
+                    'content': jsonEncode(
+                      _careReportResponseJson(
+                        petId: 'pet-1',
+                        petName: 'Mochi',
+                        executiveSummary: '3 个月极速总览生成成功。',
+                      ),
+                    ),
+                  },
+                },
+              ],
+            }),
+          );
+        },
+      ),
+    );
+
+    final report = await service.generateCareReport(_quarterCareContext());
+
+    expect(report.executiveSummary, '3 个月极速总览生成成功。');
+    expect(userPromptDetails, ['distilled']);
+  });
+
+  test('falls back to a local fast care report after timeout', () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final appLogController = AppLogController.memory();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+    var requestCount = 0;
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-timeout-fallback',
+        displayName: 'BigModel',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-timeout-fallback', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      appLogController: appLogController,
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          requestCount += 1;
+          throw TimeoutException('future not completed');
+        },
+      ),
+    );
+
+    final report = await service.generateCareReport(_quarterCareContext());
+
+    expect(requestCount, 1);
+    expect(report.executiveSummary, contains('极速'));
+    expect(report.overallAssessment, isNotEmpty);
+    expect(report.priorityActions, isNotEmpty);
+    expect(report.perPetReports.single.petName, 'Mochi');
+    expect(report.dataQualityNotes.join(' '), contains('本地'));
+    expect(
+      appLogController.entries.any(
+        (entry) => entry.title == 'AI 总览极速兜底',
+      ),
+      isTrue,
+    );
+  });
+
+  test('falls back to a local fast care report after structured-output failure',
+      () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final appLogController = AppLogController.memory();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-structured-output-failure',
+        displayName: 'Compatible',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://llm.example.com/v1',
+        model: 'petnote-ai',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-structured-output-failure', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      appLogController: appLogController,
+      transport: _FakeAiHttpTransport(
+        handler: (request) async => AiHttpResponse(
+          statusCode: 200,
+          body: jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': '这不是合法 JSON',
+                },
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    final report = await service.generateCareReport(_sampleCareContext());
+
+    expect(
+      appLogController.entries.any(
+        (entry) =>
+            entry.title == 'AI 总览结构化输出失败' && entry.message.contains('结构化'),
+      ),
+      isTrue,
+    );
+    expect(
+      appLogController.entries.any(
+        (entry) => entry.title == 'AI 总览极速兜底',
+      ),
+      isTrue,
+    );
+    expect(report.executiveSummary, contains('极速'));
+    expect(report.dataQualityNotes.join(' '), contains('本地'));
   });
 
   test(
@@ -608,8 +824,7 @@ void main() {
     expect(summary.questionsToAskVet.single, contains('滴耳液'));
   });
 
-  test('throws a readable exception when provider response is malformed',
-      () async {
+  test('falls back locally when provider response is malformed', () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -643,28 +858,22 @@ void main() {
       ),
     );
 
-    await expectLater(
-      () => service.generateCareReport(
-        AiGenerationContext(
-          title: '最近 7 天的总结',
-          rangeLabel: '最近 7 天',
-          rangeStart: DateTime.parse('2026-04-02T00:00:00+08:00'),
-          rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
-          languageTag: 'zh-CN',
-          pets: const [],
-          todos: const [],
-          reminders: const [],
-          records: const [],
-        ),
-      ),
-      throwsA(
-        isA<AiGenerationException>().having(
-          (error) => error.message,
-          'message',
-          contains('结构化'),
-        ),
+    final report = await service.generateCareReport(
+      AiGenerationContext(
+        title: '最近 7 天的总结',
+        rangeLabel: '最近 7 天',
+        rangeStart: DateTime.parse('2026-04-02T00:00:00+08:00'),
+        rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
+        languageTag: 'zh-CN',
+        pets: const [],
+        todos: const [],
+        reminders: const [],
+        records: const [],
       ),
     );
+
+    expect(report.executiveSummary, contains('极速'));
+    expect(report.dataQualityNotes.join(' '), contains('本地'));
   });
 
   test(
@@ -919,6 +1128,69 @@ AiGenerationContext _heavyCareContext() {
         recordDate: baseStart.add(Duration(days: index)),
         summary: '这是第 $index 条记录摘要。',
         note: '用于模拟最近 6 个月的连续观察和护理记录。',
+      );
+    }),
+  );
+}
+
+AiGenerationContext _quarterCareContext() {
+  final baseStart = DateTime.parse('2026-01-09T00:00:00+08:00');
+  return AiGenerationContext(
+    title: '最近 3 个月的总结',
+    rangeLabel: '最近 3 个月',
+    rangeStart: baseStart,
+    rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
+    languageTag: 'zh-CN',
+    pets: [
+      Pet(
+        id: 'pet-1',
+        name: 'Mochi',
+        avatarText: 'MO',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        ageLabel: '2岁',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '主粮+冻干',
+        allergies: '鸡肉敏感',
+        note: '需要持续观察耳道与饮食规律。',
+      ),
+    ],
+    todos: List.generate(42, (index) {
+      return TodoItem(
+        id: 'quarter-todo-$index',
+        petId: 'pet-1',
+        title: '季度待办 $index',
+        dueAt: baseStart.add(Duration(days: index * 2)),
+        notificationLeadTime: NotificationLeadTime.none,
+        status: index % 8 == 0 ? TodoStatus.overdue : TodoStatus.done,
+        note: '用于模拟最近 3 个月的待办数据。',
+      );
+    }),
+    reminders: List.generate(38, (index) {
+      return ReminderItem(
+        id: 'quarter-reminder-$index',
+        petId: 'pet-1',
+        kind: index.isEven ? ReminderKind.deworming : ReminderKind.review,
+        title: '季度提醒 $index',
+        scheduledAt: baseStart.add(Duration(days: index * 2 + 1)),
+        notificationLeadTime: NotificationLeadTime.none,
+        recurrence: '每月',
+        status: index % 9 == 0 ? ReminderStatus.overdue : ReminderStatus.done,
+        note: '用于模拟最近 3 个月的提醒数据。',
+      );
+    }),
+    records: List.generate(44, (index) {
+      return PetRecord(
+        id: 'quarter-record-$index',
+        petId: 'pet-1',
+        type: index % 4 == 0 ? PetRecordType.medical : PetRecordType.other,
+        title: '季度记录 $index',
+        recordDate: baseStart.add(Duration(days: index * 2)),
+        summary: '这是第 $index 条季度记录摘要。',
+        note: '用于模拟最近 3 个月的连续观察记录。',
       );
     }),
   );

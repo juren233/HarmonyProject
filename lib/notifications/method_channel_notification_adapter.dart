@@ -154,4 +154,21 @@ class MethodChannelNotificationPlatformAdapter
       return NotificationSettingsOpenResult.unsupported;
     }
   }
+
+  @override
+  Future<NotificationPlatformCapabilities> getCapabilities() async {
+    try {
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'getCapabilities',
+      );
+      appLogController?.info(
+        category: AppLogCategory.nativeBridge,
+        title: '读取通知能力',
+        message: '原生通知能力：${result?['exactAlarmStatus'] ?? 'unsupported'}',
+      );
+      return NotificationPlatformCapabilities.fromMap(result);
+    } on MissingPluginException {
+      return const NotificationPlatformCapabilities();
+    }
+  }
 }

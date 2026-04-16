@@ -108,6 +108,13 @@ class _DataStoragePageState extends State<DataStoragePage> {
                               onPressed: _handleExportBackup,
                             ),
                             SettingsActionButton(
+                              buttonKey: const ValueKey(
+                                'data_storage_export_ai_button',
+                              ),
+                              label: '导出 AI 摘要 JSON',
+                              onPressed: _handleExportAiSummary,
+                            ),
+                            SettingsActionButton(
                               buttonKey:
                                   const ValueKey('data_storage_restore_button'),
                               label: '从备份文件恢复',
@@ -159,9 +166,20 @@ class _DataStoragePageState extends State<DataStoragePage> {
 
   Future<void> _handleExportBackup() async {
     try {
+      final includeSensitiveSettings = await _confirmExportBackup(
+        context,
+        supportsSensitiveSettings:
+            await widget.coordinator.secretStore.isAvailable(),
+      );
+      if (!mounted || includeSensitiveSettings == null) {
+        return;
+      }
       final package = await widget.coordinator.createBackupPackage(
         packageName: 'PetNote 完整备份',
         description: '手动生成的完整备份包',
+        options: DataExportOptions(
+          includeSensitiveSettings: includeSensitiveSettings,
+        ),
       );
       final saved = await _fileAccess.saveBackupFile(
         suggestedFileName: _backupFileName(package.createdAt),
@@ -193,6 +211,32 @@ class _DataStoragePageState extends State<DataStoragePage> {
         return;
       }
       await _openPickedFile(picked);
+    } on DataPackageFileException catch (error) {
+      _showFileError(error);
+    }
+  }
+
+  Future<void> _handleExportAiSummary() async {
+    try {
+      final package = widget.coordinator.createAiSummaryPackage();
+      final saved = await _fileAccess.saveBackupFile(
+        suggestedFileName: _aiSummaryFileName(),
+        rawJson: package.toPrettyJson(),
+      );
+      if (!mounted || saved == null) {
+        return;
+      }
+      setState(() {
+        _fileActivity = _FileActivitySummary(
+          title: 'AI 摘要文件已保存',
+          displayName: saved.displayName,
+          locationLabel: saved.locationLabel,
+          byteLength: saved.byteLength,
+        );
+      });
+      _showFeedback(
+        'AI 摘要已保存到 ${saved.locationLabel} · ${saved.displayName}',
+      );
     } on DataPackageFileException catch (error) {
       _showFileError(error);
     }
@@ -305,6 +349,10 @@ class _DataPackageReviewPageState extends State<DataPackageReviewPage> {
   bool _submitting = false;
   String? _errorMessage;
   bool _restoreSettings = false;
+  bool _restoreSensitiveSettings = false;
+
+  bool get _hasSensitiveSettings =>
+      widget.package.sensitiveSettings?.hasSecrets ?? false;
 
   @override
   Widget build(BuildContext context) {
@@ -369,6 +417,32 @@ class _DataPackageReviewPageState extends State<DataPackageReviewPage> {
                     },
                   ),
                 ],
+                if (_hasSensitiveSettings) ...[
+                  const SizedBox(height: 12),
+                  const ListRow(
+                    title: '检测到敏感信息',
+                    subtitle: '该备份文件包含 API Key，恢复前需要再次确认。',
+                  ),
+                  SwitchListTile(
+                    key:
+                        const ValueKey('data_package_restore_sensitive_toggle'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('同时恢复 API Key'),
+                    subtitle: Text(
+                      _restoreSettings
+                          ? '开启后会在恢复业务数据与普通设置后，再次确认是否写回 API Key。'
+                          : '需要先开启“恢复设置内容”，才能决定是否恢复 API Key。',
+                    ),
+                    value: _restoreSensitiveSettings,
+                    onChanged: !_restoreSettings
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _restoreSensitiveSettings = value;
+                            });
+                          },
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SettingsActionButtonGroup(
                   children: [
@@ -398,13 +472,23 @@ class _DataPackageReviewPageState extends State<DataPackageReviewPage> {
     if (!confirmed) {
       return;
     }
+    var restoreSensitiveSettings = false;
+    if (_restoreSettings &&
+        _restoreSensitiveSettings &&
+        _hasSensitiveSettings &&
+        mounted) {
+      restoreSensitiveSettings = await _confirmSensitiveRestore(context);
+    }
     setState(() {
       _submitting = true;
       _errorMessage = null;
     });
     final result = await widget.coordinator.importPackage(
       package: widget.package,
-      options: DataImportOptions(restoreSettings: _restoreSettings),
+      options: DataImportOptions(
+        restoreSettings: _restoreSettings,
+        restoreSensitiveSettings: restoreSensitiveSettings,
+      ),
     );
     if (!mounted) {
       return;
@@ -430,22 +514,136 @@ enum DataDangerAction {
   clearLocalData,
 }
 
-class DangerConfirmDialog extends StatelessWidget {
-  const DangerConfirmDialog({
+class BackupExportDialog extends StatefulWidget {
+  const BackupExportDialog({
     super.key,
-    required this.action,
-    this.restoreSettings = false,
+    required this.supportsSensitiveSettings,
   });
 
-  final DataDangerAction action;
-  final bool restoreSettings;
+  final bool supportsSensitiveSettings;
+
+  @override
+  State<BackupExportDialog> createState() => _BackupExportDialogState();
+}
+
+class _BackupExportDialogState extends State<BackupExportDialog> {
+  bool _includeSensitiveSettings = false;
 
   @override
   Widget build(BuildContext context) {
-    final copy = _dangerCopy(
-      action,
-      restoreSettings: restoreSettings,
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '确认导出备份',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 14),
+              const Text('默认会导出业务数据与普通设置，不包含 API Key。'),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                key: const ValueKey('backup_export_include_sensitive_toggle'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('同时导出 API Key'),
+                subtitle: Text(
+                  widget.supportsSensitiveSettings
+                      ? '启用后，导出的 JSON 会包含敏感信息，请妥善保管文件。'
+                      : '当前平台安全存储不可用，无法导出 API Key。',
+                ),
+                value: _includeSensitiveSettings,
+                onChanged: !widget.supportsSensitiveSettings
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _includeSensitiveSettings = value;
+                        });
+                      },
+              ),
+              const SizedBox(height: 16),
+              _DangerDialogActionBar(
+                confirmLabel: '继续导出',
+                cancelButtonKey: const ValueKey('backup_export_cancel_button'),
+                confirmButtonKey:
+                    const ValueKey('backup_export_confirm_button'),
+                onCancel: () => Navigator.of(context).pop(),
+                onConfirm: () async {
+                  if (_includeSensitiveSettings) {
+                    final confirmed = await _showSensitiveExportConfirmDialog(
+                      context,
+                    );
+                    if (!context.mounted || !confirmed) {
+                      return;
+                    }
+                  }
+                  if (!context.mounted) {
+                    return;
+                  }
+                  Navigator.of(context).pop(_includeSensitiveSettings);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
+  }
+}
+
+class DangerConfirmDialog extends StatelessWidget {
+  const DangerConfirmDialog({
+    super.key,
+    this.action,
+    this.restoreSettings = false,
+    this.titleOverride,
+    this.descriptionOverride,
+    this.impactOverride,
+    this.snapshotNoticeOverride,
+    this.confirmLabelOverride,
+    this.cancelButtonKeyOverride,
+    this.confirmButtonKeyOverride,
+  }) : assert(
+          action != null ||
+              (titleOverride != null &&
+                  descriptionOverride != null &&
+                  impactOverride != null &&
+                  snapshotNoticeOverride != null &&
+                  confirmLabelOverride != null),
+        );
+
+  final DataDangerAction? action;
+  final bool restoreSettings;
+  final String? titleOverride;
+  final String? descriptionOverride;
+  final String? impactOverride;
+  final String? snapshotNoticeOverride;
+  final String? confirmLabelOverride;
+  final Key? cancelButtonKeyOverride;
+  final Key? confirmButtonKeyOverride;
+
+  @override
+  Widget build(BuildContext context) {
+    final copy = titleOverride == null
+        ? _dangerCopy(
+            action!,
+            restoreSettings: restoreSettings,
+          )
+        : _DangerCopy(
+            title: titleOverride!,
+            description: descriptionOverride!,
+            impact: impactOverride!,
+            snapshotNotice: snapshotNoticeOverride!,
+            confirmLabel: confirmLabelOverride!,
+          );
     final theme = Theme.of(context);
     final tokens = context.petNoteTokens;
     return Dialog(
@@ -504,6 +702,10 @@ class DangerConfirmDialog extends StatelessWidget {
                 confirmLabel: copy.confirmLabel,
                 onCancel: () => Navigator.of(context).pop(false),
                 onConfirm: () => Navigator.of(context).pop(true),
+                cancelButtonKey: cancelButtonKeyOverride ??
+                    const ValueKey('danger_confirm_cancel_button'),
+                confirmButtonKey: confirmButtonKeyOverride ??
+                    const ValueKey('danger_confirm_action_button'),
               ),
             ),
           ],
@@ -518,11 +720,15 @@ class _DangerDialogActionBar extends StatelessWidget {
     required this.confirmLabel,
     required this.onCancel,
     required this.onConfirm,
+    this.cancelButtonKey = const ValueKey('danger_confirm_cancel_button'),
+    this.confirmButtonKey = const ValueKey('danger_confirm_action_button'),
   });
 
   final String confirmLabel;
   final VoidCallback onCancel;
   final VoidCallback onConfirm;
+  final Key cancelButtonKey;
+  final Key confirmButtonKey;
 
   @override
   Widget build(BuildContext context) {
@@ -536,13 +742,13 @@ class _DangerDialogActionBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _DangerDialogActionButton(
-                buttonKey: const ValueKey('danger_confirm_cancel_button'),
+                buttonKey: cancelButtonKey,
                 label: '取消',
                 onPressed: onCancel,
               ),
               const SizedBox(height: 12),
               _DangerDialogActionButton(
-                buttonKey: const ValueKey('danger_confirm_action_button'),
+                buttonKey: confirmButtonKey,
                 label: confirmLabel,
                 priority: SettingsActionPriority.primary,
                 onPressed: onConfirm,
@@ -554,7 +760,7 @@ class _DangerDialogActionBar extends StatelessWidget {
           children: [
             Expanded(
               child: _DangerDialogActionButton(
-                buttonKey: const ValueKey('danger_confirm_cancel_button'),
+                buttonKey: cancelButtonKey,
                 label: '取消',
                 onPressed: onCancel,
               ),
@@ -562,7 +768,7 @@ class _DangerDialogActionBar extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _DangerDialogActionButton(
-                buttonKey: const ValueKey('danger_confirm_action_button'),
+                buttonKey: confirmButtonKey,
                 label: confirmLabel,
                 priority: SettingsActionPriority.primary,
                 onPressed: onConfirm,
@@ -675,6 +881,52 @@ Future<bool> _confirmDanger(
   return confirmed ?? false;
 }
 
+Future<bool?> _confirmExportBackup(
+  BuildContext context, {
+  required bool supportsSensitiveSettings,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (_) => BackupExportDialog(
+      supportsSensitiveSettings: supportsSensitiveSettings,
+    ),
+  );
+}
+
+Future<bool> _showSensitiveExportConfirmDialog(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => const DangerConfirmDialog(
+      titleOverride: '确认导出 API Key',
+      descriptionOverride: '该备份文件会包含可直接调用第三方 AI 服务的 API Key。',
+      impactOverride: '如果文件泄露，可能带来额度损失或账户风险。',
+      snapshotNoticeOverride: '继续前请确认你理解该备份文件将持有敏感信息。',
+      confirmLabelOverride: '确认导出 API Key',
+      cancelButtonKeyOverride:
+          ValueKey('backup_export_sensitive_cancel_button'),
+      confirmButtonKeyOverride:
+          ValueKey('backup_export_sensitive_confirm_button'),
+    ),
+  );
+  return confirmed ?? false;
+}
+
+Future<bool> _confirmSensitiveRestore(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => const DangerConfirmDialog(
+      titleOverride: '确认恢复 API Key',
+      descriptionOverride: '这会把备份中的 API Key 写回当前设备的安全存储。',
+      impactOverride: '如果当前已有本地 API Key，它们可能会被备份内容覆盖。',
+      snapshotNoticeOverride: '取消后仍会继续恢复业务数据与普通设置，但不会写回 API Key。',
+      confirmLabelOverride: '确认恢复 API Key',
+      cancelButtonKeyOverride: ValueKey('sensitive_restore_cancel_button'),
+      confirmButtonKeyOverride: ValueKey('sensitive_restore_confirm_button'),
+    ),
+  );
+  return confirmed ?? false;
+}
+
 _DangerCopy _dangerCopy(
   DataDangerAction action, {
   required bool restoreSettings,
@@ -708,6 +960,10 @@ String _backupFileName(DateTime createdAt) {
   final hour = createdAt.hour.toString().padLeft(2, '0');
   final minute = createdAt.minute.toString().padLeft(2, '0');
   return 'petnote_backup_$year$month${day}_$hour$minute.json';
+}
+
+String _aiSummaryFileName() {
+  return 'petnote_ai_summary.json';
 }
 
 String _fileErrorMessage(DataPackageFileException error) {

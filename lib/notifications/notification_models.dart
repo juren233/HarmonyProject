@@ -16,6 +16,49 @@ enum NotificationSettingsOpenResult {
   unsupported,
 }
 
+enum NotificationExactAlarmStatus {
+  available,
+  unavailable,
+  unsupported,
+}
+
+class NotificationPlatformCapabilities {
+  const NotificationPlatformCapabilities({
+    this.exactAlarmStatus = NotificationExactAlarmStatus.unsupported,
+  });
+
+  final NotificationExactAlarmStatus exactAlarmStatus;
+
+  bool get canScheduleExactAlarms =>
+      exactAlarmStatus == NotificationExactAlarmStatus.available;
+
+  bool get supportsExactAlarms =>
+      exactAlarmStatus != NotificationExactAlarmStatus.unsupported;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'exactAlarmStatus': exactAlarmStatus.name,
+    };
+  }
+
+  factory NotificationPlatformCapabilities.fromMap(Map<Object?, Object?>? map) {
+    return NotificationPlatformCapabilities(
+      exactAlarmStatus: notificationExactAlarmStatusFromName(
+        map?['exactAlarmStatus'] as String?,
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is NotificationPlatformCapabilities &&
+        other.exactAlarmStatus == exactAlarmStatus;
+  }
+
+  @override
+  int get hashCode => exactAlarmStatus.hashCode;
+}
+
 class NotificationPayload {
   const NotificationPayload({
     required this.sourceType,
@@ -136,5 +179,15 @@ NotificationSettingsOpenResult notificationSettingsOpenResultFromName(
     'opened' => NotificationSettingsOpenResult.opened,
     'failed' => NotificationSettingsOpenResult.failed,
     _ => NotificationSettingsOpenResult.unsupported,
+  };
+}
+
+NotificationExactAlarmStatus notificationExactAlarmStatusFromName(
+  String? value,
+) {
+  return switch (value) {
+    'available' => NotificationExactAlarmStatus.available,
+    'unavailable' => NotificationExactAlarmStatus.unavailable,
+    _ => NotificationExactAlarmStatus.unsupported,
   };
 }

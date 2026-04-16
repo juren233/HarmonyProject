@@ -70,6 +70,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   _OverlayTransition _overlayTransition = _OverlayTransition.none;
   late final AnimationController _overlayTransitionController;
   Timer? _timeRefreshTimer;
+  int? _lastNotificationSyncVersion;
 
   @override
   void initState() {
@@ -154,6 +155,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
     setState(() {
       _notificationCoordinator = coordinator;
+      _lastNotificationSyncVersion = store.notificationSyncVersion;
     });
     if (launchIntent != null) {
       _applyNotificationIntent(store, launchIntent);
@@ -177,6 +179,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       if (mounted) {
         setState(() {});
       }
+      unawaited(_handleAppResumed());
       return;
     }
     if (state == AppLifecycleState.inactive) {
@@ -495,8 +498,30 @@ class _PetNoteRootState extends State<PetNoteRoot>
     if (store == null || coordinator == null) {
       return;
     }
-    unawaited(coordinator.syncFromStore(store));
+    if (_lastNotificationSyncVersion != store.notificationSyncVersion) {
+      _lastNotificationSyncVersion = store.notificationSyncVersion;
+      unawaited(coordinator.syncFromStore(store));
+    }
     unawaited(_consumeForegroundNotificationTap(store));
+  }
+
+  Future<void> _handleAppResumed() async {
+    final store = _store;
+    final coordinator = _notificationCoordinator;
+    if (store == null || coordinator == null) {
+      return;
+    }
+    final stateChanged = await coordinator.refreshPlatformState();
+    if (!mounted ||
+        !identical(store, _store) ||
+        !identical(coordinator, _notificationCoordinator)) {
+      return;
+    }
+    if (stateChanged && coordinator.hasGrantedPermission) {
+      _lastNotificationSyncVersion = store.notificationSyncVersion;
+      await coordinator.syncFromStore(store);
+    }
+    await _consumeForegroundNotificationTap(store);
   }
 
   Future<void> _consumeForegroundNotificationTap(PetNoteStore store) async {
@@ -672,6 +697,9 @@ class _PetNoteBody extends StatelessWidget {
                       notificationPermissionState:
                           notificationCoordinator?.permissionState ??
                               NotificationPermissionState.unknown,
+                      notificationCapabilities:
+                          notificationCoordinator?.capabilities ??
+                              const NotificationPlatformCapabilities(),
                       notificationPushToken: notificationCoordinator?.pushToken,
                       onRequestNotificationPermission:
                           notificationCoordinator == null

@@ -1726,6 +1726,280 @@ void main() {
   });
 
   testWidgets(
+      'expanded todo form shows structured fields and persists semantic',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增待办'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('主题'), findsOneWidget);
+    expect(find.text('执行意图'), findsOneWidget);
+    expect(find.text('跟进时间（可选）'), findsOneWidget);
+    expect(find.text('关键指标（可选）'), findsOneWidget);
+    expect(find.text('补充说明'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('饮食'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('饮食'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('采购'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('采购'));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byType(SingleChildScrollView).last,
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('todo_measurement_key_field_0')),
+      'stock',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('todo_measurement_value_field_0')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('todo_measurement_unit_field_0')),
+      'bag',
+    );
+    await tester.enterText(find.byType(TextField).last, '补低敏主粮');
+    await tester.tap(find.widgetWithText(FilledButton, '保存待办'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final todosJson = prefs.getString(_todosStorageKey);
+    expect(todosJson, isNotNull);
+    expect(todosJson, contains('"topicKey":"diet"'));
+    expect(todosJson, contains('"intent":"buy"'));
+    expect(todosJson, contains('"followUpAt"'));
+    expect(todosJson, contains('"key":"stock"'));
+    expect(todosJson, contains('补货采购'));
+  });
+
+  testWidgets(
+      'expanded reminder and record forms persist structured semantic fields',
+      (tester) async {
+    Future<void> confirmPicker() async {
+      var finder = find.text('OK');
+      if (finder.evaluate().isEmpty) {
+        finder = find.text('确定');
+      }
+      if (finder.evaluate().isNotEmpty) {
+        await tester.tap(finder.last);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增提醒'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('主题'), findsOneWidget);
+    expect(find.text('执行意图'), findsOneWidget);
+    expect(find.text('跟进时间（可选）'), findsOneWidget);
+    expect(find.text('关键指标（可选）'), findsOneWidget);
+    expect(find.text('补充说明'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('驱虫'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('驱虫'));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byType(SingleChildScrollView).last,
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('reminder_measurement_key_field_0')),
+      'dose',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('reminder_measurement_value_field_0')),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('reminder_measurement_unit_field_0')),
+      'tablet',
+    );
+    await tester.enterText(find.byType(TextField).last, '晚饭后执行');
+    await tester.tap(find.widgetWithText(FilledButton, '保存提醒'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('主题'), findsOneWidget);
+    expect(find.text('事件信号'), findsOneWidget);
+    expect(find.text('证据来源'), findsOneWidget);
+    expect(find.text('跟进时间（可选）'), findsOneWidget);
+    expect(find.text('关键指标（可选）'), findsOneWidget);
+    expect(find.text('补充说明'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('耳道'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('耳道'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('需关注'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('需关注'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('医院'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('医院'));
+    await tester.pumpAndSettle();
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('record_follow_up_field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('record_follow_up_field')));
+    await tester.pumpAndSettle();
+    await confirmPicker();
+    await confirmPicker();
+    await tester.drag(
+      find.byType(SingleChildScrollView).last,
+      const Offset(0, -360),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_key_field_0')),
+      'weight',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_value_field_0')),
+      '4.3',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_unit_field_0')),
+      'kg',
+    );
+    await tester.enterText(find.byType(TextField).at(1), '抓耳次数略有增加');
+    await tester.enterText(find.byType(TextField).last, '一周后复查');
+    await tester.tap(find.widgetWithText(FilledButton, '保存记录'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final remindersJson = prefs.getString('reminders_v1');
+    final recordsJson = prefs.getString('records_v1');
+    expect(remindersJson, contains('"topicKey":"deworming"'));
+    expect(remindersJson, contains('"intent":"administer"'));
+    expect(remindersJson, contains('"followUpAt"'));
+    expect(remindersJson, contains('"key":"dose"'));
+    expect(recordsJson, contains('"topicKey":"earCare"'));
+    expect(recordsJson, contains('"signal":"attention"'));
+    expect(recordsJson, contains('"source":"vet"'));
+    expect(recordsJson, contains('"followUpAt"'));
+    expect(recordsJson, contains('"key":"weight"'));
+    expect(recordsJson, contains('"value":"4.3"'));
+    expect(recordsJson, contains('"unit":"kg"'));
+  });
+
+  testWidgets(
+      'record form supports multiple measurements and can clear follow-up time',
+      (tester) async {
+    Future<void> confirmPicker() async {
+      var finder = find.text('OK');
+      if (finder.evaluate().isEmpty) {
+        finder = find.text('确定');
+      }
+      if (finder.evaluate().isNotEmpty) {
+        await tester.tap(finder.last);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('耳道'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('耳道'));
+    await tester.pumpAndSettle();
+
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('record_follow_up_field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('record_follow_up_field')));
+    await tester.pumpAndSettle();
+    await confirmPicker();
+    await confirmPicker();
+
+    expect(find.byKey(const ValueKey('record_clear_follow_up_button')),
+        findsOneWidget);
+    await tester
+        .tap(find.byKey(const ValueKey('record_clear_follow_up_button')));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byType(SingleChildScrollView).last,
+      const Offset(0, -360),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_key_field_0')),
+      'weight',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_value_field_0')),
+      '4.3',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_unit_field_0')),
+      'kg',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_measurement_button')),
+    );
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('record_add_measurement_button')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_measurement_key_field_1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_key_field_1')),
+      'hydration',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_value_field_1')),
+      '210',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('record_measurement_unit_field_1')),
+      'ml',
+    );
+    await tester.enterText(find.byType(TextField).at(1), '复查记录');
+    await tester.tap(find.widgetWithText(FilledButton, '保存记录'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final recordsJson = prefs.getString('records_v1');
+    expect(recordsJson, contains('"key":"weight"'));
+    expect(recordsJson, contains('"key":"hydration"'));
+    expect(recordsJson, isNot(contains('"followUpAt"')));
+  });
+
+  testWidgets(
       'dock add reminder and record actions expand into full-height form flow',
       (tester) async {
     for (final action in ['新增提醒', '新增记录']) {

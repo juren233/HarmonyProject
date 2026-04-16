@@ -18,4 +18,6 @@ abstract class NotificationPlatformAdapter {
   Future<String?> registerPushToken();
 
   Future<NotificationSettingsOpenResult> openNotificationSettings();
+
+  Future<NotificationPlatformCapabilities> getCapabilities();
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
 import 'package:petnote/data/data_storage_models.dart';
@@ -11,6 +12,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  test('backup package encodes and decodes optional sensitive settings', () {
+    final package = PetNoteDataPackage(
+      schemaVersion: PetNoteDataPackage.currentSchemaVersion,
+      packageType: PetNoteDataPackageType.backup,
+      packageName: '敏感备份',
+      description: '包含 API Key',
+      createdAt: DateTime.parse('2026-04-15T10:00:00+08:00'),
+      appVersion: '1.0.0-test',
+      data: const PetNoteDataState(
+        pets: <Pet>[],
+        todos: <TodoItem>[],
+        reminders: <ReminderItem>[],
+        records: <PetRecord>[],
+      ),
+      settings: const PetNoteSettingsState(
+        themePreferenceName: 'system',
+        aiProviderConfigs: <AiProviderConfig>[],
+        activeAiProviderConfigId: null,
+      ),
+      sensitiveSettings: const PetNoteSensitiveSettingsState(
+        aiSecrets: <PetNoteAiSecretSnapshot>[
+          PetNoteAiSecretSnapshot(
+            configId: 'cfg-openai',
+            apiKey: 'sk-test-123',
+          ),
+        ],
+      ),
+      meta: const <String, Object?>{},
+    );
+
+    final decoded = PetNoteDataPackage.fromJson(package.toJson());
+
+    expect(decoded.sensitiveSettings, isNotNull);
+    expect(decoded.sensitiveSettings!.aiSecrets.single.configId, 'cfg-openai');
+    expect(decoded.sensitiveSettings!.aiSecrets.single.apiKey, 'sk-test-123');
   });
 
   test('exports backup package with business data and non-sensitive settings',
@@ -61,6 +99,73 @@ void main() {
     expect(
         package.settings?.aiProviderConfigs.single.displayName, 'OpenAI 主账号');
     expect(encoded, isNot(contains('sk-')));
+  });
+
+  test('exports backup package without sensitive settings by default',
+      () async {
+    final store = await PetNoteStore.load();
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      secretStore: secretStore,
+    );
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-openai',
+        displayName: 'OpenAI 主账号',
+        providerType: AiProviderType.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        isActive: true,
+        createdAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+        updatedAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+      ),
+    );
+    await secretStore.writeKey('cfg-openai', 'sk-test-123');
+
+    final package = await coordinator.createBackupPackage(
+      packageName: '默认备份',
+      description: '不含敏感信息',
+    );
+
+    expect(package.sensitiveSettings, isNull);
+  });
+
+  test('exports backup package with ai secrets when requested', () async {
+    final store = await PetNoteStore.load();
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      secretStore: secretStore,
+    );
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-openai',
+        displayName: 'OpenAI 主账号',
+        providerType: AiProviderType.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        isActive: true,
+        createdAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+        updatedAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+      ),
+    );
+    await secretStore.writeKey('cfg-openai', 'sk-test-123');
+
+    final package = await coordinator.createBackupPackage(
+      packageName: '敏感备份',
+      description: '含 API Key',
+      options: const DataExportOptions(includeSensitiveSettings: true),
+    );
+
+    expect(package.sensitiveSettings, isNotNull);
+    expect(package.sensitiveSettings!.aiSecrets.single.apiKey, 'sk-test-123');
   });
 
   test(
@@ -168,6 +273,74 @@ void main() {
     expect(replaceResult.restoredSettings, isTrue);
     expect(replaceResult.message, '备份数据和普通设置已恢复。');
     expect(settingsController.themePreference, AppThemePreference.light);
+  });
+
+  test(
+      'import keeps api secrets unchanged until restoreSensitiveSettings is true',
+      () async {
+    final store = await PetNoteStore.load();
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      secretStore: secretStore,
+    );
+
+    final backupPackage = PetNoteDataPackage(
+      schemaVersion: PetNoteDataPackage.currentSchemaVersion,
+      packageType: PetNoteDataPackageType.backup,
+      packageName: '敏感恢复备份',
+      description: '导入恢复 API Key',
+      createdAt: DateTime.parse('2026-04-15T12:00:00+08:00'),
+      appVersion: '1.0.0-test',
+      data: PetNoteStore.seeded().exportDataState(),
+      settings: PetNoteSettingsState(
+        themePreferenceName: 'light',
+        aiProviderConfigs: <AiProviderConfig>[
+          AiProviderConfig(
+            id: 'cfg-openai',
+            displayName: 'OpenAI 主账号',
+            providerType: AiProviderType.openai,
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-5.4',
+            isActive: true,
+            createdAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+            updatedAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+          ),
+        ],
+        activeAiProviderConfigId: 'cfg-openai',
+      ),
+      sensitiveSettings: const PetNoteSensitiveSettingsState(
+        aiSecrets: <PetNoteAiSecretSnapshot>[
+          PetNoteAiSecretSnapshot(
+            configId: 'cfg-openai',
+            apiKey: 'sk-restore-123',
+          ),
+        ],
+      ),
+      meta: const <String, Object?>{},
+    );
+
+    await coordinator.importPackage(
+      package: backupPackage,
+      options: const DataImportOptions(
+        restoreSettings: true,
+        restoreSensitiveSettings: false,
+      ),
+    );
+
+    expect(await secretStore.readKey('cfg-openai'), isNull);
+
+    await coordinator.importPackage(
+      package: backupPackage,
+      options: const DataImportOptions(
+        restoreSettings: true,
+        restoreSensitiveSettings: true,
+      ),
+    );
+
+    expect(await secretStore.readKey('cfg-openai'), 'sk-restore-123');
   });
 
   test('clear all data removes business data and resets settings', () async {

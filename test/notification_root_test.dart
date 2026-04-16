@@ -5,8 +5,15 @@ import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets(
       'notification launch intent switches to checklist and highlights target item',
       (tester) async {
@@ -32,8 +39,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
 
-    expect(find.text('清单'), findsWidgets);
+    expect(store.activeTab, AppTab.checklist);
     expect(find.byKey(const ValueKey('highlighted_checklist_item_todo-1')),
         findsOneWidget);
   });
@@ -59,6 +69,34 @@ void main() {
 
     expect(adapter.requestPermissionCallCount, 0);
   });
+
+  testWidgets('store UI-only state changes do not trigger notification resync',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final adapter = _RootFakeNotificationPlatformAdapter();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final initialScheduleCount = adapter.scheduleCallCount;
+
+    store.setActiveTab(AppTab.me);
+    await tester.pump();
+    store.setOverviewRange(OverviewRange.threeMonths);
+    await tester.pump();
+    store.selectPet('pet-2');
+    await tester.pumpAndSettle();
+
+    expect(adapter.scheduleCallCount, initialScheduleCount);
+  });
 }
 
 class _RootFakeNotificationPlatformAdapter
@@ -69,8 +107,10 @@ class _RootFakeNotificationPlatformAdapter
   });
 
   final NotificationLaunchIntent? initialIntent;
-  final NotificationPermissionState permissionState;
+  NotificationPermissionState permissionState;
   int requestPermissionCallCount = 0;
+  int getPermissionStateCallCount = 0;
+  int scheduleCallCount = 0;
 
   @override
   Future<void> cancelNotification(String key) async {}
@@ -80,7 +120,13 @@ class _RootFakeNotificationPlatformAdapter
 
   @override
   Future<NotificationPermissionState> getPermissionState() async {
+    getPermissionStateCallCount += 1;
     return permissionState;
+  }
+
+  @override
+  Future<NotificationPlatformCapabilities> getCapabilities() async {
+    return const NotificationPlatformCapabilities();
   }
 
   @override
@@ -105,5 +151,7 @@ class _RootFakeNotificationPlatformAdapter
   }
 
   @override
-  Future<void> scheduleLocalNotification(NotificationJob job) async {}
+  Future<void> scheduleLocalNotification(NotificationJob job) async {
+    scheduleCallCount += 1;
+  }
 }

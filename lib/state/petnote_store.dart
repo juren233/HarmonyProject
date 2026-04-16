@@ -32,10 +32,177 @@ enum PetNeuterStatus { neutered, notNeutered, unknown }
 
 enum OverviewAiReportStatus { idle, loading, ready, error }
 
+enum SemanticTopicKey {
+  hydration,
+  diet,
+  deworming,
+  litter,
+  grooming,
+  earCare,
+  medication,
+  vaccine,
+  review,
+  weight,
+  digestive,
+  skin,
+  purchase,
+  cleaning,
+  other,
+}
+
+enum SemanticSignal {
+  stable,
+  improved,
+  worsened,
+  attention,
+  completed,
+  missed,
+  scheduled,
+  info,
+}
+
+enum SemanticActionIntent {
+  observe,
+  administer,
+  buy,
+  clean,
+  record,
+  review,
+  custom,
+}
+
+enum SemanticEvidenceSource { home, vet, lab, receipt, other }
+
 typedef OverviewAiReportGenerator = Future<AiCareReport> Function(
   AiGenerationContext context, {
   bool forceRefresh,
 });
+
+class SemanticMeasurement {
+  const SemanticMeasurement({
+    required this.key,
+    required this.value,
+    required this.unit,
+  });
+
+  final String key;
+  final String value;
+  final String unit;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'value': value,
+      'unit': unit,
+    };
+  }
+
+  factory SemanticMeasurement.fromJson(Map<String, dynamic> json) {
+    return SemanticMeasurement(
+      key: json['key'] as String? ?? '',
+      value: json['value'] as String? ?? '',
+      unit: json['unit'] as String? ?? '',
+    );
+  }
+}
+
+class SemanticEventDetails {
+  const SemanticEventDetails({
+    required this.topicKey,
+    required this.signal,
+    required this.tags,
+    required this.evidenceSummary,
+    required this.actionSummary,
+    required this.followUpAt,
+    required this.measurements,
+    this.intent,
+    this.source,
+  });
+
+  final SemanticTopicKey topicKey;
+  final SemanticSignal signal;
+  final List<String> tags;
+  final String evidenceSummary;
+  final String actionSummary;
+  final DateTime? followUpAt;
+  final List<SemanticMeasurement> measurements;
+  final SemanticActionIntent? intent;
+  final SemanticEvidenceSource? source;
+
+  Map<String, dynamic> toJson() {
+    final json = <String, dynamic>{
+      'topicKey': topicKey.name,
+      'signal': signal.name,
+      'tags': tags,
+      'evidenceSummary': evidenceSummary,
+      'actionSummary': actionSummary,
+      'measurements': measurements.map((item) => item.toJson()).toList(),
+    };
+    if (followUpAt != null) {
+      json['followUpAt'] = followUpAt!.toIso8601String();
+    }
+    if (intent != null) {
+      json['intent'] = intent!.name;
+    }
+    if (source != null) {
+      json['source'] = source!.name;
+    }
+    return json;
+  }
+
+  factory SemanticEventDetails.fromJson(Map<String, dynamic> json) {
+    final rawMeasurements = json['measurements'];
+    return SemanticEventDetails(
+      topicKey: _semanticTopicKeyFromName(json['topicKey'] as String?),
+      signal: _semanticSignalFromName(json['signal'] as String?),
+      tags: (json['tags'] as List?)
+              ?.whereType<String>()
+              .map((item) => item.trim())
+              .where((item) => item.isNotEmpty)
+              .take(3)
+              .toList(growable: false) ??
+          const <String>[],
+      evidenceSummary: json['evidenceSummary'] as String? ?? '',
+      actionSummary: json['actionSummary'] as String? ?? '',
+      followUpAt: DateTime.tryParse(json['followUpAt'] as String? ?? ''),
+      measurements: rawMeasurements is List
+          ? rawMeasurements
+              .whereType<Map>()
+              .map((item) => SemanticMeasurement.fromJson(
+                    Map<String, dynamic>.from(item),
+                  ))
+              .where((item) => item.key.isNotEmpty)
+              .toList(growable: false)
+          : const <SemanticMeasurement>[],
+      intent: _semanticActionIntentFromName(json['intent'] as String?),
+      source: _semanticEvidenceSourceFromName(json['source'] as String?),
+    );
+  }
+
+  SemanticEventDetails copyWith({
+    SemanticTopicKey? topicKey,
+    SemanticSignal? signal,
+    List<String>? tags,
+    String? evidenceSummary,
+    String? actionSummary,
+    DateTime? followUpAt,
+    List<SemanticMeasurement>? measurements,
+    SemanticActionIntent? intent,
+    SemanticEvidenceSource? source,
+  }) {
+    return SemanticEventDetails(
+      topicKey: topicKey ?? this.topicKey,
+      signal: signal ?? this.signal,
+      tags: tags ?? this.tags,
+      evidenceSummary: evidenceSummary ?? this.evidenceSummary,
+      actionSummary: actionSummary ?? this.actionSummary,
+      followUpAt: followUpAt ?? this.followUpAt,
+      measurements: measurements ?? this.measurements,
+      intent: intent ?? this.intent,
+      source: source ?? this.source,
+    );
+  }
+}
 
 class Pet {
   Pet({
@@ -114,6 +281,7 @@ class TodoItem {
     required this.notificationLeadTime,
     required this.status,
     required this.note,
+    this.semantic,
   });
 
   final String id;
@@ -123,6 +291,7 @@ class TodoItem {
   NotificationLeadTime notificationLeadTime;
   TodoStatus status;
   final String note;
+  final SemanticEventDetails? semantic;
 
   Map<String, dynamic> toJson() {
     return {
@@ -133,6 +302,7 @@ class TodoItem {
       'notificationLeadTime': notificationLeadTime.name,
       'status': status.name,
       'note': note,
+      'semantic': semantic?.toJson(),
     };
   }
 
@@ -146,6 +316,11 @@ class TodoItem {
           json['notificationLeadTime'] as String?),
       status: _todoStatusFromName(json['status'] as String?),
       note: json['note'] as String? ?? '',
+      semantic: json['semantic'] is Map
+          ? SemanticEventDetails.fromJson(
+              Map<String, dynamic>.from(json['semantic'] as Map),
+            )
+          : null,
     );
   }
 }
@@ -161,6 +336,7 @@ class ReminderItem {
     required this.recurrence,
     required this.status,
     required this.note,
+    this.semantic,
   });
 
   final String id;
@@ -172,6 +348,7 @@ class ReminderItem {
   final String recurrence;
   ReminderStatus status;
   final String note;
+  final SemanticEventDetails? semantic;
 
   Map<String, dynamic> toJson() {
     return {
@@ -184,6 +361,7 @@ class ReminderItem {
       'recurrence': recurrence,
       'status': status.name,
       'note': note,
+      'semantic': semantic?.toJson(),
     };
   }
 
@@ -199,6 +377,11 @@ class ReminderItem {
       recurrence: json['recurrence'] as String? ?? '单次',
       status: _reminderStatusFromName(json['status'] as String?),
       note: json['note'] as String? ?? '',
+      semantic: json['semantic'] is Map
+          ? SemanticEventDetails.fromJson(
+              Map<String, dynamic>.from(json['semantic'] as Map),
+            )
+          : null,
     );
   }
 }
@@ -212,6 +395,7 @@ class PetRecord {
     required this.recordDate,
     required this.summary,
     required this.note,
+    this.semantic,
   });
 
   final String id;
@@ -221,6 +405,7 @@ class PetRecord {
   final DateTime recordDate;
   final String summary;
   final String note;
+  final SemanticEventDetails? semantic;
 
   Map<String, dynamic> toJson() {
     return {
@@ -231,6 +416,7 @@ class PetRecord {
       'recordDate': recordDate.toIso8601String(),
       'summary': summary,
       'note': note,
+      'semantic': semantic?.toJson(),
     };
   }
 
@@ -243,6 +429,11 @@ class PetRecord {
       recordDate: DateTime.parse(json['recordDate'] as String),
       summary: json['summary'] as String? ?? '',
       note: json['note'] as String? ?? '',
+      semantic: json['semantic'] is Map
+          ? SemanticEventDetails.fromJson(
+              Map<String, dynamic>.from(json['semantic'] as Map),
+            )
+          : null,
     );
   }
 }
@@ -503,7 +694,9 @@ class PetNoteStore extends ChangeNotifier {
     final todosJson = preferences?.getString(_todosStorageKey);
     final remindersJson = preferences?.getString(_remindersStorageKey);
     final recordsJson = preferences?.getString(_recordsStorageKey);
-    return PetNoteStore._(
+    final overviewAiHistoryJson =
+        preferences?.getString(_overviewAiHistoryStorageKey);
+    final store = PetNoteStore._(
       preferences: preferences,
       nowProvider: nowProvider,
       shouldAutoShowFirstLaunchIntro:
@@ -512,21 +705,31 @@ class PetNoteStore extends ChangeNotifier {
       todos: _decodeTodos(todosJson),
       reminders: _decodeReminders(remindersJson),
       records: _decodeRecords(recordsJson),
-    );
+    ).._overviewAiHistory.addAll(
+        _decodeOverviewAiHistory(overviewAiHistoryJson),
+      );
+    final migrated = store._migrateLegacySemanticData();
+    if (migrated) {
+      await store._saveState();
+    }
+    return store;
   }
 
   static const String _petsStorageKey = 'pets_v1';
   static const String _todosStorageKey = 'todos_v1';
   static const String _remindersStorageKey = 'reminders_v1';
   static const String _recordsStorageKey = 'records_v1';
+  static const String _overviewAiHistoryStorageKey = 'overview_ai_history_v1';
   static const String _firstLaunchIntroAutoEnabledKey =
       'first_launch_intro_auto_enabled_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
+  static const int _maxOverviewAiHistoryEntries = 20;
 
   final List<Pet> _pets = [];
   final List<TodoItem> _todos = [];
   final List<ReminderItem> _reminders = [];
   final List<PetRecord> _records = [];
+  final List<AiCareReportHistoryEntry> _overviewAiHistory = [];
   final DateTime Function() _nowProvider;
   final SharedPreferences? _preferences;
   List<ChecklistSection>? _checklistSectionsCache;
@@ -539,6 +742,7 @@ class PetNoteStore extends ChangeNotifier {
   List<PetRecord>? _recordsForSelectedPetCache;
   OverviewAiReportState _overviewAiReportState = const OverviewAiReportState();
   int _overviewAiRequestToken = 0;
+  int _notificationSyncVersion = 0;
 
   AppTab _activeTab = AppTab.checklist;
   OverviewRange _overviewRange = OverviewRange.sevenDays;
@@ -548,11 +752,14 @@ class PetNoteStore extends ChangeNotifier {
   AppTab get activeTab => _activeTab;
   OverviewRange get overviewRange => _overviewRange;
   OverviewAiReportState get overviewAiReportState => _overviewAiReportState;
+  int get notificationSyncVersion => _notificationSyncVersion;
   List<Pet> get pets => List<Pet>.unmodifiable(_pets);
   List<TodoItem> get todos => List<TodoItem>.unmodifiable(_todos);
   List<ReminderItem> get reminders =>
       List<ReminderItem>.unmodifiable(_reminders);
   List<PetRecord> get records => List<PetRecord>.unmodifiable(_records);
+  List<AiCareReportHistoryEntry> get overviewAiHistory =>
+      List<AiCareReportHistoryEntry>.unmodifiable(_overviewAiHistory);
   bool get shouldAutoShowFirstLaunchIntro => _shouldAutoShowFirstLaunchIntro;
   DateTime get referenceNow => _referenceNow;
 
@@ -800,6 +1007,18 @@ class PetNoteStore extends ChangeNotifier {
     );
   }
 
+  AiPortableSummaryPackage buildAiPortableSummary({
+    String? title,
+    DateTime? generatedAt,
+  }) {
+    final context = buildOverviewAiGenerationContext();
+    return AiPortableSummaryBuilder().build(
+      title: title ?? context.title,
+      context: context,
+      generatedAt: generatedAt ?? _referenceNow,
+    );
+  }
+
   Future<void> generateOverviewAiReport(
     OverviewAiReportGenerator generate, {
     bool forceRefresh = false,
@@ -834,7 +1053,12 @@ class PetNoteStore extends ChangeNotifier {
         hasRequested: true,
         activeRequestToken: requestToken,
       );
+      _recordOverviewAiHistory(
+        context: context,
+        report: report,
+      );
       notifyListeners();
+      await _saveState();
     } on AiGenerationException catch (error) {
       if (_overviewAiRequestToken != requestToken ||
           _overviewAiReportState.requestKey != requestKey) {
@@ -862,6 +1086,15 @@ class PetNoteStore extends ChangeNotifier {
       );
       notifyListeners();
     }
+  }
+
+  Future<void> clearOverviewAiHistory() async {
+    if (_overviewAiHistory.isEmpty) {
+      return;
+    }
+    _overviewAiHistory.clear();
+    notifyListeners();
+    await _saveState();
   }
 
   void setActiveTab(AppTab tab) {
@@ -898,6 +1131,7 @@ class PetNoteStore extends ChangeNotifier {
           ReminderStatus.done;
       _invalidateSelectedPetReminders();
     }
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -915,6 +1149,7 @@ class PetNoteStore extends ChangeNotifier {
       reminder.scheduledAt = reminder.scheduledAt.add(const Duration(days: 1));
       _invalidateSelectedPetReminders();
     }
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -930,6 +1165,7 @@ class PetNoteStore extends ChangeNotifier {
           ReminderStatus.skipped;
       _invalidateSelectedPetReminders();
     }
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -948,20 +1184,33 @@ class PetNoteStore extends ChangeNotifier {
     required DateTime dueAt,
     required String note,
     NotificationLeadTime notificationLeadTime = NotificationLeadTime.none,
+    SemanticEventDetails? semantic,
   }) async {
+    final normalizedTitle = title.trim();
+    final normalizedNote = note.trim();
     _todos.insert(
       0,
       TodoItem(
         id: 'todo-${_todos.length + 1}',
         petId: petId,
-        title: title,
+        title: normalizedTitle.isEmpty
+            ? _defaultTodoTitle(semantic, normalizedNote)
+            : normalizedTitle,
         dueAt: dueAt,
         notificationLeadTime: notificationLeadTime,
         status: TodoStatus.open,
-        note: note,
+        note: normalizedNote,
+        semantic: semantic ??
+            _inferTodoSemantic(
+              title: normalizedTitle,
+              note: normalizedNote,
+              dueAt: dueAt,
+              status: TodoStatus.open,
+            ),
       ),
     );
     _activeTab = AppTab.checklist;
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -976,22 +1225,36 @@ class PetNoteStore extends ChangeNotifier {
     required String recurrence,
     required String note,
     NotificationLeadTime notificationLeadTime = NotificationLeadTime.none,
+    SemanticEventDetails? semantic,
   }) async {
+    final normalizedTitle = title.trim();
+    final normalizedNote = note.trim();
     _reminders.insert(
       0,
       ReminderItem(
         id: 'reminder-${_reminders.length + 1}',
         petId: petId,
         kind: kind,
-        title: title,
+        title: normalizedTitle.isEmpty
+            ? _defaultReminderTitle(kind, semantic)
+            : normalizedTitle,
         scheduledAt: scheduledAt,
         notificationLeadTime: notificationLeadTime,
         recurrence: recurrence,
         status: ReminderStatus.pending,
-        note: note,
+        note: normalizedNote,
+        semantic: semantic ??
+            _inferReminderSemantic(
+              kind: kind,
+              title: normalizedTitle,
+              note: normalizedNote,
+              scheduledAt: scheduledAt,
+              status: ReminderStatus.pending,
+            ),
       ),
     );
     _activeTab = AppTab.checklist;
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     if (_selectedPetId == petId) {
@@ -1008,17 +1271,31 @@ class PetNoteStore extends ChangeNotifier {
     required DateTime recordDate,
     required String summary,
     required String note,
+    SemanticEventDetails? semantic,
   }) async {
+    final normalizedTitle = title.trim();
+    final normalizedSummary = summary.trim();
+    final normalizedNote = note.trim();
     _records.insert(
       0,
       PetRecord(
         id: 'record-${_records.length + 1}',
         petId: petId,
         type: type,
-        title: title,
+        title: normalizedTitle.isEmpty
+            ? _defaultRecordTitle(type, semantic)
+            : normalizedTitle,
         recordDate: recordDate,
-        summary: summary,
-        note: note,
+        summary: normalizedSummary,
+        note: normalizedNote,
+        semantic: semantic ??
+            _inferRecordSemantic(
+              type: type,
+              title: normalizedTitle,
+              summary: normalizedSummary,
+              note: normalizedNote,
+              recordDate: recordDate,
+            ),
       ),
     );
     _selectedPetId = petId;
@@ -1101,6 +1378,7 @@ class PetNoteStore extends ChangeNotifier {
     _selectedPetId = current.id;
     _activeTab = AppTab.pets;
     await _saveState();
+    _markNotificationDataChanged();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     notifyListeners();
@@ -1117,20 +1395,22 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> replaceAllData(PetNoteDataState state) async {
     _validateDataState(state);
+    final normalizedState = _normalizedDataState(state);
     _pets
       ..clear()
-      ..addAll(state.pets);
+      ..addAll(normalizedState.pets);
     _todos
       ..clear()
-      ..addAll(state.todos);
+      ..addAll(normalizedState.todos);
     _reminders
       ..clear()
-      ..addAll(state.reminders);
+      ..addAll(normalizedState.reminders);
     _records
       ..clear()
-      ..addAll(state.records);
+      ..addAll(normalizedState.records);
     _selectedPetId = _pets.isEmpty ? '' : _pets.first.id;
     _activeTab = _pets.isEmpty ? AppTab.checklist : AppTab.pets;
+    _markNotificationDataChanged();
     _invalidateAllDerivedData();
     notifyListeners();
     await _saveState();
@@ -1138,34 +1418,36 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> appendData(PetNoteDataState state) async {
     _validateDataState(state);
+    final normalizedState = _normalizedDataState(state);
     _ensureNoConflicts(
       currentIds: _pets.map((pet) => pet.id),
-      incomingIds: state.pets.map((pet) => pet.id),
+      incomingIds: normalizedState.pets.map((pet) => pet.id),
       label: '宠物',
     );
     _ensureNoConflicts(
       currentIds: _todos.map((item) => item.id),
-      incomingIds: state.todos.map((item) => item.id),
+      incomingIds: normalizedState.todos.map((item) => item.id),
       label: '待办',
     );
     _ensureNoConflicts(
       currentIds: _reminders.map((item) => item.id),
-      incomingIds: state.reminders.map((item) => item.id),
+      incomingIds: normalizedState.reminders.map((item) => item.id),
       label: '提醒',
     );
     _ensureNoConflicts(
       currentIds: _records.map((item) => item.id),
-      incomingIds: state.records.map((item) => item.id),
+      incomingIds: normalizedState.records.map((item) => item.id),
       label: '记录',
     );
 
-    _pets.addAll(state.pets);
-    _todos.addAll(state.todos);
-    _reminders.addAll(state.reminders);
-    _records.addAll(state.records);
+    _pets.addAll(normalizedState.pets);
+    _todos.addAll(normalizedState.todos);
+    _reminders.addAll(normalizedState.reminders);
+    _records.addAll(normalizedState.records);
     if (_selectedPetId.isEmpty && _pets.isNotEmpty) {
       _selectedPetId = _pets.first.id;
     }
+    _markNotificationDataChanged();
     _invalidateAllDerivedData();
     notifyListeners();
     await _saveState();
@@ -1178,9 +1460,14 @@ class PetNoteStore extends ChangeNotifier {
     _records.clear();
     _selectedPetId = '';
     _activeTab = AppTab.checklist;
+    _markNotificationDataChanged();
     _invalidateAllDerivedData();
     notifyListeners();
     await _saveState();
+  }
+
+  void _markNotificationDataChanged() {
+    _notificationSyncVersion += 1;
   }
 
   void _invalidateAllDerivedData() {
@@ -1332,6 +1619,10 @@ class PetNoteStore extends ChangeNotifier {
       _recordsStorageKey,
       jsonEncode(_records.map((item) => item.toJson()).toList()),
     );
+    await _preferences.setString(
+      _overviewAiHistoryStorageKey,
+      jsonEncode(_overviewAiHistory.map((item) => item.toJson()).toList()),
+    );
   }
 
   String _avatarTextForName(String name) {
@@ -1363,6 +1654,12 @@ class PetNoteStore extends ChangeNotifier {
 
   static List<PetRecord> _decodeRecords(String? recordsJson) {
     return _decodeList(recordsJson, PetRecord.fromJson);
+  }
+
+  static List<AiCareReportHistoryEntry> _decodeOverviewAiHistory(
+    String? encoded,
+  ) {
+    return _decodeList(encoded, AiCareReportHistoryEntry.fromJson);
   }
 
   static List<T> _decodeList<T>(
@@ -1420,6 +1717,29 @@ class PetNoteStore extends ChangeNotifier {
         ReminderStatus.pending => '待提醒',
       };
 
+  void _recordOverviewAiHistory({
+    required AiGenerationContext context,
+    required AiCareReport report,
+  }) {
+    final createdAt = _nowProvider();
+    _overviewAiHistory.insert(
+      0,
+      AiCareReportHistoryEntry(
+        id: 'overview_ai_${createdAt.microsecondsSinceEpoch}',
+        generatedAt: createdAt,
+        title: context.title,
+        rangeLabel: context.rangeLabel,
+        report: report,
+      ),
+    );
+    if (_overviewAiHistory.length > _maxOverviewAiHistoryEntries) {
+      _overviewAiHistory.removeRange(
+        _maxOverviewAiHistoryEntries,
+        _overviewAiHistory.length,
+      );
+    }
+  }
+
   void _validateDataState(PetNoteDataState state) {
     _ensureUniqueIds(state.pets.map((pet) => pet.id), '宠物');
     _ensureUniqueIds(state.todos.map((item) => item.id), '待办');
@@ -1470,6 +1790,157 @@ class PetNoteStore extends ChangeNotifier {
         throw StateError('$label 存在重复 ID，无法追加导入。');
       }
     }
+  }
+
+  bool _migrateLegacySemanticData() {
+    var changed = false;
+    for (var index = 0; index < _todos.length; index += 1) {
+      final item = _todos[index];
+      if (item.semantic != null) {
+        continue;
+      }
+      _todos[index] = TodoItem(
+        id: item.id,
+        petId: item.petId,
+        title: item.title,
+        dueAt: item.dueAt,
+        notificationLeadTime: item.notificationLeadTime,
+        status: item.status,
+        note: item.note,
+        semantic: _inferTodoSemantic(
+          title: item.title,
+          note: item.note,
+          dueAt: item.dueAt,
+          status: item.status,
+        ),
+      );
+      changed = true;
+    }
+    for (var index = 0; index < _reminders.length; index += 1) {
+      final item = _reminders[index];
+      if (item.semantic != null) {
+        continue;
+      }
+      _reminders[index] = ReminderItem(
+        id: item.id,
+        petId: item.petId,
+        kind: item.kind,
+        title: item.title,
+        scheduledAt: item.scheduledAt,
+        notificationLeadTime: item.notificationLeadTime,
+        recurrence: item.recurrence,
+        status: item.status,
+        note: item.note,
+        semantic: _inferReminderSemantic(
+          kind: item.kind,
+          title: item.title,
+          note: item.note,
+          scheduledAt: item.scheduledAt,
+          status: item.status,
+        ),
+      );
+      changed = true;
+    }
+    for (var index = 0; index < _records.length; index += 1) {
+      final item = _records[index];
+      if (item.semantic != null) {
+        continue;
+      }
+      _records[index] = PetRecord(
+        id: item.id,
+        petId: item.petId,
+        type: item.type,
+        title: item.title,
+        recordDate: item.recordDate,
+        summary: item.summary,
+        note: item.note,
+        semantic: _inferRecordSemantic(
+          type: item.type,
+          title: item.title,
+          summary: item.summary,
+          note: item.note,
+          recordDate: item.recordDate,
+        ),
+      );
+      changed = true;
+    }
+    if (changed) {
+      _invalidateAllDerivedData();
+    }
+    return changed;
+  }
+
+  PetNoteDataState _normalizedDataState(PetNoteDataState state) {
+    return PetNoteDataState(
+      pets: List<Pet>.from(state.pets),
+      todos: state.todos
+          .map(
+            (item) => item.semantic != null
+                ? item
+                : TodoItem(
+                    id: item.id,
+                    petId: item.petId,
+                    title: item.title,
+                    dueAt: item.dueAt,
+                    notificationLeadTime: item.notificationLeadTime,
+                    status: item.status,
+                    note: item.note,
+                    semantic: _inferTodoSemantic(
+                      title: item.title,
+                      note: item.note,
+                      dueAt: item.dueAt,
+                      status: item.status,
+                    ),
+                  ),
+          )
+          .toList(growable: false),
+      reminders: state.reminders
+          .map(
+            (item) => item.semantic != null
+                ? item
+                : ReminderItem(
+                    id: item.id,
+                    petId: item.petId,
+                    kind: item.kind,
+                    title: item.title,
+                    scheduledAt: item.scheduledAt,
+                    notificationLeadTime: item.notificationLeadTime,
+                    recurrence: item.recurrence,
+                    status: item.status,
+                    note: item.note,
+                    semantic: _inferReminderSemantic(
+                      kind: item.kind,
+                      title: item.title,
+                      note: item.note,
+                      scheduledAt: item.scheduledAt,
+                      status: item.status,
+                    ),
+                  ),
+          )
+          .toList(growable: false),
+      records: state.records
+          .map(
+            (item) => item.semantic != null
+                ? item
+                : PetRecord(
+                    id: item.id,
+                    petId: item.petId,
+                    type: item.type,
+                    title: item.title,
+                    recordDate: item.recordDate,
+                    summary: item.summary,
+                    note: item.note,
+                    semantic: _inferRecordSemantic(
+                      type: item.type,
+                      title: item.title,
+                      summary: item.summary,
+                      note: item.note,
+                      recordDate: item.recordDate,
+                    ),
+                  ),
+          )
+          .toList(growable: false),
+    );
   }
 }
 
@@ -1567,3 +2038,413 @@ PetRecordType _petRecordTypeFromName(String? value) => switch (value) {
       'testResult' => PetRecordType.testResult,
       _ => PetRecordType.other,
     };
+
+SemanticTopicKey _semanticTopicKeyFromName(String? value) => switch (value) {
+      'hydration' => SemanticTopicKey.hydration,
+      'diet' => SemanticTopicKey.diet,
+      'deworming' => SemanticTopicKey.deworming,
+      'litter' => SemanticTopicKey.litter,
+      'grooming' => SemanticTopicKey.grooming,
+      'earCare' => SemanticTopicKey.earCare,
+      'medication' => SemanticTopicKey.medication,
+      'vaccine' => SemanticTopicKey.vaccine,
+      'review' => SemanticTopicKey.review,
+      'weight' => SemanticTopicKey.weight,
+      'digestive' => SemanticTopicKey.digestive,
+      'skin' => SemanticTopicKey.skin,
+      'purchase' => SemanticTopicKey.purchase,
+      'cleaning' => SemanticTopicKey.cleaning,
+      _ => SemanticTopicKey.other,
+    };
+
+SemanticSignal _semanticSignalFromName(String? value) => switch (value) {
+      'stable' => SemanticSignal.stable,
+      'improved' => SemanticSignal.improved,
+      'worsened' => SemanticSignal.worsened,
+      'attention' => SemanticSignal.attention,
+      'completed' => SemanticSignal.completed,
+      'missed' => SemanticSignal.missed,
+      'scheduled' => SemanticSignal.scheduled,
+      _ => SemanticSignal.info,
+    };
+
+SemanticActionIntent? _semanticActionIntentFromName(String? value) =>
+    switch (value) {
+      'observe' => SemanticActionIntent.observe,
+      'administer' => SemanticActionIntent.administer,
+      'buy' => SemanticActionIntent.buy,
+      'clean' => SemanticActionIntent.clean,
+      'record' => SemanticActionIntent.record,
+      'review' => SemanticActionIntent.review,
+      'custom' => SemanticActionIntent.custom,
+      _ => null,
+    };
+
+SemanticEvidenceSource? _semanticEvidenceSourceFromName(String? value) =>
+    switch (value) {
+      'home' => SemanticEvidenceSource.home,
+      'vet' => SemanticEvidenceSource.vet,
+      'lab' => SemanticEvidenceSource.lab,
+      'receipt' => SemanticEvidenceSource.receipt,
+      'other' => SemanticEvidenceSource.other,
+      _ => null,
+    };
+
+String _defaultTodoTitle(SemanticEventDetails? semantic, String note) {
+  if (semantic == null) {
+    return note.isEmpty ? '新增待办' : _truncateSemanticText(note, 18);
+  }
+  return switch (semantic.intent ?? SemanticActionIntent.custom) {
+    SemanticActionIntent.buy => '补货采购',
+    SemanticActionIntent.clean => '安排清洁',
+    SemanticActionIntent.administer => '执行护理',
+    SemanticActionIntent.observe => '继续观察',
+    SemanticActionIntent.record => '补充记录',
+    SemanticActionIntent.review => '安排复查',
+    SemanticActionIntent.custom => '新增待办',
+  };
+}
+
+String _defaultReminderTitle(
+  ReminderKind kind,
+  SemanticEventDetails? semantic,
+) {
+  if (semantic != null && semantic.evidenceSummary.isNotEmpty) {
+    return _truncateSemanticText(semantic.evidenceSummary, 18);
+  }
+  return switch (kind) {
+    ReminderKind.vaccine => '疫苗提醒',
+    ReminderKind.deworming => '驱虫提醒',
+    ReminderKind.medication => '用药提醒',
+    ReminderKind.review => '复查提醒',
+    ReminderKind.grooming => '洗护提醒',
+    ReminderKind.custom => '事项提醒',
+  };
+}
+
+String _defaultRecordTitle(
+  PetRecordType type,
+  SemanticEventDetails? semantic,
+) {
+  if (semantic != null && semantic.evidenceSummary.isNotEmpty) {
+    return _truncateSemanticText(semantic.evidenceSummary, 18);
+  }
+  return switch (type) {
+    PetRecordType.medical => '就诊记录',
+    PetRecordType.receipt => '消费记录',
+    PetRecordType.image => '影像记录',
+    PetRecordType.testResult => '检查结果',
+    PetRecordType.other => '日常记录',
+  };
+}
+
+SemanticEventDetails _inferTodoSemantic({
+  required String title,
+  required String note,
+  required DateTime dueAt,
+  required TodoStatus status,
+}) {
+  final topic = _inferTopicFromText('$title $note');
+  return SemanticEventDetails(
+    topicKey: topic,
+    signal: _semanticSignalForTodoStatus(status),
+    tags: _tagsForTopic(topic),
+    evidenceSummary: _buildEvidenceSummary([title, note]),
+    actionSummary: '计划在${_formatSemanticDate(dueAt)}前处理。',
+    followUpAt: dueAt,
+    measurements: _extractMeasurementsFromText('$title $note'),
+    intent: _intentForTodoTopic(topic),
+    source: null,
+  );
+}
+
+SemanticEventDetails _inferReminderSemantic({
+  required ReminderKind kind,
+  required String title,
+  required String note,
+  required DateTime scheduledAt,
+  required ReminderStatus status,
+}) {
+  final topic = _topicForReminderKind(kind, title, note);
+  return SemanticEventDetails(
+    topicKey: topic,
+    signal: _semanticSignalForReminderStatus(status),
+    tags: _tagsForTopic(topic),
+    evidenceSummary: _buildEvidenceSummary([title, note]),
+    actionSummary: '计划在${_formatSemanticDate(scheduledAt)}执行提醒事项。',
+    followUpAt: scheduledAt,
+    measurements: _extractMeasurementsFromText('$title $note'),
+    intent: _intentForReminderKind(kind, topic),
+    source: null,
+  );
+}
+
+SemanticEventDetails _inferRecordSemantic({
+  required PetRecordType type,
+  required String title,
+  required String summary,
+  required String note,
+  required DateTime recordDate,
+}) {
+  final topic = _inferTopicFromText('$title $summary $note');
+  return SemanticEventDetails(
+    topicKey: topic,
+    signal: _semanticSignalForRecordText('$title $summary $note'),
+    tags: _tagsForTopic(topic),
+    evidenceSummary: _buildEvidenceSummary([summary, note, title]),
+    actionSummary: _buildRecordActionSummary(title, summary, note, recordDate),
+    followUpAt: _extractFollowUpDate('$title $summary $note'),
+    measurements: _extractMeasurementsFromText('$title $summary $note'),
+    intent: SemanticActionIntent.record,
+    source: _sourceForRecordType(type),
+  );
+}
+
+SemanticTopicKey _topicForReminderKind(
+  ReminderKind kind,
+  String title,
+  String note,
+) {
+  return switch (kind) {
+    ReminderKind.vaccine => SemanticTopicKey.vaccine,
+    ReminderKind.deworming => SemanticTopicKey.deworming,
+    ReminderKind.medication => SemanticTopicKey.medication,
+    ReminderKind.review => SemanticTopicKey.review,
+    ReminderKind.grooming => SemanticTopicKey.grooming,
+    ReminderKind.custom => _inferTopicFromText('$title $note'),
+  };
+}
+
+SemanticTopicKey _inferTopicFromText(String rawText) {
+  final text = rawText.toLowerCase();
+  if (_containsAny(text, ['驱虫'])) {
+    return SemanticTopicKey.deworming;
+  }
+  if (_containsAny(text, ['疫苗', '免疫'])) {
+    return SemanticTopicKey.vaccine;
+  }
+  if (_containsAny(text, ['耳', '耳道'])) {
+    return SemanticTopicKey.earCare;
+  }
+  if (_containsAny(text, ['皮肤', '真菌', '红疹', '控油'])) {
+    return SemanticTopicKey.skin;
+  }
+  if (_containsAny(text, ['饮水', '喝水', '补水'])) {
+    return SemanticTopicKey.hydration;
+  }
+  if (_containsAny(text, ['体重', '称重', 'kg', '公斤'])) {
+    return SemanticTopicKey.weight;
+  }
+  if (_containsAny(text, ['排便', '腹泻', '呕吐', '肠胃', '食欲'])) {
+    return SemanticTopicKey.digestive;
+  }
+  if (_containsAny(text, ['猫砂', '便便', '厕所', 'litter'])) {
+    return SemanticTopicKey.litter;
+  }
+  if (_containsAny(text, ['洗澡', '洗护', '美容', '梳毛', '指甲', '修剪'])) {
+    return SemanticTopicKey.grooming;
+  }
+  if (_containsAny(text, ['清洗', '清洁', '消毒'])) {
+    return SemanticTopicKey.cleaning;
+  }
+  if (_containsAny(text, ['药', '服用', '滴耳', '喷剂'])) {
+    return SemanticTopicKey.medication;
+  }
+  if (_containsAny(text, ['复查', '复诊', '复盘'])) {
+    return SemanticTopicKey.review;
+  }
+  if (_containsAny(text, ['补货', '购买', '采购', '库存', '小票', '消费'])) {
+    return SemanticTopicKey.purchase;
+  }
+  if (_containsAny(text, ['主粮', '冻干', '猫粮', '狗粮', '饮食'])) {
+    return SemanticTopicKey.diet;
+  }
+  return SemanticTopicKey.other;
+}
+
+SemanticSignal _semanticSignalForTodoStatus(TodoStatus status) {
+  return switch (status) {
+    TodoStatus.done => SemanticSignal.completed,
+    TodoStatus.skipped => SemanticSignal.missed,
+    TodoStatus.postponed => SemanticSignal.attention,
+    TodoStatus.overdue => SemanticSignal.attention,
+    TodoStatus.open => SemanticSignal.attention,
+  };
+}
+
+SemanticSignal _semanticSignalForReminderStatus(ReminderStatus status) {
+  return switch (status) {
+    ReminderStatus.done => SemanticSignal.completed,
+    ReminderStatus.skipped => SemanticSignal.missed,
+    ReminderStatus.postponed => SemanticSignal.scheduled,
+    ReminderStatus.overdue => SemanticSignal.attention,
+    ReminderStatus.pending => SemanticSignal.scheduled,
+  };
+}
+
+SemanticSignal _semanticSignalForRecordText(String rawText) {
+  final text = rawText.toLowerCase();
+  if (_containsAny(text, ['复查', '复诊', '观察', '注意', '继续'])) {
+    return SemanticSignal.attention;
+  }
+  if (_containsAny(text, ['改善', '恢复', '好转', '下降'])) {
+    return SemanticSignal.improved;
+  }
+  if (_containsAny(text, ['恶化', '异常', '加重'])) {
+    return SemanticSignal.worsened;
+  }
+  if (_containsAny(text, ['稳定', '平稳', '正常', '无异常'])) {
+    return SemanticSignal.stable;
+  }
+  return SemanticSignal.info;
+}
+
+SemanticActionIntent _intentForTodoTopic(SemanticTopicKey topic) {
+  return switch (topic) {
+    SemanticTopicKey.purchase ||
+    SemanticTopicKey.diet =>
+      SemanticActionIntent.buy,
+    SemanticTopicKey.cleaning ||
+    SemanticTopicKey.grooming =>
+      SemanticActionIntent.clean,
+    SemanticTopicKey.review => SemanticActionIntent.review,
+    SemanticTopicKey.medication ||
+    SemanticTopicKey.deworming ||
+    SemanticTopicKey.vaccine =>
+      SemanticActionIntent.administer,
+    SemanticTopicKey.hydration ||
+    SemanticTopicKey.digestive ||
+    SemanticTopicKey.skin ||
+    SemanticTopicKey.earCare ||
+    SemanticTopicKey.weight ||
+    SemanticTopicKey.litter =>
+      SemanticActionIntent.observe,
+    _ => SemanticActionIntent.custom,
+  };
+}
+
+SemanticActionIntent _intentForReminderKind(
+  ReminderKind kind,
+  SemanticTopicKey topic,
+) {
+  return switch (kind) {
+    ReminderKind.vaccine ||
+    ReminderKind.deworming ||
+    ReminderKind.medication =>
+      SemanticActionIntent.administer,
+    ReminderKind.review => SemanticActionIntent.review,
+    ReminderKind.grooming => SemanticActionIntent.clean,
+    ReminderKind.custom => _intentForTodoTopic(topic),
+  };
+}
+
+SemanticEvidenceSource _sourceForRecordType(PetRecordType type) {
+  return switch (type) {
+    PetRecordType.medical => SemanticEvidenceSource.vet,
+    PetRecordType.testResult => SemanticEvidenceSource.lab,
+    PetRecordType.receipt => SemanticEvidenceSource.receipt,
+    PetRecordType.image || PetRecordType.other => SemanticEvidenceSource.home,
+  };
+}
+
+List<String> _tagsForTopic(SemanticTopicKey topic) {
+  return switch (topic) {
+    SemanticTopicKey.purchase => const ['补货', '库存'],
+    SemanticTopicKey.deworming => const ['驱虫', '周期'],
+    SemanticTopicKey.vaccine => const ['免疫', '计划'],
+    SemanticTopicKey.earCare => const ['耳道', '观察'],
+    SemanticTopicKey.skin => const ['皮肤', '护理'],
+    SemanticTopicKey.hydration => const ['饮水', '观察'],
+    SemanticTopicKey.grooming => const ['洗护', '日常'],
+    SemanticTopicKey.review => const ['复查', '跟进'],
+    SemanticTopicKey.weight => const ['体重', '趋势'],
+    SemanticTopicKey.digestive => const ['肠胃', '观察'],
+    SemanticTopicKey.litter => const ['排便', '猫砂'],
+    SemanticTopicKey.medication => const ['用药', '执行'],
+    SemanticTopicKey.cleaning => const ['清洁', '维护'],
+    SemanticTopicKey.diet => const ['饮食', '主粮'],
+    _ => const ['日常'],
+  };
+}
+
+List<SemanticMeasurement> _extractMeasurementsFromText(String rawText) {
+  final text = rawText.trim();
+  final results = <SemanticMeasurement>[];
+  final weightMatch = RegExp(r'(\d+(?:\.\d+)?)\s*(kg|公斤)').firstMatch(text);
+  if (weightMatch != null) {
+    results.add(
+      SemanticMeasurement(
+        key: 'weight',
+        value: weightMatch.group(1) ?? '',
+        unit: weightMatch.group(2) ?? 'kg',
+      ),
+    );
+  }
+  final waterMatch = RegExp(r'(\d+(?:\.\d+)?)\s*(ml|毫升)').firstMatch(text);
+  if (waterMatch != null) {
+    results.add(
+      SemanticMeasurement(
+        key: 'hydration',
+        value: waterMatch.group(1) ?? '',
+        unit: waterMatch.group(2) ?? 'ml',
+      ),
+    );
+  }
+  return results;
+}
+
+String _buildEvidenceSummary(List<String> values) {
+  for (final value in values) {
+    final trimmed = value.trim();
+    if (trimmed.isNotEmpty) {
+      return _truncateSemanticText(trimmed, 72);
+    }
+  }
+  return '暂无补充说明。';
+}
+
+String _buildRecordActionSummary(
+  String title,
+  String summary,
+  String note,
+  DateTime recordDate,
+) {
+  final merged = [summary, note, title]
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .join(' ');
+  if (_containsAny(merged.toLowerCase(), ['复查', '继续观察', '观察'])) {
+    return '建议在${_formatSemanticDate(recordDate)}之后继续跟进相关变化。';
+  }
+  return '记录时间为${_formatSemanticDate(recordDate)}，可作为后续分析依据。';
+}
+
+DateTime? _extractFollowUpDate(String rawText) {
+  if (_containsAny(rawText.toLowerCase(), ['复查', '继续观察', '跟进'])) {
+    return null;
+  }
+  return null;
+}
+
+String _formatSemanticDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$month/$day';
+}
+
+String _truncateSemanticText(String value, int maxLength) {
+  final trimmed = value.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return '${trimmed.substring(0, maxLength)}…';
+}
+
+bool _containsAny(String source, List<String> keywords) {
+  for (final keyword in keywords) {
+    if (source.contains(keyword.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}

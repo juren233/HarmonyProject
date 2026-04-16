@@ -49,7 +49,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('综合评分'), findsOneWidget);
+    expect(find.text('86 分 · 稳定'), findsOneWidget);
+    expect(find.text('可信度较高'), findsNothing);
     expect(find.text('最近 7 天整体稳定，记录节奏比上周更完整。'), findsOneWidget);
+    expect(find.text('当前正在展示 AI 短版总结与综合评分，仅供照护参考，不替代兽医建议。'), findsOneWidget);
     expect(find.text('执行总评'), findsOneWidget);
     expect(service.generateCareReportCalls, 1);
     await tester.scrollUntilVisible(
@@ -64,6 +67,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Mochi 专项报告'), findsOneWidget);
+    expect(find.text('86 分 · 稳定'), findsWidgets);
+    expect(find.text('86 分 · 稳定 · 可信度较高'), findsNothing);
     await tester.scrollUntilVisible(
       find.text('下一个观察重点是耳道状态和体重变化。'),
       200,
@@ -91,6 +96,40 @@ void main() {
 
     expect(find.text('关键变化'), findsOneWidget);
     expect(find.text('AI 总览'), findsNothing);
+  });
+
+  testWidgets(
+      'overview page shows local-rule short summary status text for fallback reports',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(
+        executiveSummary: '已切换为10秒极速总览。',
+        dataQualityNotes: const [
+          '当前结果由本地极速规则生成，以保证10秒内返回。',
+        ],
+      ),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: OverviewPage(
+            store: store,
+            onAddFirstPet: () {},
+            aiInsightsService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '生成 AI 总览'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前正在展示本地规则短版总结与综合评分，仅供照护参考，不替代兽医建议。'), findsOneWidget);
   });
 
   testWidgets(
@@ -320,7 +359,36 @@ void main() {
     expect(service.forceRefreshValues, <bool>[false, true]);
   });
 
-  testWidgets('overview page keeps error state and local summary after switching tabs',
+  testWidgets('overview page can open ai history after report generation',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    store.setActiveTab(AppTab.overview);
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewTabHarness(store: store, service: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '生成 AI 总览'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('overview_ai_history_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('AI 总览历史'), findsOneWidget);
+    expect(find.text('最近 7 天 AI 照护总结'), findsOneWidget);
+    expect(find.text('最近 7 天整体稳定，记录节奏比上周更完整。'), findsOneWidget);
+  });
+
+  testWidgets(
+      'overview page keeps error state and local summary after switching tabs',
       (tester) async {
     final store = PetNoteStore.seeded();
     store.setActiveTab(AppTab.overview);
@@ -351,6 +419,68 @@ void main() {
     expect(find.text('服务暂时不可用'), findsOneWidget);
     expect(find.text('关键变化'), findsOneWidget);
     expect(service.generateCareReportCalls, 1);
+  });
+
+  testWidgets(
+      'overview page uses condensed-summary loading copy for long ranges',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    store.setActiveTab(AppTab.overview);
+    store.setOverviewRange(OverviewRange.sixMonths);
+    final service = _DeferredAiInsightsService(
+      isConfigured: true,
+      careReportFuture: Completer<AiCareReport>(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewTabHarness(store: store, service: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '生成 AI 总览'));
+    await tester.pump();
+
+    expect(
+      find.text('当前时间范围较长，正在基于精简事实摘要生成结构化照护总结…'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'overview page distinguishes generation stability issues from config errors',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    store.setActiveTab(AppTab.overview);
+    store.setOverviewRange(OverviewRange.sixMonths);
+    final service = _FakeAiInsightsService(
+      isConfigured: true,
+      generateCareReportError: const AiGenerationException(
+        '当前 AI 服务基础连接可用，但在生成最近 6 个月 AI 总览时，即使已自动改用精简事实摘要仍然超时或过载。建议先切换到较短时间范围，或更换更稳定的模型/供应商后再试。',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewTabHarness(store: store, service: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '生成 AI 总览'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('AI 基础连接可用，但当前时间范围的长报告生成不稳定，已回退到本地规则总结。'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('即使已自动改用精简事实摘要仍然超时或过载'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('overview page clears stale report when overview range changes',
@@ -457,6 +587,9 @@ void main() {
 
 AiCareReport _buildDetailedCareReport({
   String executiveSummary = '最近 7 天整体稳定，记录节奏比上周更完整。',
+  List<String> dataQualityNotes = const [
+    '当前结果为 AI 短版总结，已按极速模式压缩。',
+  ],
 }) {
   return AiCareReport(
     overallScore: 86,
@@ -510,9 +643,7 @@ AiCareReport _buildDetailedCareReport({
       '本周补一次耳道观察',
       '继续保持当前提醒节奏',
     ],
-    dataQualityNotes: const [
-      '最近 7 天记录数量足够，报告可信度较高。',
-    ],
+    dataQualityNotes: dataQualityNotes,
     perPetReports: const [
       AiPetCareReport(
         petId: 'pet-1',

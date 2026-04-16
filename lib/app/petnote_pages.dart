@@ -253,6 +253,16 @@ class _OverviewPageState extends State<OverviewPage> {
                             reportState.hasReport ? '重新生成 AI 总览' : '生成 AI 总览',
                           ),
                         ),
+                      OutlinedButton.icon(
+                        key: const ValueKey('overview_ai_history_button'),
+                        onPressed: () => _openOverviewAiHistory(),
+                        icon: const Icon(Icons.history_rounded, size: 18),
+                        label: Text(
+                          widget.store.overviewAiHistory.isEmpty
+                              ? '历史记录'
+                              : '历史记录 (${widget.store.overviewAiHistory.length})',
+                        ),
+                      ),
                       Text(
                         _overviewStatusText(reportState),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -266,11 +276,11 @@ class _OverviewPageState extends State<OverviewPage> {
               ),
             ),
             if (reportState.isLoading && !reportState.hasReport)
-              const SectionCard(
+              SectionCard(
                 title: 'AI 总览',
                 children: [
                   _AiLoadingState(
-                    message: '正在根据当前时间范围生成结构化照护总结…',
+                    message: _overviewLoadingText(),
                   ),
                 ],
               ),
@@ -328,15 +338,39 @@ class _OverviewPageState extends State<OverviewPage> {
       return 'AI 正在生成新的专业分析报告…';
     }
     if (reportState.hasReport) {
+      final report = reportState.report!;
+      if (_isLocalFastOverviewReport(report)) {
+        return '当前正在展示本地规则短版总结与综合评分，仅供照护参考，不替代兽医建议。';
+      }
+      if (_isAiFastOverviewReport(report)) {
+        return '当前正在展示 AI 短版总结与综合评分，仅供照护参考，不替代兽医建议。';
+      }
       return '当前正在展示专业分析报告与综合评分，仅供照护参考，不替代兽医建议。';
     }
     if (reportState.hasRequested && reportState.errorMessage != null) {
+      if (_looksLikeOverviewGenerationStabilityIssue(
+        reportState.errorMessage!,
+      )) {
+        return 'AI 基础连接可用，但当前时间范围的长报告生成不稳定，已回退到本地规则总结。';
+      }
       return 'AI 总览生成失败，当前展示本地规则总结。';
     }
     if (_hasActiveProvider) {
       return '已检测到 AI 配置；点击按钮后才会生成专业分析报告。';
     }
     return '未检测到可用 AI 配置，当前展示本地规则总结。';
+  }
+
+  bool _isLocalFastOverviewReport(AiCareReport report) {
+    return report.dataQualityNotes.any(
+      (item) => item.contains('本地极速规则生成'),
+    );
+  }
+
+  bool _isAiFastOverviewReport(AiCareReport report) {
+    return report.dataQualityNotes.any(
+      (item) => item.contains('AI 短版总结'),
+    );
   }
 
   Future<void> _refreshProviderAvailability() async {
@@ -378,6 +412,177 @@ class _OverviewPageState extends State<OverviewPage> {
         forceRefresh: forceRefresh,
       ),
       forceRefresh: forceRefresh,
+    );
+  }
+
+  Future<void> _openOverviewAiHistory() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => OverviewAiHistoryPage(store: widget.store),
+      ),
+    );
+  }
+
+  String _overviewLoadingText() {
+    return switch (widget.store.overviewRange) {
+      OverviewRange.threeMonths ||
+      OverviewRange.sixMonths ||
+      OverviewRange.oneYear =>
+        '当前时间范围较长，正在基于精简事实摘要生成结构化照护总结…',
+      _ => '正在根据当前时间范围生成结构化照护总结…',
+    };
+  }
+
+  bool _looksLikeOverviewGenerationStabilityIssue(String message) {
+    return message.contains('基础连接可用') ||
+        message.contains('精简事实摘要') ||
+        message.contains('超时或过载');
+  }
+}
+
+class OverviewAiHistoryPage extends StatelessWidget {
+  const OverviewAiHistoryPage({
+    super.key,
+    required this.store,
+  });
+
+  final PetNoteStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final history = store.overviewAiHistory;
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('AI 总览历史'),
+            actions: [
+              if (history.isNotEmpty)
+                TextButton(
+                  onPressed: () => _confirmClearHistory(context),
+                  child: const Text('清空'),
+                ),
+            ],
+          ),
+          body: history.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      '还没有 AI 总览历史。生成成功后的报告会自动保存在这里。',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF6C7280),
+                            height: 1.6,
+                          ),
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                  itemCount: history.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final entry = history[index];
+                    return SectionCard(
+                      title: entry.title,
+                      trailing: Text(
+                        formatDate(entry.generatedAt),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF6C7280),
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      children: [
+                        Text(
+                          entry.report.executiveSummary,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    height: 1.6,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) =>
+                                    OverviewAiHistoryDetailPage(entry: entry),
+                              ),
+                            ),
+                            child: const Text('查看详情'),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmClearHistory(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空 AI 总览历史'),
+        content: const Text('清空后将删除本地保存的所有 AI 总览历史记录。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确认清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await store.clearOverviewAiHistory();
+  }
+}
+
+class OverviewAiHistoryDetailPage extends StatelessWidget {
+  const OverviewAiHistoryDetailPage({
+    super.key,
+    required this.entry,
+  });
+
+  final AiCareReportHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('AI 总览详情'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        children: [
+          SectionCard(
+            title: entry.title,
+            children: [
+              Text(
+                '${entry.rangeLabel} · ${formatDate(entry.generatedAt)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF6C7280),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+          ..._buildCareReportCards(entry.report),
+        ],
+      ),
     );
   }
 }
@@ -1074,16 +1279,7 @@ List<Widget> _buildCareReportCards(AiCareReport report) {
             height: 1.2,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          aiScoreConfidenceLabel(report.scoreConfidence),
-          style: const TextStyle(
-            height: 1.6,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF6C7484),
-          ),
-        ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 6),
         Text(
           report.executiveSummary,
           style: const TextStyle(height: 1.6, fontWeight: FontWeight.w600),
@@ -1158,13 +1354,13 @@ List<Widget> _buildCareReportCards(AiCareReport report) {
         title: '${petReport.petName} 专项报告',
         children: [
           Text(
-            '${petReport.score} 分 · ${petReport.scoreLabel} · ${aiScoreConfidenceLabel(petReport.scoreConfidence)}',
+            '${petReport.score} 分 · ${petReport.scoreLabel}',
             style: const TextStyle(
               fontWeight: FontWeight.w700,
               height: 1.5,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Text(
             petReport.summary,
             style: const TextStyle(

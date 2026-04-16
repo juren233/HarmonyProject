@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:flutter/foundation.dart';
+import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -11,11 +13,14 @@ class DataStorageCoordinator extends ChangeNotifier {
     required this.store,
     required this.settingsController,
     this.appLogController,
-  });
+    AiSecretStore? secretStore,
+  }) : secretStore = secretStore ??
+            MethodChannelAiSecretStore(appLogController: appLogController);
 
   final PetNoteStore store;
   final AppSettingsController settingsController;
   final AppLogController? appLogController;
+  final AiSecretStore secretStore;
 
   PetNoteDataPackage? _latestSnapshotPackage;
   DataOperationResult? _latestOperationResult;
@@ -30,7 +35,11 @@ class DataStorageCoordinator extends ChangeNotifier {
   Future<PetNoteDataPackage> createBackupPackage({
     required String packageName,
     required String description,
+    DataExportOptions options = const DataExportOptions(),
   }) async {
+    final sensitiveSettings = options.includeSensitiveSettings
+        ? await _exportSensitiveSettings()
+        : null;
     final package = PetNoteDataPackage(
       schemaVersion: PetNoteDataPackage.currentSchemaVersion,
       packageType: PetNoteDataPackageType.backup,
@@ -40,6 +49,7 @@ class DataStorageCoordinator extends ChangeNotifier {
       appVersion: '1.0.0-beta.2+3',
       data: store.exportDataState(),
       settings: settingsController.exportNonSensitiveSettings(),
+      sensitiveSettings: sensitiveSettings,
       meta: const <String, Object?>{'source': 'manual_export'},
     );
     _latestOperationResult = _resultForPackage(
@@ -56,6 +66,32 @@ class DataStorageCoordinator extends ChangeNotifier {
       message: '完整备份包已生成。',
       details:
           'pets=${package.data.pets.length}, todos=${package.data.todos.length}, reminders=${package.data.reminders.length}, records=${package.data.records.length}',
+    );
+    notifyListeners();
+    return package;
+  }
+
+  AiPortableSummaryPackage createAiSummaryPackage({
+    String packageName = 'PetNote AI 摘要',
+  }) {
+    final package = store.buildAiPortableSummary(title: packageName);
+    _latestOperationResult = DataOperationResult(
+      kind: DataOperationKind.backupExported,
+      isSuccess: true,
+      message: 'AI 摘要数据已生成。',
+      snapshotCreated: false,
+      restoredSettings: false,
+      packageType: null,
+      petsCount: store.pets.length,
+      todosCount: store.todos.length,
+      remindersCount: store.reminders.length,
+      recordsCount: store.records.length,
+    );
+    appLogController?.info(
+      category: AppLogCategory.dataStorage,
+      title: '生成 AI 摘要',
+      message: 'AI 摘要数据包已生成。',
+      details: jsonEncode(package.globalStats),
     );
     notifyListeners();
     return package;
@@ -94,21 +130,30 @@ class DataStorageCoordinator extends ChangeNotifier {
       await store.replaceAllData(package.data);
       final restoredSettings =
           options.restoreSettings && package.settings != null;
+      final restoredSensitiveSettings =
+          options.restoreSensitiveSettings && restoredSettings;
       if (restoredSettings) {
         await settingsController.restoreNonSensitiveSettings(package.settings!);
       }
+      if (restoredSensitiveSettings) {
+        await _restoreSensitiveSettings(package);
+      }
+      final successMessage = _successMessage(
+        restoredSettings: restoredSettings,
+        restoredSensitiveSettings: restoredSensitiveSettings,
+      );
       appLogController?.info(
         category: AppLogCategory.dataStorage,
         title: '备份恢复完成',
-        message: restoredSettings ? '备份数据和普通设置已恢复。' : '备份数据已恢复，当前设置保持不变。',
+        message: successMessage,
         details:
-            'package=${package.packageName}\nrestoreSettings=$restoredSettings',
+            'package=${package.packageName}\nrestoreSettings=$restoredSettings\nrestoreSensitiveSettings=$restoredSensitiveSettings',
       );
       return _setOperation(
         _resultForPackage(
           kind: DataOperationKind.importedReplace,
           package: package,
-          message: restoredSettings ? '备份数据和普通设置已恢复。' : '备份数据已恢复，当前设置保持不变。',
+          message: successMessage,
           snapshotCreated: snapshot != null,
           restoredSettings: restoredSettings,
           isSuccess: true,
@@ -227,9 +272,65 @@ class DataStorageCoordinator extends ChangeNotifier {
       appVersion: '1.0.0-beta.2+3',
       data: currentData,
       settings: settingsController.exportNonSensitiveSettings(),
+      sensitiveSettings: null,
       meta: const <String, Object?>{'source': 'internal_protection'},
     );
     return _latestSnapshotPackage;
+  }
+
+  Future<PetNoteSensitiveSettingsState?> _exportSensitiveSettings() async {
+    if (!await secretStore.isAvailable()) {
+      return null;
+    }
+    final secrets = <PetNoteAiSecretSnapshot>[];
+    for (final config in settingsController.aiProviderConfigs) {
+      final apiKey = await secretStore.readKey(config.id);
+      if (apiKey == null || apiKey.isEmpty) {
+        continue;
+      }
+      secrets.add(
+        PetNoteAiSecretSnapshot(
+          configId: config.id,
+          apiKey: apiKey,
+        ),
+      );
+    }
+    if (secrets.isEmpty) {
+      return null;
+    }
+    return PetNoteSensitiveSettingsState(aiSecrets: secrets);
+  }
+
+  Future<void> _restoreSensitiveSettings(PetNoteDataPackage package) async {
+    final sensitiveSettings = package.sensitiveSettings;
+    if (sensitiveSettings == null || !sensitiveSettings.hasSecrets) {
+      return;
+    }
+    if (!await secretStore.isAvailable()) {
+      return;
+    }
+    final knownConfigIds = (package.settings?.aiProviderConfigs ?? const [])
+        .map((config) => config.id)
+        .toSet();
+    for (final secret in sensitiveSettings.aiSecrets) {
+      if (!knownConfigIds.contains(secret.configId)) {
+        continue;
+      }
+      await secretStore.writeKey(secret.configId, secret.apiKey);
+    }
+  }
+
+  String _successMessage({
+    required bool restoredSettings,
+    required bool restoredSensitiveSettings,
+  }) {
+    if (restoredSensitiveSettings) {
+      return '备份数据、普通设置和 API Key 已恢复。';
+    }
+    if (restoredSettings) {
+      return '备份数据和普通设置已恢复。';
+    }
+    return '备份数据已恢复，当前设置保持不变。';
   }
 
   DataOperationResult _resultForPackage({

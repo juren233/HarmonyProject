@@ -25,12 +25,14 @@ class MePage extends StatelessWidget {
     required this.settingsController,
     required this.aiSettingsCoordinator,
     required this.dataStorageCoordinator,
+    this.notificationCapabilities = const NotificationPlatformCapabilities(),
     this.appLogController,
   });
 
   final AppThemePreference themePreference;
   final ValueChanged<AppThemePreference> onThemePreferenceChanged;
   final NotificationPermissionState notificationPermissionState;
+  final NotificationPlatformCapabilities notificationCapabilities;
   final String? notificationPushToken;
   final Future<void> Function()? onRequestNotificationPermission;
   final Future<void> Function()? onOpenNotificationSettings;
@@ -144,6 +146,18 @@ class MePage extends StatelessWidget {
                   ? '当前使用本地提醒调度，推送 token 尚未注册。'
                   : '已记录推送 token，后续可接远程推送下发。',
             ),
+            if (notificationCapabilities.supportsExactAlarms)
+              ListRow(
+                title: '准点提醒能力',
+                subtitle: switch (notificationCapabilities.exactAlarmStatus) {
+                  NotificationExactAlarmStatus.available =>
+                    '当前设备允许精确闹钟，通知会尽量按时触达。',
+                  NotificationExactAlarmStatus.unavailable =>
+                    '当前设备未授予精确闹钟能力，系统可能延后提醒。',
+                  NotificationExactAlarmStatus.unsupported =>
+                    '当前平台无需单独配置精确闹钟能力。',
+                },
+              ),
             SettingsActionButtonGroup(
               children: [
                 if (_isNotificationPermissionGranted(

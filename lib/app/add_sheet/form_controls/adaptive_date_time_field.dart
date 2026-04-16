@@ -120,6 +120,119 @@ class AdaptiveDateTimeField extends StatelessWidget {
   }
 }
 
+class OptionalAdaptiveDateTimeField extends StatelessWidget {
+  const OptionalAdaptiveDateTimeField({
+    super.key,
+    required this.materialFieldKey,
+    required this.iosDateFieldKey,
+    required this.iosTimeFieldKey,
+    required this.value,
+    required this.placeholder,
+    required this.onPickDateTime,
+    required this.onPickDate,
+    required this.onPickTime,
+    this.clearButtonKey,
+    this.onClear,
+  });
+
+  final Key materialFieldKey;
+  final Key iosDateFieldKey;
+  final Key iosTimeFieldKey;
+  final DateTime? value;
+  final String placeholder;
+  final Future<void> Function() onPickDateTime;
+  final Future<void> Function() onPickDate;
+  final Future<void> Function() onPickTime;
+  final Key? clearButtonKey;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedValue = value;
+    if (Theme.of(context).platform != TargetPlatform.iOS) {
+      final tokens = context.petNoteTokens;
+      return Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              key: materialFieldKey,
+              borderRadius: BorderRadius.circular(22),
+              onTap: onPickDateTime,
+              child: InputDecorator(
+                decoration: const InputDecoration(),
+                child: Text(
+                  resolvedValue == null
+                      ? placeholder
+                      : formatDate(resolvedValue),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: resolvedValue == null
+                            ? tokens.secondaryText
+                            : tokens.primaryText,
+                      ),
+                ),
+              ),
+            ),
+          ),
+          if (resolvedValue != null && onClear != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              key: clearButtonKey,
+              onPressed: onClear,
+              child: const Text('清空'),
+            ),
+          ],
+        ],
+      );
+    }
+
+    final tokens = context.petNoteTokens;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: tokens.panelBackground,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: tokens.panelBorder, width: 1.1),
+          ),
+          child: Column(
+            children: [
+              _IosPickerRow(
+                key: iosDateFieldKey,
+                icon: CupertinoIcons.calendar,
+                label: '日期',
+                value: resolvedValue == null
+                    ? '选择'
+                    : formatIosDateLabel(resolvedValue),
+                onTap: onPickDate,
+              ),
+              Divider(height: 1, color: tokens.panelBorder),
+              _IosPickerRow(
+                key: iosTimeFieldKey,
+                icon: CupertinoIcons.time,
+                label: '时间',
+                value: resolvedValue == null
+                    ? '选择'
+                    : formatIosTimeLabel(resolvedValue),
+                onTap: onPickTime,
+              ),
+            ],
+          ),
+        ),
+        if (resolvedValue != null && onClear != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: clearButtonKey,
+              onPressed: onClear,
+              child: const Text('清空'),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _IosPickerRow extends StatelessWidget {
   const _IosPickerRow({
     super.key,

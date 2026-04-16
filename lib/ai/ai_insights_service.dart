@@ -27,9 +27,9 @@ abstract class AiInsightsService {
 }
 
 class NetworkAiInsightsService implements AiInsightsService {
-  static const Duration _generationRequestTimeout = Duration(seconds: 45);
   static const AiCareScorecardBuilder _scorecardBuilder =
       AiCareScorecardBuilder();
+  static const Duration _careReportUserFacingTimeout = Duration(seconds: 10);
 
   NetworkAiInsightsService({
     required this.clientFactory,
@@ -188,86 +188,353 @@ class NetworkAiInsightsService implements AiInsightsService {
     AiGenerationContext context,
   ) async {
     final scorecard = _scorecardBuilder.build(context);
+    final runtimeProfile = _resolveAiGenerationRuntimeProfile(client);
+    final totalBudget = _careReportUserFacingTimeout;
     final promptPlans = _buildCareReportPromptPlans(
       context,
       scorecard: scorecard,
+      runtimeProfile: runtimeProfile,
     );
-    for (var index = 0; index < promptPlans.length; index += 1) {
-      final plan = promptPlans[index];
-      try {
-        final jsonObject = await _generateStructuredJson(
-          client: client,
-          systemPrompt: _careReportSystemPrompt,
-          userPrompt: plan.prompt,
-        );
-        return AiCareReport.fromJson(
+    final firstPlan = promptPlans.first;
+    final totalStopwatch = Stopwatch()..start();
+    appLogController?.info(
+      category: AppLogCategory.ai,
+      title: 'AI 总览生成画像',
+      message:
+          'profile=${runtimeProfile.id}, startDetail=${firstPlan.detailLevel.name}, timeout=${totalBudget.inSeconds}s',
+      details: [
+        'range=${context.rangeLabel}',
+        'rangeDays=${_rangeDays(context)}',
+        'pets=${context.pets.length}',
+        'todos=${context.todos.length}',
+        'reminders=${context.reminders.length}',
+        'records=${context.records.length}',
+        'maxPromptChars=${runtimeProfile.maxPromptChars}',
+      ].join('\n'),
+    );
+    if (firstPlan.isCondensedSummary) {
+      appLogController?.warning(
+        category: AppLogCategory.ai,
+        title: 'AI 总览预降载',
+        message: '当前时间范围较长，已自动使用精简事实摘要降低长报告超时概率。',
+        details: [
+          'profile=${runtimeProfile.id}',
+          'detailLevel=${firstPlan.detailLevel.name}',
+          'promptChars=${firstPlan.prompt.length}',
+          'maxPromptChars=${runtimeProfile.maxPromptChars}',
+          'reason=${firstPlan.budgetReason}',
+        ].join('\n'),
+      );
+    }
+    final plan = promptPlans.first;
+    final elapsedBeforeAttempt = totalStopwatch.elapsed;
+    final remainingBudget = totalBudget - elapsedBeforeAttempt;
+    if (remainingBudget <= Duration.zero) {
+      return _buildLocalFastCareReport(
+        context,
+        scorecard: scorecard,
+        detailLevel: plan.detailLevel,
+        profileId: runtimeProfile.id,
+        reason: 'budget_exhausted',
+        elapsed: elapsedBeforeAttempt,
+      );
+    }
+    final stopwatch = Stopwatch()..start();
+    appLogController?.info(
+      category: AppLogCategory.ai,
+      title: 'AI 总览生成预算',
+      message:
+          'profile=${runtimeProfile.id}, detailLevel=${plan.detailLevel.name}, promptChars=${plan.prompt.length}',
+      details: [
+        'attempt=1/1',
+        'range=${context.rangeLabel}',
+        'pets=${context.pets.length}',
+        'todos=${context.todos.length}',
+        'reminders=${context.reminders.length}',
+        'records=${context.records.length}',
+        'remainingBudgetMs=${remainingBudget.inMilliseconds}',
+        if (plan.budgetReason != null) 'reason=${plan.budgetReason}',
+      ].join('\n'),
+    );
+    try {
+      final jsonObject = await _generateStructuredJson(
+        client: client,
+        systemPrompt: _careReportSystemPrompt,
+        userPrompt: plan.prompt,
+        timeout: remainingBudget,
+      );
+      return _normalizeRemoteFastCareReport(
+        AiCareReport.fromJson(
           jsonObject,
           scorecard: scorecard,
-        );
-      } on _AiRetryableGenerationException catch (error) {
-        if (index == promptPlans.length - 1) {
-          throw const AiGenerationException(
-            '当前 AI 服务基础连接可用，但在生成较长专业报告时仍然超时或过载。请先切换到较短时间范围，或更换更稳定的模型/供应商后再试。',
-          );
-        }
-        final nextPlan = promptPlans[index + 1];
-        appLogController?.warning(
-          category: AppLogCategory.ai,
-          title: 'AI 总览降载重试',
-          message:
-              '当前服务在${plan.label}上下文下未稳定返回，改用${nextPlan.label}上下文重试。',
-          details: error.message,
-        );
-      }
+        ),
+      );
+    } on _AiRetryableGenerationException catch (error) {
+      stopwatch.stop();
+      return _buildLocalFastCareReport(
+        context,
+        scorecard: scorecard,
+        detailLevel: plan.detailLevel,
+        profileId: runtimeProfile.id,
+        reason: error.phase,
+        elapsed: totalStopwatch.elapsed,
+      );
+    } on AiGenerationException catch (error) {
+      stopwatch.stop();
+      appLogController?.error(
+        category: AppLogCategory.ai,
+        title: 'AI 总览结构化输出失败',
+        message: error.message,
+        details: [
+          'profile=${runtimeProfile.id}',
+          'failurePhase=structured_output',
+          'detailLevel=${plan.detailLevel.name}',
+          'promptChars=${plan.prompt.length}',
+          'elapsedMs=${stopwatch.elapsedMilliseconds}',
+        ].join('\n'),
+      );
+      rethrow;
     }
-    throw const AiGenerationException('AI 总览生成失败，请稍后重试。');
   }
 
   Future<AiVisitSummary> _generateVisitSummary(
     AiProviderClient client,
     AiGenerationContext context,
   ) async {
+    final runtimeProfile = _resolveAiGenerationRuntimeProfile(client);
     final jsonObject = await _generateStructuredJson(
       client: client,
       systemPrompt: _visitSummarySystemPrompt,
       userPrompt: _buildVisitSummaryPrompt(context),
+      timeout: runtimeProfile.requestTimeout,
     );
     return AiVisitSummary.fromJson(jsonObject);
+  }
+
+  AiCareReport _buildLocalFastCareReport(
+    AiGenerationContext context, {
+    required AiCareScorecard scorecard,
+    required _CarePromptDetailLevel detailLevel,
+    required String profileId,
+    required String reason,
+    required Duration elapsed,
+  }) {
+    final summaryPackage = _buildCareReportSummaryPackage(
+      context,
+      detailLevel: detailLevel,
+    );
+    final overdueCount = summaryPackage.activeItems
+        .where((item) => item['status'] == 'overdue')
+        .length;
+    final topicCount = (summaryPackage.globalStats['topicCount'] as int?) ?? 0;
+    final eventCount = context.todos.length +
+        context.reminders.length +
+        context.records.length;
+    final leadRisk = _firstString(scorecard.riskCandidates);
+    final scoreReason = _firstString(scorecard.scoreReasons);
+    final keyFindings = _localKeyFindings(summaryPackage);
+    final trendAnalysis = _localTrendAnalysis(summaryPackage);
+    final priorityActions = _localPriorityActions(summaryPackage);
+    final riskAssessment =
+        scorecard.riskCandidates.take(3).toList(growable: false);
+    final perPetReports = scorecard.petScorecards
+        .map(
+          (petScorecard) => _buildLocalFastPetReport(
+            petScorecard,
+            summaryPackage: summaryPackage,
+          ),
+        )
+        .toList(growable: false);
+    appLogController?.warning(
+      category: AppLogCategory.ai,
+      title: 'AI 总览极速兜底',
+      message: '远端总览未在10秒内稳定返回，已切换为本地短版总览。',
+      details: [
+        'profile=$profileId',
+        'reason=$reason',
+        'elapsedMs=${elapsed.inMilliseconds}',
+        'detailLevel=${detailLevel.name}',
+        'eventCount=$eventCount',
+        'topicCount=$topicCount',
+      ].join('\n'),
+    );
+    return AiCareReport(
+      overallScore: scorecard.overallScore,
+      overallScoreLabel: scorecard.overallScoreLabel,
+      scoreConfidence: scorecard.scoreConfidence,
+      scoreBreakdown: scorecard.scoreBreakdown,
+      scoreReasons: scorecard.scoreReasons,
+      executiveSummary:
+          '已切换为10秒极速总览：${context.rangeLabel}共汇总$eventCount条照护事件，当前整体评分为${scorecard.overallScoreLabel}'
+          '（${scorecard.overallScore}分，${aiScoreConfidenceLabel(scorecard.scoreConfidence)}）。'
+          '${overdueCount > 0 ? '目前仍有$overdueCount条待处理事项，' : ''}'
+          '${leadRisk.isNotEmpty ? '优先关注：$leadRisk' : '当前未见集中风险。'}',
+      overallAssessment: <String>[
+        if (scoreReason.isNotEmpty) scoreReason,
+        '当前覆盖${context.pets.length}只宠物，折叠出$topicCount个照护主题。',
+        if (overdueCount > 0) '当前仍有$overdueCount条逾期事项，建议优先闭环。',
+      ].take(3).toList(growable: false),
+      keyFindings: keyFindings,
+      trendAnalysis: trendAnalysis,
+      riskAssessment: riskAssessment.isEmpty
+          ? const <String>['当前未见集中风险，建议保持规律记录。']
+          : riskAssessment,
+      priorityActions: priorityActions,
+      dataQualityNotes: <String>[
+        ...scorecard.dataQualityNotes.take(1),
+        '当前结果由本地极速规则生成，以保证10秒内返回。',
+      ],
+      perPetReports: perPetReports,
+    );
+  }
+
+  AiPetCareReport _buildLocalFastPetReport(
+    AiPetCareScorecard scorecard, {
+    required AiPortableSummaryPackage summaryPackage,
+  }) {
+    final petActiveItems = summaryPackage.activeItems
+        .where((item) => item['petName'] == scorecard.petName)
+        .toList(growable: false);
+    final petEvidence = summaryPackage.keyEvidence
+        .where((item) => item['petName'] == scorecard.petName)
+        .toList(growable: false);
+    final leadRisk = _firstString(scorecard.riskCandidates);
+    final recentEvent = _firstString(scorecard.recentEventTitles);
+    return AiPetCareReport(
+      petId: scorecard.petId,
+      petName: scorecard.petName,
+      score: scorecard.overallScore,
+      scoreLabel: scorecard.overallScoreLabel,
+      scoreConfidence: scorecard.scoreConfidence,
+      summary:
+          '${scorecard.petName} 当前评分为${scorecard.overallScoreLabel}（${scorecard.overallScore}分）。'
+          '${leadRisk.isNotEmpty ? '当前主要关注：$leadRisk' : '当前没有集中风险提示。'}',
+      careFocus: leadRisk.isNotEmpty
+          ? leadRisk
+          : (recentEvent.isNotEmpty ? recentEvent : '继续保持规律记录'),
+      keyEvents: _localPetKeyEvents(scorecard, petEvidence),
+      trendAnalysis: scorecard.scoreReasons.take(2).toList(growable: false),
+      riskAssessment: scorecard.riskCandidates.isEmpty
+          ? const <String>['当前未见集中风险，建议继续观察。']
+          : scorecard.riskCandidates.take(2).toList(growable: false),
+      recommendedActions: _localPetActions(
+        scorecard: scorecard,
+        petActiveItems: petActiveItems,
+      ),
+      followUpFocus: leadRisk.isNotEmpty ? leadRisk : '继续补充高质量观察记录。',
+    );
+  }
+
+  AiCareReport _normalizeRemoteFastCareReport(AiCareReport report) {
+    return AiCareReport(
+      overallScore: report.overallScore,
+      overallScoreLabel: report.overallScoreLabel,
+      scoreConfidence: report.scoreConfidence,
+      scoreBreakdown: report.scoreBreakdown,
+      scoreReasons: report.scoreReasons,
+      executiveSummary: report.executiveSummary,
+      overallAssessment:
+          report.overallAssessment.take(3).toList(growable: false),
+      keyFindings: report.keyFindings.take(4).toList(growable: false),
+      trendAnalysis: report.trendAnalysis.take(3).toList(growable: false),
+      riskAssessment: report.riskAssessment.take(3).toList(growable: false),
+      priorityActions: report.priorityActions.take(3).toList(growable: false),
+      dataQualityNotes: _prependNote(
+        report.dataQualityNotes,
+        '当前结果为 AI 短版总结，已按极速模式压缩。',
+        maxItems: 3,
+      ),
+      perPetReports: report.perPetReports
+          .map(_normalizeRemoteFastPetReport)
+          .toList(growable: false),
+    );
+  }
+
+  AiPetCareReport _normalizeRemoteFastPetReport(AiPetCareReport report) {
+    return AiPetCareReport(
+      petId: report.petId,
+      petName: report.petName,
+      score: report.score,
+      scoreLabel: report.scoreLabel,
+      scoreConfidence: report.scoreConfidence,
+      summary: report.summary,
+      careFocus: report.careFocus,
+      keyEvents: report.keyEvents.take(3).toList(growable: false),
+      trendAnalysis: report.trendAnalysis.take(2).toList(growable: false),
+      riskAssessment: report.riskAssessment.take(2).toList(growable: false),
+      recommendedActions:
+          report.recommendedActions.take(3).toList(growable: false),
+      followUpFocus: report.followUpFocus,
+    );
+  }
+
+  List<String> _prependNote(
+    List<String> notes,
+    String note, {
+    required int maxItems,
+  }) {
+    final normalized = <String>[note];
+    for (final item in notes) {
+      final trimmed = item.trim();
+      if (trimmed.isEmpty || trimmed == note) {
+        continue;
+      }
+      normalized.add(trimmed);
+      if (normalized.length >= maxItems) {
+        break;
+      }
+    }
+    return normalized.toList(growable: false);
   }
 
   Future<Map<String, dynamic>> _generateStructuredJson({
     required AiProviderClient client,
     required String systemPrompt,
     required String userPrompt,
+    required Duration timeout,
   }) async {
     final response = await _sendPrompt(
       client: client,
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
+      timeout: timeout,
     );
-    final content = _extractTextContent(
-      providerType: client.providerType,
-      response: response,
-    );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 返回原始内容摘要',
-      message: '已收到 ${client.providerType.name} 的文本响应。',
-      details: _previewText(content),
-    );
-    final jsonObject = _extractJsonObject(content);
-    if (jsonObject == null) {
-      throw AiGenerationException(
-        _structuredJsonFailureMessage(client.providerType),
+    try {
+      final content = _extractTextContent(
+        providerType: client.providerType,
+        response: response,
+      );
+      appLogController?.info(
+        category: AppLogCategory.ai,
+        title: 'AI 返回原始内容摘要',
+        message: '已收到 ${client.providerType.name} 的文本响应。',
+        details: _previewText(content),
+      );
+      final jsonObject = _extractJsonObject(content);
+      if (jsonObject == null) {
+        throw AiGenerationException(
+          _structuredJsonFailureMessage(client.providerType),
+        );
+      }
+      return jsonObject;
+    } on AiGenerationException catch (error) {
+      appLogController?.error(
+        category: AppLogCategory.ai,
+        title: 'AI 总览结构化输出失败',
+        message: error.message,
+      );
+      throw _AiRetryableGenerationException(
+        error.message,
+        phase: 'structured_output',
       );
     }
-    return jsonObject;
   }
 
   Future<AiHttpResponse> _sendPrompt({
     required AiProviderClient client,
     required String systemPrompt,
     required String userPrompt,
+    required Duration timeout,
   }) async {
     try {
       return await switch (client.providerType) {
@@ -276,16 +543,19 @@ class NetworkAiInsightsService implements AiInsightsService {
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
             useStructuredOutput: true,
+            timeout: timeout,
           ),
         AiProviderType.openaiCompatible => _sendOpenAiCompatiblePrompt(
             client: client,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
+            timeout: timeout,
           ),
         AiProviderType.anthropic => _sendAnthropicPrompt(
             client: client,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
+            timeout: timeout,
           ),
       };
     } on TimeoutException {
@@ -294,7 +564,10 @@ class NetworkAiInsightsService implements AiInsightsService {
         title: 'AI 请求超时',
         message: 'AI 请求超时，请稍后重试。',
       );
-      throw const _AiRetryableGenerationException('AI 请求超时，请稍后重试。');
+      throw const _AiRetryableGenerationException(
+        'AI 请求超时，请稍后重试。',
+        phase: 'provider_timeout',
+      );
     } on FormatException {
       appLogController?.warning(
         category: AppLogCategory.ai,
@@ -338,12 +611,17 @@ class NetworkAiInsightsService implements AiInsightsService {
     required String systemPrompt,
     required String userPrompt,
     required bool useStructuredOutput,
+    required Duration timeout,
   }) async {
-    final request = _buildOpenAiRequest(
-      client: client,
+    final request = buildAiConversationRequest(
+      providerType: client.providerType,
+      baseUrl: client.baseUrl,
+      model: client.model,
+      apiKey: client.apiKey,
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
       useStructuredOutput: useStructuredOutput,
+      timeout: timeout,
     );
     appLogController?.info(
       category: AppLogCategory.ai,
@@ -366,12 +644,17 @@ class NetworkAiInsightsService implements AiInsightsService {
     required AiProviderClient client,
     required String systemPrompt,
     required String userPrompt,
+    required Duration timeout,
   }) async {
-    var request = _buildOpenAiRequest(
-      client: client,
+    var request = buildAiConversationRequest(
+      providerType: client.providerType,
+      baseUrl: client.baseUrl,
+      model: client.model,
+      apiKey: client.apiKey,
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
       useStructuredOutput: true,
+      timeout: timeout,
     );
     appLogController?.info(
       category: AppLogCategory.ai,
@@ -380,12 +663,16 @@ class NetworkAiInsightsService implements AiInsightsService {
       details: 'timeout=${request.timeout?.inSeconds ?? 10}s',
     );
     var response = await _transport.send(request);
-    if (_looksLikeStructuredOutputUnsupportedResponse(response)) {
-      request = _buildOpenAiRequest(
-        client: client,
+    if (looksLikeStructuredOutputUnsupportedResponse(response)) {
+      request = buildAiConversationRequest(
+        providerType: client.providerType,
+        baseUrl: client.baseUrl,
+        model: client.model,
+        apiKey: client.apiKey,
         systemPrompt: systemPrompt,
         userPrompt: userPrompt,
         useStructuredOutput: false,
+        timeout: timeout,
       );
       appLogController?.warning(
         category: AppLogCategory.ai,
@@ -409,29 +696,17 @@ class NetworkAiInsightsService implements AiInsightsService {
     required AiProviderClient client,
     required String systemPrompt,
     required String userPrompt,
+    required Duration timeout,
   }) async {
-    final baseUrl = normalizeAiBaseUrl(client.baseUrl);
-    final request = AiHttpRequest(
-      method: 'POST',
-      uri: Uri.parse('$baseUrl/messages'),
-      headers: {
-        'x-api-key': client.apiKey,
-        'anthropic-version': '2023-06-01',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': client.model,
-        'max_tokens': 1200,
-        'system': systemPrompt,
-        'messages': [
-          {
-            'role': 'user',
-            'content': userPrompt,
-          },
-        ],
-      }),
-      timeout: _generationRequestTimeout,
+    final request = buildAiConversationRequest(
+      providerType: client.providerType,
+      baseUrl: client.baseUrl,
+      model: client.model,
+      apiKey: client.apiKey,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt,
+      useStructuredOutput: false,
+      timeout: timeout,
     );
     appLogController?.info(
       category: AppLogCategory.ai,
@@ -450,45 +725,6 @@ class NetworkAiInsightsService implements AiInsightsService {
     return response;
   }
 
-  AiHttpRequest _buildOpenAiRequest({
-    required AiProviderClient client,
-    required String systemPrompt,
-    required String userPrompt,
-    required bool useStructuredOutput,
-  }) {
-    final baseUrl = normalizeAiBaseUrl(client.baseUrl);
-    final body = <String, dynamic>{
-      'model': client.model,
-      'messages': [
-        {
-          'role': 'system',
-          'content': systemPrompt,
-        },
-        {
-          'role': 'user',
-          'content': userPrompt,
-        },
-      ],
-      'temperature': 0.2,
-    };
-    if (useStructuredOutput) {
-      body['response_format'] = const {
-        'type': 'json_object',
-      };
-    }
-    return AiHttpRequest(
-      method: 'POST',
-      uri: Uri.parse('$baseUrl/chat/completions'),
-      headers: {
-        'Authorization': 'Bearer ${client.apiKey}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-      timeout: _generationRequestTimeout,
-    );
-  }
-
   void _throwIfFailure(AiHttpResponse response) {
     if (response.statusCode == 401 || response.statusCode == 403) {
       throw const AiGenerationException('AI 服务鉴权失败，请检查 API Key。');
@@ -497,7 +733,10 @@ class NetworkAiInsightsService implements AiInsightsService {
       throw const AiGenerationException('AI 服务地址不可用，请检查 Base URL。');
     }
     if (response.statusCode == 429) {
-      throw const _AiRetryableGenerationException('AI 服务当前限流，请稍后再试。');
+      throw const _AiRetryableGenerationException(
+        'AI 服务当前限流，请稍后再试。',
+        phase: 'provider_rate_limit',
+      );
     }
     if (response.statusCode == 408 ||
         response.statusCode == 425 ||
@@ -507,6 +746,7 @@ class NetworkAiInsightsService implements AiInsightsService {
         response.statusCode == 504) {
       throw _AiRetryableGenerationException(
         'AI 服务暂时不可用，服务返回 ${response.statusCode}。',
+        phase: 'provider_overload',
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -514,201 +754,26 @@ class NetworkAiInsightsService implements AiInsightsService {
     }
   }
 
-  bool _looksLikeStructuredOutputUnsupportedResponse(AiHttpResponse response) {
-    if (response.statusCode < 400 || response.statusCode >= 500) {
-      return false;
-    }
-    final message = _extractErrorMessage(response.body)?.toLowerCase() ??
-        response.body.toLowerCase();
-    return message.contains('response_format') ||
-        message.contains('json_schema') ||
-        message.contains('json_object') ||
-        message.contains('structured output');
-  }
-
-  String? _extractErrorMessage(String rawBody) {
-    final decoded = _tryDecodeJson(rawBody);
-    if (decoded is! Map<String, dynamic>) {
-      return null;
-    }
-    final error = decoded['error'];
-    if (error is String && error.trim().isNotEmpty) {
-      return error.trim();
-    }
-    if (error is Map<String, dynamic>) {
-      final message = error['message'];
-      if (message is String && message.trim().isNotEmpty) {
-        return message.trim();
-      }
-    }
-    final errors = decoded['errors'];
-    if (errors is List) {
-      for (final item in errors) {
-        if (item is Map<String, dynamic>) {
-          final message = item['message'];
-          if (message is String && message.trim().isNotEmpty) {
-            return message.trim();
-          }
-        }
-      }
-    }
-    return null;
-  }
-
   String _extractTextContent({
     required AiProviderType providerType,
     required AiHttpResponse response,
   }) {
-    final decoded = _tryDecodeJson(response.body);
+    final decoded = tryDecodeAiJson(response.body);
     if (decoded is! Map<String, dynamic>) {
       throw const AiGenerationException('AI 服务响应异常，未返回合法 JSON。');
     }
-
-    return switch (providerType) {
-      AiProviderType.openai ||
-      AiProviderType.openaiCompatible =>
-        _extractOpenAiContent(decoded),
-      AiProviderType.anthropic => _extractAnthropicContent(decoded),
-    };
-  }
-
-  String _extractOpenAiContent(Map<String, dynamic> decoded) {
-    final choices = decoded['choices'];
-    if (choices is! List || choices.isEmpty) {
-      throw const AiGenerationException('AI 服务响应异常，未返回聊天结果。');
-    }
-    final firstChoice = choices.first;
-    if (firstChoice is! Map) {
-      throw const AiGenerationException('AI 服务响应异常，未返回聊天结果。');
-    }
-    final message = firstChoice['message'];
-    if (message is! Map) {
-      throw const AiGenerationException('AI 服务响应异常，未返回聊天结果。');
-    }
-    final buffer = StringBuffer();
-    _appendTextContent(message['content'], buffer);
-    final text = buffer.toString().trim();
-    if (text.isNotEmpty) {
-      return text;
-    }
-    throw const AiGenerationException('AI 服务响应异常，未返回文本内容。');
-  }
-
-  String _extractAnthropicContent(Map<String, dynamic> decoded) {
-    final content = decoded['content'];
-    if (content is! List || content.isEmpty) {
-      throw const AiGenerationException('AI 服务响应异常，未返回消息内容。');
-    }
-    final buffer = StringBuffer();
-    for (final item in content) {
-      if (item is Map && item['type'] == 'text' && item['text'] is String) {
-        buffer.writeln(item['text'] as String);
-      }
-    }
-    final text = buffer.toString().trim();
-    if (text.isEmpty) {
+    final text = tryExtractAiResponseTextContent(
+      providerType: providerType,
+      decoded: decoded,
+    );
+    if (text == null || text.isEmpty) {
       throw const AiGenerationException('AI 服务响应异常，未返回文本内容。');
     }
     return text;
   }
 
   Map<String, dynamic>? _extractJsonObject(String text) {
-    final direct = _tryDecodeJson(text);
-    if (direct is Map<String, dynamic>) {
-      return direct;
-    }
-
-    final fencedMatch =
-        RegExp(r'```(?:json)?\s*([\s\S]*?)```').firstMatch(text);
-    if (fencedMatch != null) {
-      final fenced = _tryDecodeJson(fencedMatch.group(1)!.trim());
-      if (fenced is Map<String, dynamic>) {
-        return fenced;
-      }
-    }
-
-    final startIndex = text.indexOf('{');
-    if (startIndex == -1) {
-      return null;
-    }
-
-    var depth = 0;
-    var inString = false;
-    var escaped = false;
-    for (var index = startIndex; index < text.length; index += 1) {
-      final char = text[index];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char == r'\') {
-        escaped = true;
-        continue;
-      }
-      if (char == '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) {
-        continue;
-      }
-      if (char == '{') {
-        depth += 1;
-      } else if (char == '}') {
-        depth -= 1;
-        if (depth == 0) {
-          final candidate = text.substring(startIndex, index + 1);
-          final decoded = _tryDecodeJson(candidate);
-          if (decoded is Map<String, dynamic>) {
-            return decoded;
-          }
-          return null;
-        }
-      }
-    }
-    return null;
-  }
-
-  Object? _tryDecodeJson(String raw) {
-    try {
-      return jsonDecode(raw);
-    } on FormatException {
-      return null;
-    }
-  }
-
-  void _appendTextContent(Object? value, StringBuffer buffer) {
-    if (value is String) {
-      final trimmed = value.trim();
-      if (trimmed.isNotEmpty) {
-        buffer.writeln(trimmed);
-      }
-      return;
-    }
-    if (value is List) {
-      for (final item in value) {
-        _appendTextContent(item, buffer);
-      }
-      return;
-    }
-    if (value is Map) {
-      if (value['text'] is String) {
-        _appendTextContent(value['text'], buffer);
-      }
-      if (value['value'] is String) {
-        _appendTextContent(value['value'], buffer);
-      }
-      if (value['content'] != null) {
-        _appendTextContent(value['content'], buffer);
-      }
-      if (value['text'] == null &&
-          value['value'] == null &&
-          value['content'] == null) {
-        for (final nested in value.values) {
-          _appendTextContent(nested, buffer);
-        }
-      }
-    }
+    return extractAiJsonObject(text);
   }
 
   String _structuredJsonFailureMessage(AiProviderType providerType) {
@@ -737,36 +802,37 @@ const String _careReportSystemPrompt = '''
 
 JSON schema:
 {
-  "executiveSummary": "120-220字的完整自然段，概括当前周期执行质量、变化趋势和主要关注点",
-  "overallAssessment": ["2-4条总体判断"],
-  "keyFindings": ["3-6条关键事实或发现"],
-  "trendAnalysis": ["2-5条趋势分析"],
-  "riskAssessment": ["0-4条风险说明，必须写清依据与建议"],
-  "priorityActions": ["3-5条优先行动"],
+  "executiveSummary": "80-140字的短版自然段，概括当前周期执行质量、变化趋势和主要关注点",
+  "overallAssessment": ["1-3条总体判断"],
+  "keyFindings": ["2-4条关键事实或发现"],
+  "trendAnalysis": ["1-3条趋势分析"],
+  "riskAssessment": ["0-3条风险说明，必须写清依据与建议"],
+  "priorityActions": ["1-3条优先行动"],
   "dataQualityNotes": ["1-3条关于样本量、记录完整度、可信度的说明"],
   "perPetReports": [
     {
       "petId": "必须与输入里的 petId 一致",
       "petName": "必须与输入里的 petName 一致",
-      "summary": "该宠物的完整自然段摘要",
+      "summary": "60-100字的短版自然段摘要",
       "careFocus": "一句本周期照护重点",
-      "keyEvents": ["2-4条关键事件"],
-      "trendAnalysis": ["1-3条趋势分析"],
-      "riskAssessment": ["0-3条风险说明"],
-      "recommendedActions": ["2-4条建议行动"],
+      "keyEvents": ["1-3条关键事件"],
+      "trendAnalysis": ["1-2条趋势分析"],
+      "riskAssessment": ["0-2条风险说明"],
+      "recommendedActions": ["1-3条建议行动"],
       "followUpFocus": "一句后续观察重点"
     }
   ]
 }
 
 约束:
-- executiveSummary 不能是一句话简报，必须写成正式报告式摘要
+- 这是短版 AI 总览，不要写成长报告，不要铺陈背景
 - 每一段结论都要引用输入中的事实、统计或时间范围，不准空泛
 - perPetReports 必须覆盖输入中的每一只宠物，且 petId/petName 不得串位
 - 分数、等级和可信度已由本地规则计算，你只能解释它们，不能重新生成数值分数
 - 没有足够证据时，明确写“样本不足，仅供参考”或“建议继续观察”
 - 不要给用药剂量、诊断名称或确定性医疗结论
 - 所有字段都必须返回；没有内容时返回空数组或保守表述
+- 默认短句和短数组；除 executiveSummary / summary 外，单字段优先控制在 1-3 条
 ''';
 
 const String _visitSummarySystemPrompt = '''
@@ -800,7 +866,7 @@ String _buildCareReportPrompt(
     detailLevel: detailLevel,
   );
   return '''
-请基于以下宠物照护上下文生成一份“正式分析报告”风格的 AI 总览。
+请基于以下宠物照护上下文生成一份“短版 AI 总览”。
 
 分析目标:
 - 给出整体执行结论与趋势判断
@@ -813,6 +879,9 @@ String _buildCareReportPrompt(
 - 你要做的是解释这些评分背后的原因，而不是重新打分
 - 输入数据已经过本地压缩与筛选，优先依据统计、评分理由、风险候选和保留的关键事件下结论
 - detailLevel 越低，说明这是为了提高生成稳定性而进行的降载版本，不要因为缺少细枝末节而编造内容
+- 当前目标是 10 秒内返回结果，请使用简洁表达，避免长段铺陈
+- 保持现有 JSON 结构，但所有数组都优先短版输出；在 compact/minimal/distilled 模式下，每个数组优先控制在 1-3 条
+- 不要使用“正式分析报告”“综合研判如下”这类长报告措辞
 
 压缩上下文:
 ${jsonEncode(payload)}
@@ -820,6 +889,15 @@ ${jsonEncode(payload)}
 }
 
 String _buildVisitSummaryPrompt(AiGenerationContext context) {
+  final summaryPackage = const AiPortableSummaryBuilder(
+    maxEvidencePerTopic: 3,
+    maxActiveItems: 10,
+    maxRiskCandidates: 6,
+  ).build(
+    title: context.title,
+    context: context,
+    generatedAt: context.rangeEnd,
+  );
   return '''
 请基于以下宠物照护上下文生成就诊准备摘要。
 
@@ -830,18 +908,21 @@ String _buildVisitSummaryPrompt(AiGenerationContext context) {
 - 给出值得向兽医确认的问题
 
 上下文数据:
-${jsonEncode(context.toJson())}
+${jsonEncode(summaryPackage.toJson())}
 ''';
 }
 
 List<_CareReportPromptPlan> _buildCareReportPromptPlans(
   AiGenerationContext context, {
   required AiCareScorecard scorecard,
+  required _AiGenerationRuntimeProfile runtimeProfile,
 }) {
-  return _CarePromptDetailLevel.values
+  final candidateLevels = runtimeProfile.promptLevelsFor(context);
+  final promptPlans = candidateLevels
       .map(
         (detailLevel) => _CareReportPromptPlan(
           label: detailLevel.label,
+          detailLevel: detailLevel,
           prompt: _buildCareReportPrompt(
             context,
             scorecard: scorecard,
@@ -849,7 +930,30 @@ List<_CareReportPromptPlan> _buildCareReportPromptPlans(
           ),
         ),
       )
-      .toList(growable: false);
+      .toList(growable: true);
+
+  if (promptPlans.isEmpty) {
+    return const [];
+  }
+
+  while (promptPlans.length > 1 &&
+      promptPlans.first.prompt.length > runtimeProfile.maxPromptChars) {
+    promptPlans.removeAt(0);
+  }
+
+  if (promptPlans.first.detailLevel != candidateLevels.first) {
+    final firstPlan = promptPlans.first;
+    promptPlans[0] = firstPlan.copyWith(
+      budgetReason: 'prompt_chars_exceeded:${runtimeProfile.maxPromptChars}',
+    );
+  } else if (promptPlans.first.isCondensedSummary) {
+    final firstPlan = promptPlans.first;
+    promptPlans[0] = firstPlan.copyWith(
+      budgetReason: 'range_policy',
+    );
+  }
+
+  return promptPlans.toList(growable: false);
 }
 
 Map<String, dynamic> _buildCareReportPayload(
@@ -858,101 +962,145 @@ Map<String, dynamic> _buildCareReportPayload(
   required _CarePromptDetailLevel detailLevel,
 }) {
   final config = detailLevel.config;
+  final summaryPackage = _buildCareReportSummaryPackage(
+    context,
+    detailLevel: detailLevel,
+  );
   return {
     'detailLevel': detailLevel.name,
-    'title': context.title,
-    'range': {
-      'label': context.rangeLabel,
-      'start': context.rangeStart.toIso8601String(),
-      'end': context.rangeEnd.toIso8601String(),
-      'days': context.rangeEnd.difference(context.rangeStart).inDays,
-    },
-    'globalStats': {
-      'petCount': context.pets.length,
-      'todoStatus': _countByName(
-        context.todos.map((item) => item.status.name),
-      ),
-      'reminderStatus': _countByName(
-        context.reminders.map((item) => item.status.name),
-      ),
-      'recordTypes': _countByName(
-        context.records.map((item) => item.type.name),
-      ),
-    },
     'scorecard': scorecard.toJson(),
+    'summaryPackage': summaryPackage.toJson(),
     'globalHighlights': {
       'riskCandidates':
           scorecard.riskCandidates.take(config.maxRiskCandidates).toList(),
       'dataQualityNotes':
           scorecard.dataQualityNotes.take(config.maxDataQualityNotes).toList(),
-      'attentionTodos': _sampleTodos(
-        context.todos,
-        maxItems: config.maxGlobalTodoSamples,
-      ),
-      'attentionReminders': _sampleReminders(
-        context.reminders,
-        maxItems: config.maxGlobalReminderSamples,
-      ),
-      'recentRecords': _sampleRecords(
-        context.records,
-        maxItems: config.maxGlobalRecordSamples,
-      ),
     },
-    'petSnapshots': context.pets
-        .map(
-          (pet) => _buildPetPromptSnapshot(
-            context,
-            pet: pet,
-            scorecard: scorecard.petScorecards.firstWhere(
-              (item) => item.petId == pet.id,
-            ),
-            config: config,
-          ),
-        )
-        .toList(growable: false),
   };
 }
 
-Map<String, dynamic> _buildPetPromptSnapshot(
+AiPortableSummaryPackage _buildCareReportSummaryPackage(
   AiGenerationContext context, {
-  required Pet pet,
-  required AiPetCareScorecard scorecard,
-  required _CarePromptPayloadConfig config,
+  required _CarePromptDetailLevel detailLevel,
 }) {
-  final todos = context.todos.where((item) => item.petId == pet.id).toList();
-  final reminders =
-      context.reminders.where((item) => item.petId == pet.id).toList();
-  final records = context.records.where((item) => item.petId == pet.id).toList();
-  return {
-    'pet': {
-      'petId': pet.id,
-      'petName': pet.name,
-      'type': petTypeLabel(pet.type),
-      'breed': pet.breed,
-      'ageLabel': pet.ageLabel,
-      'weightKg': pet.weightKg,
-      'neuterStatus': petNeuterStatusLabel(pet.neuterStatus),
-      'allergies': _trimPromptText(pet.allergies, 50),
-      'note': _trimPromptText(pet.note, 80),
-    },
-    'scoreSummary': scorecard.toJson(),
-    'taskStats': _countByName(todos.map((item) => item.status.name)),
-    'reminderStats': _countByName(reminders.map((item) => item.status.name)),
-    'recordStats': _countByName(records.map((item) => item.type.name)),
-    'attentionTodos': _sampleTodos(
-      todos,
-      maxItems: config.maxPerPetTodoSamples,
-    ),
-    'attentionReminders': _sampleReminders(
-      reminders,
-      maxItems: config.maxPerPetReminderSamples,
-    ),
-    'recentRecords': _sampleRecords(
-      records,
-      maxItems: config.maxPerPetRecordSamples,
-    ),
-  };
+  final config = detailLevel.config;
+  return AiPortableSummaryBuilder(
+    maxEvidencePerTopic: config.maxPerPetRecordSamples.clamp(1, 3),
+    maxActiveItems:
+        (config.maxGlobalTodoSamples + config.maxGlobalReminderSamples)
+            .clamp(3, 12),
+    maxRiskCandidates: config.maxRiskCandidates,
+  ).build(
+    title: context.title,
+    context: context,
+    generatedAt: context.rangeEnd,
+  );
 }
+
+List<String> _localKeyFindings(AiPortableSummaryPackage summaryPackage) {
+  final findings = <String>[];
+  for (final item in summaryPackage.keyEvidence.take(3)) {
+    final petName = item['petName'] as String? ?? '爱宠';
+    final topicKey = item['topicKey'] as String? ?? 'other';
+    final summary = item['summary'] as String? ?? '';
+    findings.add('$petName 在${_summaryTopicLabel(topicKey)}方面：$summary');
+  }
+  if (findings.isEmpty) {
+    findings.add('当前没有足够关键证据，建议继续补充结构化记录。');
+  }
+  return findings;
+}
+
+List<String> _localTrendAnalysis(AiPortableSummaryPackage summaryPackage) {
+  final trends = <String>[];
+  for (final item in summaryPackage.topicRollups.take(3)) {
+    final topicKey = item['topicKey'] as String? ?? 'other';
+    final count = item['count'] as int? ?? 0;
+    trends.add('${_summaryTopicLabel(topicKey)}相关事件共$count条，近期仍在持续出现。');
+  }
+  if (trends.isEmpty) {
+    trends.add('当前样本较少，趋势判断以保守结论为主。');
+  }
+  return trends;
+}
+
+List<String> _localPriorityActions(AiPortableSummaryPackage summaryPackage) {
+  final actions = <String>[];
+  for (final item in summaryPackage.activeItems.take(3)) {
+    final title = item['title'] as String? ?? '待处理事项';
+    actions.add('优先处理$title。');
+  }
+  if (actions.isEmpty) {
+    actions.add('继续保持当前提醒和记录节奏。');
+  }
+  return actions;
+}
+
+List<String> _localPetKeyEvents(
+  AiPetCareScorecard scorecard,
+  List<Map<String, Object?>> petEvidence,
+) {
+  final events = <String>[];
+  for (final item in petEvidence.take(2)) {
+    final summary = item['summary'] as String? ?? '';
+    if (summary.isNotEmpty) {
+      events.add(summary);
+    }
+  }
+  if (events.isEmpty) {
+    events.addAll(scorecard.recentEventTitles.take(2));
+  }
+  if (events.isEmpty) {
+    events.add('当前周期暂无可提炼的关键事件。');
+  }
+  return events;
+}
+
+List<String> _localPetActions({
+  required AiPetCareScorecard scorecard,
+  required List<Map<String, Object?>> petActiveItems,
+}) {
+  final actions = <String>[];
+  for (final item in petActiveItems.take(2)) {
+    final title = item['title'] as String? ?? '待处理事项';
+    actions.add('优先处理$title。');
+  }
+  if (actions.isEmpty && scorecard.riskCandidates.isNotEmpty) {
+    actions.add('优先跟进${scorecard.riskCandidates.first}');
+  }
+  if (actions.isEmpty) {
+    actions.add('继续补充稳定、连续的照护记录。');
+  }
+  return actions;
+}
+
+String _firstString(Iterable<String> values) {
+  for (final value in values) {
+    final trimmed = value.trim();
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+String _summaryTopicLabel(String key) => switch (key) {
+      'hydration' => '饮水',
+      'diet' => '饮食',
+      'deworming' => '驱虫',
+      'litter' => '排泄',
+      'grooming' => '洗护',
+      'earCare' => '耳道',
+      'medication' => '用药',
+      'vaccine' => '疫苗',
+      'review' => '复查',
+      'weight' => '体重',
+      'digestive' => '消化',
+      'skin' => '皮肤',
+      'purchase' => '采购',
+      'cleaning' => '清洁',
+      _ => '日常',
+    };
 
 Map<String, int> _countByName(Iterable<String> values) {
   final counts = <String, int>{};
@@ -1073,11 +1221,29 @@ String _trimPromptText(String value, int maxLength) {
 class _CareReportPromptPlan {
   const _CareReportPromptPlan({
     required this.label,
+    required this.detailLevel,
     required this.prompt,
+    this.budgetReason,
   });
 
   final String label;
+  final _CarePromptDetailLevel detailLevel;
   final String prompt;
+  final String? budgetReason;
+
+  bool get isCondensedSummary =>
+      detailLevel == _CarePromptDetailLevel.distilled || budgetReason != null;
+
+  _CareReportPromptPlan copyWith({
+    String? budgetReason,
+  }) {
+    return _CareReportPromptPlan(
+      label: label,
+      detailLevel: detailLevel,
+      prompt: prompt,
+      budgetReason: budgetReason ?? this.budgetReason,
+    );
+  }
 }
 
 class _CarePromptPayloadConfig {
@@ -1141,6 +1307,19 @@ enum _CarePromptDetailLevel {
       maxPerPetReminderSamples: 3,
       maxPerPetRecordSamples: 4,
     ),
+  ),
+  distilled(
+    '精简事实摘要',
+    _CarePromptPayloadConfig(
+      maxRiskCandidates: 3,
+      maxDataQualityNotes: 1,
+      maxGlobalTodoSamples: 2,
+      maxGlobalReminderSamples: 2,
+      maxGlobalRecordSamples: 3,
+      maxPerPetTodoSamples: 2,
+      maxPerPetReminderSamples: 2,
+      maxPerPetRecordSamples: 2,
+    ),
   );
 
   const _CarePromptDetailLevel(this.label, this.config);
@@ -1150,5 +1329,112 @@ enum _CarePromptDetailLevel {
 }
 
 class _AiRetryableGenerationException extends AiGenerationException {
-  const _AiRetryableGenerationException(super.message);
+  const _AiRetryableGenerationException(
+    super.message, {
+    required this.phase,
+  });
+
+  final String phase;
+}
+
+class _AiGenerationRuntimeProfile {
+  const _AiGenerationRuntimeProfile({
+    required this.id,
+    required this.requestTimeout,
+    required this.maxPromptChars,
+  });
+
+  final String id;
+  final Duration requestTimeout;
+  final int maxPromptChars;
+
+  List<_CarePromptDetailLevel> promptLevelsFor(AiGenerationContext context) {
+    final startLevel = _startDetailLevel(context);
+    final startIndex = _CarePromptDetailLevel.values.indexOf(startLevel);
+    return _CarePromptDetailLevel.values
+        .skip(startIndex)
+        .toList(growable: false);
+  }
+
+  _CarePromptDetailLevel _startDetailLevel(AiGenerationContext context) {
+    final rangeDays = _rangeDays(context);
+    switch (id) {
+      case 'openai-compatible-bigmodel':
+        if (rangeDays <= 30) {
+          return _CarePromptDetailLevel.standard;
+        }
+        return _CarePromptDetailLevel.distilled;
+      case 'openai-compatible-generic':
+      case 'openai-compatible-cloudflare-workers-ai':
+        if (rangeDays <= 30) {
+          return _CarePromptDetailLevel.standard;
+        }
+        if (rangeDays <= 90) {
+          return _CarePromptDetailLevel.compact;
+        }
+        return _CarePromptDetailLevel.minimal;
+      case 'anthropic':
+      case 'openai':
+        if (rangeDays <= 30) {
+          return _CarePromptDetailLevel.standard;
+        }
+        if (rangeDays <= 180) {
+          return _CarePromptDetailLevel.compact;
+        }
+        return _CarePromptDetailLevel.minimal;
+    }
+    return _CarePromptDetailLevel.compact;
+  }
+}
+
+_AiGenerationRuntimeProfile _resolveAiGenerationRuntimeProfile(
+  AiProviderClient client,
+) {
+  final connectionProfile = resolveAiProviderRuntimeProfile(
+    providerType: client.providerType,
+    baseUrl: client.baseUrl,
+  );
+  return switch (connectionProfile.id) {
+    'openai-compatible-bigmodel' => const _AiGenerationRuntimeProfile(
+        id: 'openai-compatible-bigmodel',
+        requestTimeout: Duration(seconds: 38),
+        maxPromptChars: 7200,
+      ),
+    'openai-compatible-generic' => const _AiGenerationRuntimeProfile(
+        id: 'openai-compatible-generic',
+        requestTimeout: Duration(seconds: 45),
+        maxPromptChars: 10000,
+      ),
+    'openai-compatible-cloudflare-workers-ai' =>
+      const _AiGenerationRuntimeProfile(
+        id: 'openai-compatible-cloudflare-workers-ai',
+        requestTimeout: Duration(seconds: 45),
+        maxPromptChars: 9600,
+      ),
+    'anthropic' => const _AiGenerationRuntimeProfile(
+        id: 'anthropic',
+        requestTimeout: Duration(seconds: 45),
+        maxPromptChars: 13000,
+      ),
+    _ => const _AiGenerationRuntimeProfile(
+        id: 'openai',
+        requestTimeout: Duration(seconds: 45),
+        maxPromptChars: 12500,
+      ),
+  };
+}
+
+int _rangeDays(AiGenerationContext context) {
+  final inclusiveRange = context.rangeEnd.difference(context.rangeStart).inDays;
+  return inclusiveRange <= 0 ? 1 : inclusiveRange;
+}
+
+String _buildCareReportRetryExhaustedMessage(
+  AiGenerationContext context, {
+  required bool usedCondensedSummary,
+}) {
+  if (usedCondensedSummary) {
+    return '当前 AI 服务基础连接可用，但在生成${context.rangeLabel} AI 总览时，即使已自动改用精简事实摘要仍然超时或过载。建议先切换到较短时间范围，或更换更稳定的模型/供应商后再试。';
+  }
+  return '当前 AI 服务基础连接可用，但在生成${context.rangeLabel} AI 总览时仍然超时或过载。建议先切换到较短时间范围，或更换更稳定的模型/供应商后再试。';
 }

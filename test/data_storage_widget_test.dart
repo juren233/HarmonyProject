@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/data_storage_page.dart';
@@ -25,6 +26,7 @@ void main() {
     final coordinator = DataStorageCoordinator(
       store: PetNoteStore.seeded(),
       settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
     );
 
     await tester.pumpWidget(
@@ -60,6 +62,7 @@ void main() {
     final coordinator = DataStorageCoordinator(
       store: store,
       settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
     );
     final fileAccess = _FakeDataPackageFileAccess(
       saveBackupHandler: (
@@ -84,6 +87,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('data_storage_export_button')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
+    await tester.pumpAndSettle();
 
     expect(fileAccess.savedBackups, hasLength(1));
     expect(
@@ -95,6 +100,75 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('petnote_backup.json'), findsWidgets);
     expect(find.textContaining('Files'), findsWidgets);
+  });
+
+  testWidgets('export backup requires second confirmation before including api keys',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-openai',
+        displayName: 'OpenAI 主账号',
+        providerType: AiProviderType.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        isActive: true,
+        createdAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+        updatedAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+      ),
+    );
+    final secretStore = InMemoryAiSecretStore();
+    await secretStore.writeKey('cfg-openai', 'sk-test-123');
+    final coordinator = DataStorageCoordinator(
+      store: PetNoteStore.seeded(),
+      settingsController: settingsController,
+      secretStore: secretStore,
+    );
+    final fileAccess = _FakeDataPackageFileAccess(
+      saveBackupHandler: (
+          {required suggestedFileName, required rawJson}) async {
+        return const SavedDataPackageFile(
+          displayName: 'petnote_backup_sensitive.json',
+          locationLabel: 'Files',
+          byteLength: 768,
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DataStoragePage(
+          coordinator: coordinator,
+          fileAccess: fileAccess,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('data_storage_export_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('backup_export_include_sensitive_toggle')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('backup_export_sensitive_confirm_button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('backup_export_sensitive_confirm_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fileAccess.savedBackups, hasLength(1));
+    expect(fileAccess.savedBackups.single.rawJson, contains('sk-test-123'));
   });
 
   testWidgets('data storage actions keep unified button sizing',
@@ -371,6 +445,113 @@ void main() {
     expect(store.pets.single.name, 'Mochi');
   });
 
+  testWidgets('restore preview warns when backup contains api keys',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    final coordinator = DataStorageCoordinator(
+      store: await PetNoteStore.load(),
+      settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
+    );
+    final rawJson = _backupPackageJson(
+      includeSettings: true,
+      includeSensitiveSettings: true,
+    );
+    final fileAccess = _FakeDataPackageFileAccess(
+      pickBackupHandler: () async => PickedDataPackageFile(
+        displayName: 'backup_sensitive.json',
+        rawJson: rawJson,
+        locationLabel: 'Files',
+        byteLength: rawJson.length,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DataStoragePage(
+          coordinator: coordinator,
+          fileAccess: fileAccess,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('data_storage_restore_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('该备份文件包含 API Key'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('data_package_restore_sensitive_toggle')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'restore can skip api key recovery after second confirmation is cancelled',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final coordinator = DataStorageCoordinator(
+      store: await PetNoteStore.load(),
+      settingsController: settingsController,
+      secretStore: secretStore,
+    );
+    final rawJson = _backupPackageJson(
+      includeSettings: true,
+      includeSensitiveSettings: true,
+    );
+    final fileAccess = _FakeDataPackageFileAccess(
+      pickBackupHandler: () async => PickedDataPackageFile(
+        displayName: 'backup_sensitive.json',
+        rawJson: rawJson,
+        locationLabel: 'Files',
+        byteLength: rawJson.length,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DataStoragePage(
+          coordinator: coordinator,
+          fileAccess: fileAccess,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('data_storage_restore_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('data_package_restore_settings_toggle')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('data_package_restore_sensitive_toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('data_package_execute_restore_button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('sensitive_restore_cancel_button')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sensitive_restore_cancel_button')));
+    await tester.pumpAndSettle();
+
+    expect(await secretStore.readKey('cfg-openai'), isNull);
+  });
+
   testWidgets('clear local data requires second confirmation', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -524,6 +705,7 @@ void main() {
     final coordinator = DataStorageCoordinator(
       store: PetNoteStore.seeded(),
       settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
     );
     final fileAccess = _FakeDataPackageFileAccess(
       pickBackupHandler: () async => null,
@@ -556,6 +738,7 @@ void main() {
     final coordinator = DataStorageCoordinator(
       store: PetNoteStore.seeded(),
       settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
     );
     final fileAccess = _FakeDataPackageFileAccess(
       saveBackupHandler: (
@@ -597,6 +780,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('data_storage_export_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
     await tester.pumpAndSettle();
     expect(find.textContaining('备份已保存到 Files · petnote_backup.json'),
         findsOneWidget);
@@ -659,12 +844,14 @@ class _SavedBackupRequest {
 
 String _backupPackageJson({
   bool includeSettings = false,
+  bool includeSensitiveSettings = false,
   String themePreferenceName = 'light',
 }) {
   return _packageJson(
     petId: 'pet-restore',
     petName: 'Nova',
     includeSettings: includeSettings,
+    includeSensitiveSettings: includeSensitiveSettings,
     themePreferenceName: themePreferenceName,
   );
 }
@@ -682,6 +869,7 @@ String _packageJson({
   required String petId,
   required String petName,
   bool includeSettings = false,
+  bool includeSensitiveSettings = false,
   String themePreferenceName = 'light',
 }) {
   final package = PetNoteDataPackage(
@@ -716,8 +904,32 @@ String _packageJson({
     settings: includeSettings
         ? PetNoteSettingsState(
             themePreferenceName: themePreferenceName,
-            aiProviderConfigs: const <AiProviderConfig>[],
-            activeAiProviderConfigId: null,
+            aiProviderConfigs: includeSensitiveSettings
+                ? <AiProviderConfig>[
+                    AiProviderConfig(
+                      id: 'cfg-openai',
+                      displayName: 'OpenAI 主账号',
+                      providerType: AiProviderType.openai,
+                      baseUrl: 'https://api.openai.com/v1',
+                      model: 'gpt-5.4',
+                      isActive: true,
+                      createdAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+                      updatedAt: DateTime.parse('2026-04-09T10:00:00+08:00'),
+                    ),
+                  ]
+                : const <AiProviderConfig>[],
+            activeAiProviderConfigId:
+                includeSensitiveSettings ? 'cfg-openai' : null,
+          )
+        : null,
+    sensitiveSettings: includeSensitiveSettings
+        ? const PetNoteSensitiveSettingsState(
+            aiSecrets: <PetNoteAiSecretSnapshot>[
+              PetNoteAiSecretSnapshot(
+                configId: 'cfg-openai',
+                apiKey: 'sk-restore-123',
+              ),
+            ],
           )
         : null,
     meta: const <String, Object?>{},
