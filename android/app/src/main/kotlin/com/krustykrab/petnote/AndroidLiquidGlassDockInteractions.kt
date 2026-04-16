@@ -32,6 +32,7 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -105,6 +106,64 @@ class DampedDragAnimation(
             launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
             launch { scaleXAnimation.animateTo(pressedScale, scaleXAnimationSpec) }
             launch { scaleYAnimation.animateTo(pressedScale, scaleYAnimationSpec) }
+        }
+    }
+
+    suspend fun prewarmReleaseCycle() {
+        mutatorMutex.mutate {
+            velocityTracker.resetTracking()
+            pressProgressAnimation.snapTo(1f)
+            scaleXAnimation.snapTo(pressedScale)
+            scaleYAnimation.snapTo(pressedScale)
+            velocityAnimation.snapTo(0f)
+            awaitFrame()
+            coroutineScope {
+                launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
+                launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
+            }
+        }
+    }
+
+    suspend fun prewarmSelectionCycle(value: Float) {
+        mutatorMutex.mutate {
+            velocityTracker.resetTracking()
+            val startValue = valueAnimation.value.coerceIn(valueRange)
+            val clampedTargetValue = value.coerceIn(valueRange)
+            valueAnimation.snapTo(startValue)
+            pressProgressAnimation.snapTo(1f)
+            scaleXAnimation.snapTo(pressedScale)
+            scaleYAnimation.snapTo(pressedScale)
+            velocityAnimation.snapTo(0f)
+            awaitFrame()
+            valueAnimation.animateTo(clampedTargetValue, valueAnimationSpec) {
+                updateVelocity()
+            }
+            valueAnimation.animateTo(startValue, valueAnimationSpec) {
+                updateVelocity()
+            }
+            coroutineScope {
+                launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
+                launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
+                launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
+            }
+        }
+    }
+
+    suspend fun prewarmPressCycle() {
+        mutatorMutex.mutate {
+            velocityTracker.resetTracking()
+            pressProgressAnimation.snapTo(1f)
+            scaleXAnimation.snapTo(pressedScale)
+            scaleYAnimation.snapTo(pressedScale)
+            velocityAnimation.snapTo(0f)
+            awaitFrame()
+            coroutineScope {
+                launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
+                launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
+            }
         }
     }
 
@@ -233,6 +292,17 @@ half4 main(float2 coord) {
             drawContent()
         }
 
+    suspend fun prewarm(position: Offset) {
+        startPosition = position
+        positionAnimation.snapTo(position)
+        pressProgressAnimation.snapTo(1f)
+        awaitFrame()
+        coroutineScope {
+            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+            launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+        }
+    }
+
     val gestureModifier: Modifier =
         Modifier.pointerInput(animationScope) {
             inspectDragGestures(
@@ -330,3 +400,5 @@ private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
         }
     }
 }
+
+

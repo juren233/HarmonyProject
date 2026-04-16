@@ -4,9 +4,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_dock.dart';
+import 'package:petnote/app/pet_first_launch_intro.dart';
 import 'package:petnote/app/petnote_app.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
@@ -40,6 +42,43 @@ void main() {
       find.byKey(const ValueKey('first_launch_intro_primary_button')),
       findsNothing,
     );
+  });
+
+  testWidgets('intro waits for prewarm completion before starting launch animation',
+      (tester) async {
+    var shouldStartLaunchAnimation = false;
+    late StateSetter updateIntro;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateIntro = setState;
+              return PetFirstLaunchIntro(
+                fillParent: false,
+                shouldStartLaunchAnimation: shouldStartLaunchAnimation,
+                onStartOnboarding: () async {},
+                onExploreFirst: () async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1400));
+
+    expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
+
+    updateIntro(() => shouldStartLaunchAnimation = true);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('intro_page_0_content')), findsOneWidget);
   });
 
   testWidgets(
@@ -211,6 +250,26 @@ void main() {
     expect(
       find.byKey(const ValueKey('first_launch_intro_continue_button')),
       findsNothing,
+    );
+  });
+
+  testWidgets('intro first page hero keeps using svg before and after reveal',
+      (tester) async {
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsOneWidget);
+    expect(find.byType(SvgPicture), findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('intro_page_0_hero_icon')),
+        matching: find.byType(SvgPicture),
+      ),
+      findsOneWidget,
     );
   });
 
@@ -1038,6 +1097,32 @@ void main() {
   });
 
   testWidgets(
+      'explore first releases bottom navigation once intro is visually gone',
+      (tester) async {
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await _advanceIntroToFinalPage(tester);
+    await tester
+        .tap(find.byKey(const ValueKey('first_launch_intro_secondary_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+
+    expect(
+      _opacityByKey(
+        tester,
+        const ValueKey('intro_shell_exit_opacity'),
+      ),
+      lessThan(0.05),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('tab_me')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('设备与应用设置'), findsOneWidget);
+  });
+
+  testWidgets(
       'deferring onboarding entered from intro closes to shell without reopening intro',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
@@ -1278,7 +1363,8 @@ void main() {
     expect(find.text('请选择生日'), findsOneWidget);
     expect(find.byType(CalendarDatePicker), findsOneWidget);
 
-    final selectedDate = DateTime(DateTime.now().year, DateTime.now().month, 15);
+    final selectedDate =
+        DateTime(DateTime.now().year, DateTime.now().month, 15);
     await _selectBirthdayDay(tester, selectedDate);
 
     expect(find.text(_birthdayPromptText(selectedDate)), findsOneWidget);

@@ -2,6 +2,7 @@ package com.krustykrab.petnote
 
 import android.content.Context
 import android.view.View
+import android.view.ViewTreeObserver
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
@@ -78,16 +79,39 @@ private class AndroidLiquidGlassDockPlatformView(
     private var bottomInset by mutableStateOf(
         (args?.get("bottomInset") as? Number)?.toFloat() ?: 0f,
     )
+    private var shouldPrewarmFirstInteraction by mutableStateOf(
+        args?.get("shouldPrewarmFirstInteraction") as? Boolean ?: false,
+    )
+    private var hasRequestedFirstInteractionPrewarm = false
+    private var hasCompletedFirstInteractionPrewarm = false
+    private var hasReportedFirstLayout = false
+    private var prewarmRequestToken by mutableStateOf(0)
 
     init {
         composeView.setViewCompositionStrategy(
             ViewCompositionStrategy.DisposeOnDetachedFromWindow,
+        )
+        composeView.viewTreeObserver.addOnGlobalLayoutListener(
+            object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    if (hasReportedFirstLayout || composeView.width <= 0 || composeView.height <= 0) {
+                        return
+                    }
+                    hasReportedFirstLayout = true
+                    if (composeView.viewTreeObserver.isAlive) {
+                        composeView.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    }
+                    maybeRequestFirstInteractionPrewarm()
+                }
+            },
         )
         composeView.setContent {
             AndroidLiquidGlassDockContent(
                 selectedTabName = selectedTabName,
                 brightnessName = brightnessName,
                 bottomInset = bottomInset,
+                prewarmRequestToken = prewarmRequestToken,
+                onPrewarmCompleted = ::notifyFirstInteractionPrewarmed,
                 onTabSelected = { tabName ->
                     selectedTabName = tabName
                     channel.invokeMethod("tabSelected", tabName)
@@ -119,8 +143,45 @@ private class AndroidLiquidGlassDockPlatformView(
                 result.success(null)
             }
 
+            "prewarmFirstInteraction" -> {
+                shouldPrewarmFirstInteraction = true
+                maybeRequestFirstInteractionPrewarm()
+                result.success(null)
+            }
+
+            "resetFirstInteractionPrewarm" -> {
+                resetFirstInteractionPrewarmState()
+                result.success(null)
+            }
+
             else -> result.notImplemented()
         }
+    }
+
+    private fun maybeRequestFirstInteractionPrewarm() {
+        if (!shouldPrewarmFirstInteraction ||
+            hasRequestedFirstInteractionPrewarm ||
+            !hasReportedFirstLayout
+        ) {
+            return
+        }
+        hasRequestedFirstInteractionPrewarm = true
+        prewarmRequestToken += 1
+    }
+
+    private fun notifyFirstInteractionPrewarmed() {
+        if (hasCompletedFirstInteractionPrewarm) {
+            return
+        }
+        hasCompletedFirstInteractionPrewarm = true
+        channel.invokeMethod("firstInteractionPrewarmed", null)
+    }
+
+    private fun resetFirstInteractionPrewarmState() {
+        shouldPrewarmFirstInteraction = false
+        hasRequestedFirstInteractionPrewarm = false
+        hasCompletedFirstInteractionPrewarm = false
+        prewarmRequestToken = 0
     }
 }
 
@@ -179,6 +240,8 @@ private fun AndroidLiquidGlassDockContent(
     selectedTabName: String,
     brightnessName: String,
     bottomInset: Float,
+    prewarmRequestToken: Int = 0,
+    onPrewarmCompleted: () -> Unit,
     onTabSelected: (String) -> Unit,
     onAddTapped: () -> Unit,
 ) {
@@ -212,13 +275,15 @@ private fun AndroidLiquidGlassDockContent(
                 onTabSelected = { index ->
                     onTabSelected(navigationTabs[index].key)
                 },
+                prewarmRequestToken = prewarmRequestToken,
+                onPrewarmCompleted = onPrewarmCompleted,
                 backdrop = backdrop,
                 tabsCount = dockTabs.size,
                 selectionSlotIndexes = listOf(0, 1, 3, 4),
                 isDarkTheme = isDarkTheme,
                 containerColor = palette.navBackground,
                 modifier = Modifier.fillMaxWidth(),
-                content = {
+                content = { requestTabSelection ->
                     dockTabs.forEach { spec ->
                         if (spec.isAddAction) {
                             LiquidBottomActionSlot(onClick = onAddTapped) {
@@ -230,9 +295,11 @@ private fun AndroidLiquidGlassDockContent(
                                 )
                             }
                         } else {
+                            val navigationIndex =
+                                navigationTabs.indexOfFirst { it.key == spec.key }.coerceAtLeast(0)
                             LiquidBottomTab(
                                 onClick = {
-                                    onTabSelected(spec.key)
+                                    requestTabSelection(navigationIndex)
                                 },
                             ) {
                                 Image(

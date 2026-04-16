@@ -9,6 +9,10 @@ void main() {
 
     expect(source.contains('supportsAndroidLiquidGlassDock('), isTrue);
     expect(source.contains('AndroidLiquidGlassDockHost('), isTrue);
+    expect(source.contains('_shouldPrewarmBottomNavDuringIntro'), isTrue);
+    expect(source.contains('_hasCompletedIntroBottomNavPrewarm'), isTrue);
+    expect(source.contains('shouldStartFirstLaunchIntroAnimation'), isTrue);
+    expect(source.contains('shouldPrewarmFirstInteraction:'), isTrue);
   });
 
   test('android native dock host file defines a platform view bridge', () {
@@ -19,6 +23,32 @@ void main() {
         isTrue);
     expect(source.contains('AndroidView('), isTrue);
     expect(source.contains("MethodChannel('petnote/android_liquid_glass_dock_\$viewId')"),
+        isTrue);
+    expect(source.contains('this.shouldPrewarmFirstInteraction = false,'), isTrue);
+    expect(source.contains("'prewarmFirstInteraction'"), isTrue);
+    expect(source.contains("'firstInteractionPrewarmed'"), isTrue);
+    expect(source.contains('onFirstInteractionPrewarmed'), isTrue);
+  });
+
+  test('android native dock host resets prewarm request state when intro prewarm turns off',
+      () {
+    final source = File('lib/app/android_native_dock.dart').readAsStringSync();
+
+    expect(
+      source.contains(
+          'if (oldWidget.shouldPrewarmFirstInteraction &&\n        !widget.shouldPrewarmFirstInteraction) {'),
+      isTrue,
+    );
+    expect(source.contains('_resetFirstInteractionPrewarmState();'), isTrue);
+  });
+
+  test('android native dock host retries failed prewarm requests instead of swallowing them',
+      () {
+    final source = File('lib/app/android_native_dock.dart').readAsStringSync();
+
+    expect(source.contains('_scheduleFirstInteractionPrewarmRetry();'), isTrue);
+    expect(source.contains('Future<void>.delayed('), isTrue);
+    expect(source.contains('if (!mounted || retryEpoch != _firstInteractionPrewarmEpoch)'),
         isTrue);
   });
 
@@ -71,9 +101,21 @@ void main() {
     expect(source.contains('LaunchedEffect(selectedIndex)'), isTrue);
     expect(source.contains('selectionSlotIndexes: List<Int> = List(tabsCount) { it }'),
         isTrue);
-    expect(source.contains('effectContent: @Composable RowScope.() -> Unit = content'),
+    expect(source.contains('prewarmRequestToken: Int = 0,'), isTrue);
+    expect(source.contains('onPrewarmCompleted: () -> Unit = {},'), isTrue);
+    expect(source.contains('effectContent: @Composable RowScope.() -> Unit = {}'),
         isTrue);
     expect(source.contains('nearestSelectionIndexForValue('), isTrue);
+    expect(source.contains('val shouldSnapSelection ='), isTrue);
+    expect(source.contains('dampedDragAnimation.prewarmReleaseCycle()'), isTrue);
+    expect(source.contains('val prewarmSelectionIndex = when {'), isTrue);
+    expect(
+      source.contains(
+          'dampedDragAnimation.prewarmSelectionCycle(prewarmSelectionIndex)'),
+      isTrue,
+    );
+    expect(source.contains('dampedDragAnimation.prewarmPressCycle()'), isFalse);
+    expect(source.contains('onPrewarmCompleted()'), isTrue);
   });
 
   test('android liquid glass component keeps the slider above the track and only the add button in the foreground',
@@ -87,13 +129,42 @@ void main() {
         isFalse);
     expect(source.contains('fun RowScope.LiquidBottomVisualActionSlot('), isTrue);
 
-    final trackRowIndex = source.indexOf('content = content');
+    final trackRowIndex = source.indexOf('content = { content(requestTabSelection) }');
     final effectRowIndex = source.indexOf('content = effectContent');
     final sliderIndex = source.indexOf('.fillMaxWidth(1f / tabsCount)');
 
     expect(trackRowIndex, greaterThanOrEqualTo(0));
     expect(effectRowIndex, greaterThan(trackRowIndex));
     expect(sliderIndex, greaterThan(effectRowIndex));
+  });
+
+  test('android native dock prewarms after the platform view is first laid out', () {
+    final factorySource = File(
+      'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockFactory.kt',
+    ).readAsStringSync();
+    final interactionsSource = File(
+      'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockInteractions.kt',
+    ).readAsStringSync();
+
+    expect(factorySource.contains('ViewTreeObserver.OnGlobalLayoutListener'), isTrue);
+    expect(factorySource.contains('prewarmRequestToken'), isTrue);
+    expect(factorySource.contains('firstInteractionPrewarmed'), isTrue);
+    expect(factorySource.contains('"resetFirstInteractionPrewarm"'), isTrue);
+    expect(factorySource.contains('hasRequestedFirstInteractionPrewarm = false'),
+        isTrue);
+    expect(factorySource.contains('hasCompletedFirstInteractionPrewarm = false'),
+        isTrue);
+    expect(factorySource.contains('diagnosticsEvent'), isFalse);
+    expect(interactionsSource.contains('suspend fun prewarmReleaseCycle()'), isTrue);
+    expect(interactionsSource.contains('suspend fun prewarmSelectionCycle(value: Float)'),
+        isTrue);
+    expect(interactionsSource.contains('suspend fun prewarmPressCycle()'), isTrue);
+    expect(interactionsSource.contains('suspend fun prewarm(position: Offset)'), isTrue);
+    expect(interactionsSource.contains('onReleaseStage'), isFalse);
+    expect(interactionsSource.contains('launch { pressProgressAnimation.animateTo(0f'), isTrue);
+    expect(interactionsSource.contains('launch { velocityAnimation.animateTo(0f'),
+        isTrue);
+    expect(interactionsSource.contains('launch { positionAnimation.animateTo(startPosition'), isTrue);
   });
 
   test('android app gradle enables compose and backdrop dependencies', () {

@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/layout_metrics.dart';
 
@@ -10,12 +11,16 @@ class PetFirstLaunchIntro extends StatefulWidget {
     super.key,
     required this.onStartOnboarding,
     required this.onExploreFirst,
+    this.shouldStartLaunchAnimation = true,
+    this.onFirstPageAnimationsCompleted,
     this.fillParent = true,
     this.onboardingExitProgress = 0,
   });
 
   final Future<void> Function() onStartOnboarding;
   final Future<void> Function() onExploreFirst;
+  final bool shouldStartLaunchAnimation;
+  final VoidCallback? onFirstPageAnimationsCompleted;
   final bool fillParent;
   final double onboardingExitProgress;
 
@@ -25,6 +30,8 @@ class PetFirstLaunchIntro extends StatefulWidget {
 
 class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     with TickerProviderStateMixin {
+  static const _firstPageHeroAssetPath =
+      'assets/images/intro/first_page_hero.svg';
   static const _launchPawStartColor = Color(0xFFB8BEC8);
   static const _launchPawStartSize = 208.0;
   static const _launchPawEndSize = 112.0;
@@ -59,13 +66,15 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   bool _showLaunchPaw = true;
   bool _isPrimaryNavigating = false;
   bool _isSecondaryNavigating = false;
+  bool _hasReportedFirstPageAnimationsCompleted = false;
+  bool _hasStartedLaunchAnimation = false;
   final Set<int> _revealedPages = <int>{};
 
   static const _pages = [
     _IntroPageData(
       title: '欢迎来到宠记',
       subtitle: '把毛孩子的日常照顾、重要提醒和成长记录，放进一个更省心的小空间里。',
-      icon: Icons.pets_rounded,
+      heroAssetPath: _firstPageHeroAssetPath,
       accentColor: Color(0xFFF2A65A),
       heroAccentColor: Color(0xFFF2A65A),
       values: [
@@ -145,17 +154,28 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     _firstPageFooterController = AnimationController(
       vsync: this,
       duration: _firstPageFooterTimelineDuration,
-    );
+    )..addStatusListener((status) {
+        if (status != AnimationStatus.completed) {
+          return;
+        }
+        _notifyFirstPageAnimationsCompleted();
+      });
     _finalPageFooterController = AnimationController(
       vsync: this,
       duration: _finalPageFooterTimelineDuration,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      _launchController.forward();
+      _maybeStartLaunchAnimation();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant PetFirstLaunchIntro oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.shouldStartLaunchAnimation &&
+        widget.shouldStartLaunchAnimation) {
+      _maybeStartLaunchAnimation();
+    }
   }
 
   @override
@@ -265,6 +285,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
                           if (_showLaunchPaw)
                             _LaunchPawOverlay(
                               progress: _launchController,
+                              heroAssetPath: _pages.first.heroAssetPath,
                               endColor: _pages.first.accentColor,
                               width: constraints.maxWidth,
                               height: constraints.maxHeight,
@@ -506,6 +527,26 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     _firstPageFooterController.forward();
   }
 
+  void _maybeStartLaunchAnimation() {
+    if (!mounted ||
+        _hasStartedLaunchAnimation ||
+        !widget.shouldStartLaunchAnimation ||
+        _launchController.isAnimating ||
+        _launchController.isCompleted) {
+      return;
+    }
+    _hasStartedLaunchAnimation = true;
+    _launchController.forward();
+  }
+
+  void _notifyFirstPageAnimationsCompleted() {
+    if (_hasReportedFirstPageAnimationsCompleted) {
+      return;
+    }
+    _hasReportedFirstPageAnimationsCompleted = true;
+    widget.onFirstPageAnimationsCompleted?.call();
+  }
+
   void _startFinalPageFooterReveal() {
     if (_finalPageFooterController.isAnimating ||
         _finalPageFooterController.isCompleted) {
@@ -636,12 +677,14 @@ class _FooterReveal extends StatelessWidget {
 class _LaunchPawOverlay extends StatelessWidget {
   const _LaunchPawOverlay({
     required this.progress,
+    required this.heroAssetPath,
     required this.endColor,
     required this.width,
     required this.height,
   });
 
   final Animation<double> progress;
+  final String? heroAssetPath;
   final Color endColor;
   final double width;
   final double height;
@@ -653,7 +696,8 @@ class _LaunchPawOverlay extends StatelessWidget {
       builder: (context, _) {
         final t = Curves.easeInOutCubic.transform(progress.value);
         final centerX = width / 2;
-        final startCenterY = height * 0.5;
+        // 轻微上移首帧最大态，避免图形视觉重心看起来发沉。
+        final startCenterY = height * 0.468;
         final endCenterY = 68;
         final currentSize = lerpDouble(
             _PetFirstLaunchIntroState._launchPawStartSize,
@@ -684,9 +728,10 @@ class _LaunchPawOverlay extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Center(
-                child: Icon(
-                  Icons.pets_rounded,
-                  key: const ValueKey('intro_launch_paw_icon'),
+                child: _IntroHeroGraphic(
+                  graphicKey: const ValueKey('intro_launch_paw_icon'),
+                  icon: heroAssetPath == null ? Icons.pets_rounded : null,
+                  heroAssetPath: heroAssetPath,
                   size: iconSize,
                   color: iconColor,
                 ),
@@ -881,11 +926,13 @@ class _IntroHeroIcon extends StatelessWidget {
   const _IntroHeroIcon({
     required this.heroKey,
     required this.icon,
+    required this.heroAssetPath,
     required this.accentColor,
   });
 
   final Key heroKey;
-  final IconData icon;
+  final IconData? icon;
+  final String? heroAssetPath;
   final Color accentColor;
 
   @override
@@ -899,8 +946,9 @@ class _IntroHeroIcon extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: Center(
-        child: Icon(
-          icon,
+        child: _IntroHeroGraphic(
+          icon: icon,
+          heroAssetPath: heroAssetPath,
           size: 50,
           color: accentColor,
         ),
@@ -997,6 +1045,7 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
                 heroKey:
                     ValueKey('intro_page_${_displayedPageIndex}_hero_icon'),
                 icon: _displayedPage.icon,
+                heroAssetPath: _displayedPage.heroAssetPath,
                 accentColor: _displayedPage.heroAccentColor,
               ),
             ),
@@ -1049,6 +1098,44 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
     final segment =
         (((value - start) / (end - start)).toDouble()).clamp(0.0, 1.0);
     return curve.transform(segment);
+  }
+}
+
+class _IntroHeroGraphic extends StatelessWidget {
+  const _IntroHeroGraphic({
+    this.graphicKey,
+    required this.icon,
+    required this.heroAssetPath,
+    required this.size,
+    required this.color,
+  });
+
+  final Key? graphicKey;
+  final IconData? icon;
+  final String? heroAssetPath;
+  final double size;
+  final Color color;
+  static const _svgVisualScale = 1.5;
+
+  @override
+  Widget build(BuildContext context) {
+    if (heroAssetPath != null) {
+      final svgSize = size * _svgVisualScale;
+      return SvgPicture.asset(
+        heroAssetPath!,
+        key: graphicKey,
+        width: svgSize,
+        height: svgSize,
+        fit: BoxFit.contain,
+        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      );
+    }
+    return Icon(
+      icon,
+      key: graphicKey,
+      size: size,
+      color: color,
+    );
   }
 }
 
@@ -1331,7 +1418,8 @@ class _IntroPageData {
   const _IntroPageData({
     required this.title,
     required this.subtitle,
-    required this.icon,
+    this.icon,
+    this.heroAssetPath,
     required this.accentColor,
     required this.heroAccentColor,
     this.values = const [],
@@ -1340,7 +1428,8 @@ class _IntroPageData {
 
   final String title;
   final String subtitle;
-  final IconData icon;
+  final IconData? icon;
+  final String? heroAssetPath;
   final Color accentColor;
   final Color heroAccentColor;
   final List<_IntroValueData> values;
@@ -1366,3 +1455,4 @@ class _IntroValueData {
 enum _IntroListStyle { checks, cards }
 
 enum _IntroValueLeadingStyle { check, animatedPrivacyLock }
+

@@ -25,7 +25,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,8 +53,6 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
@@ -67,14 +64,16 @@ private val LocalLiquidBottomTabScale =
 fun LiquidBottomTabs(
     selectedTabIndex: () -> Int,
     onTabSelected: (index: Int) -> Unit,
+    prewarmRequestToken: Int = 0,
+    onPrewarmCompleted: () -> Unit = {},
     backdrop: Backdrop,
     tabsCount: Int,
     selectionSlotIndexes: List<Int> = List(tabsCount) { it },
     isDarkTheme: Boolean,
     containerColor: Color,
     modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
-    effectContent: @Composable RowScope.() -> Unit = content,
+    content: @Composable RowScope.((Int) -> Unit) -> Unit,
+    effectContent: @Composable RowScope.() -> Unit = {},
 ) {
     val isLightTheme = !isDarkTheme
 
@@ -111,7 +110,13 @@ fun LiquidBottomTabs(
         var currentIndex by remember {
             mutableIntStateOf(selectedIndex)
         }
-        val dampedDragAnimation = remember(animationScope, normalizedSelectionSlotIndexes) {
+        lateinit var dampedDragAnimation: DampedDragAnimation
+        val animateSelectionTo: (Int) -> Unit = { index ->
+            dampedDragAnimation.animateToValue(
+                normalizedSelectionSlotIndexes[index].toFloat(),
+            )
+        }
+        dampedDragAnimation = remember(animationScope, normalizedSelectionSlotIndexes) {
             DampedDragAnimation(
                 animationScope = animationScope,
                 initialValue = selectedSlotValue,
@@ -124,8 +129,20 @@ fun LiquidBottomTabs(
                 onDragStopped = {
                     val targetIndex =
                         nearestSelectionIndexForValue(targetValue, normalizedSelectionSlotIndexes)
-                    currentIndex = targetIndex
-                    animateToValue(normalizedSelectionSlotIndexes[targetIndex].toFloat())
+                    val targetSlotValue = normalizedSelectionSlotIndexes[targetIndex].toFloat()
+                    val hasSelectionChanged = currentIndex != targetIndex
+                    val shouldSnapSelection =
+                        !hasSelectionChanged && abs(targetValue - targetSlotValue) > 0.001f
+                    if (hasSelectionChanged || shouldSnapSelection) {
+                        if (shouldSnapSelection) {
+                            updateValue(targetSlotValue)
+                        }
+                    }
+                    if (hasSelectionChanged) {
+                        currentIndex = targetIndex
+                        animateSelectionTo(targetIndex)
+                        onTabSelected(targetIndex)
+                    }
                     animationScope.launch {
                         offsetAnimation.animateTo(
                             0f,
@@ -147,20 +164,27 @@ fun LiquidBottomTabs(
                 },
             )
         }
+        val requestTabSelection: (Int) -> Unit = { index ->
+            val normalizedIndex = index.coerceIn(0, normalizedSelectionSlotIndexes.lastIndex)
+            val targetSlotValue = normalizedSelectionSlotIndexes[normalizedIndex].toFloat()
+            val hasSelectionChanged = currentIndex != normalizedIndex
+            val shouldSnapSelection =
+                !hasSelectionChanged &&
+                    abs(dampedDragAnimation.targetValue - targetSlotValue) > 0.001f
+            if (shouldSnapSelection) {
+                dampedDragAnimation.updateValue(targetSlotValue)
+            }
+            if (hasSelectionChanged) {
+                currentIndex = normalizedIndex
+                animateSelectionTo(normalizedIndex)
+                onTabSelected(normalizedIndex)
+            }
+        }
         LaunchedEffect(selectedIndex) {
             if (currentIndex != selectedIndex) {
                 currentIndex = selectedIndex
+                animateSelectionTo(selectedIndex)
             }
-        }
-        LaunchedEffect(dampedDragAnimation, normalizedSelectionSlotIndexes) {
-            snapshotFlow { currentIndex }
-                .drop(1)
-                .collectLatest { index ->
-                    dampedDragAnimation.animateToValue(
-                        normalizedSelectionSlotIndexes[index].toFloat(),
-                    )
-                    onTabSelected(index)
-                }
         }
 
         val interactiveHighlight = remember(animationScope) {
@@ -174,6 +198,37 @@ fun LiquidBottomTabs(
                     )
                 },
             )
+        }
+
+        LaunchedEffect(prewarmRequestToken) {
+            if (prewarmRequestToken <= 0) {
+                return@LaunchedEffect
+            }
+            val currentSlotIndex = normalizedSelectionSlotIndexes
+                .getOrElse(currentIndex) { normalizedSelectionSlotIndexes.first() }
+                .toFloat()
+            val prewarmSelectionIndex = when {
+                normalizedSelectionSlotIndexes.size <= 1 -> currentSlotIndex
+                currentIndex < normalizedSelectionSlotIndexes.lastIndex ->
+                    normalizedSelectionSlotIndexes[currentIndex + 1].toFloat()
+                else -> normalizedSelectionSlotIndexes[currentIndex - 1].toFloat()
+            }
+            val prewarmPosition = Offset(
+                if (isLtr) (prewarmSelectionIndex + 0.5f) * tabWidth
+                else constraints.maxWidth.toFloat() - (prewarmSelectionIndex + 0.5f) * tabWidth,
+                with(density) { 28.dp.toPx() },
+            )
+            val highlightPrewarm = launch { interactiveHighlight.prewarm(prewarmPosition) }
+            val dragPrewarm = launch {
+                if (abs(prewarmSelectionIndex - currentSlotIndex) > 0.001f) {
+                    dampedDragAnimation.prewarmSelectionCycle(prewarmSelectionIndex)
+                } else {
+                    dampedDragAnimation.prewarmReleaseCycle()
+                }
+            }
+            highlightPrewarm.join()
+            dragPrewarm.join()
+            onPrewarmCompleted()
         }
 
         Row(
@@ -202,7 +257,7 @@ fun LiquidBottomTabs(
                 .fillMaxWidth()
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            content = content,
+            content = { content(requestTabSelection) },
         )
 
         CompositionLocalProvider(
@@ -417,3 +472,5 @@ fun RowScope.LiquidBottomPlaceholderSlot(
             .weight(1f),
     )
 }
+
+

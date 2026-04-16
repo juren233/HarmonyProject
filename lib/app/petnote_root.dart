@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:petnote/ai/ai_insights_service.dart';
@@ -63,6 +64,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
   String? _highlightedChecklistItemKey;
   bool _showFirstLaunchIntro = false;
   bool _showOnboarding = false;
+  bool _shouldPrewarmBottomNavDuringIntro = false;
+  bool _hasCompletedIntroBottomNavPrewarm = false;
   _OnboardingEntryPoint _onboardingEntryPoint = _OnboardingEntryPoint.manual;
   _OverlayTransition _overlayTransition = _OverlayTransition.none;
   late final AnimationController _overlayTransitionController;
@@ -122,6 +125,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showFirstLaunchIntro =
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchIntro;
       _showOnboarding = false;
+      _shouldPrewarmBottomNavDuringIntro =
+          _showFirstLaunchIntro &&
+          supportsAndroidLiquidGlassDock(defaultTargetPlatform);
+      _hasCompletedIntroBottomNavPrewarm = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
       _overlayTransition = _OverlayTransition.none;
     });
@@ -201,23 +208,35 @@ class _PetNoteRootState extends State<PetNoteRoot>
 
     final overlayStyle = petNoteOverlayStyleForTheme(Theme.of(context));
     final platform = Theme.of(context).platform;
-    final useAndroidDockOverlay = 
+    final useAndroidDockOverlay =
         !_showOnboarding && supportsAndroidLiquidGlassDock(platform);
     final showBottomNavigation = !_showOnboarding &&
         (useAndroidDockOverlay ||
             !_showFirstLaunchIntro ||
             _overlayTransition == _OverlayTransition.introToShell);
-    final showBottomNavigationInBody =
-        useAndroidDockOverlay ||
+    final showBottomNavigationInBody = useAndroidDockOverlay ||
         _overlayTransition == _OverlayTransition.introToShell;
     final useNativeAndroidDock =
         showBottomNavigation && supportsAndroidLiquidGlassDock(platform);
+    final shouldPrewarmBottomNavDuringIntro =
+        useNativeAndroidDock &&
+        (_shouldPrewarmBottomNavDuringIntro ||
+            (_showFirstLaunchIntro &&
+                !_showOnboarding &&
+                _overlayTransition == _OverlayTransition.none &&
+                !_hasCompletedIntroBottomNavPrewarm));
+    final shouldStartFirstLaunchIntroAnimation =
+        !useNativeAndroidDock || _hasCompletedIntroBottomNavPrewarm;
     final useNativeIosDock =
         showBottomNavigation && supportsIosNativeDock(platform);
     final bottomNavigation = !showBottomNavigation
         ? null
         : useNativeAndroidDock
-            ? _buildAndroidNativeDock(context, store)
+            ? _buildAndroidNativeDock(
+                context,
+                store,
+                shouldPrewarmBottomNavDuringIntro,
+              )
             : useNativeIosDock
                 ? _buildIosNativeDock(context, store)
                 : _PetNoteBottomNav(
@@ -247,6 +266,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
           onAddFirstPet: _openManualOnboarding,
           onStartOnboardingFromIntro: _openOnboardingFromIntro,
           onExploreFirstLaunchIntro: _dismissFirstLaunchIntro,
+          shouldStartFirstLaunchIntroAnimation:
+              shouldStartFirstLaunchIntroAnimation,
           onEditPet: (pet) => _openEditPetSheet(context, store, pet),
           onSubmitOnboarding: _submitOnboarding,
           onDeferOnboarding: _deferOnboarding,
@@ -286,7 +307,11 @@ class _PetNoteRootState extends State<PetNoteRoot>
     );
   }
 
-  Widget _buildAndroidNativeDock(BuildContext context, PetNoteStore store) {
+  Widget _buildAndroidNativeDock(
+    BuildContext context,
+    PetNoteStore store,
+    bool shouldPrewarmBottomNavDuringIntro,
+  ) {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
@@ -294,6 +319,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
           selectedTab: store.activeTab,
           onTabSelected: store.setActiveTab,
           onAddTap: () => _openAddSheet(context, store),
+          onFirstInteractionPrewarmed: _handleIntroBottomNavPrewarmCompleted,
+          shouldPrewarmFirstInteraction: shouldPrewarmBottomNavDuringIntro,
         );
       },
     );
@@ -331,6 +358,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
     setState(() {
       _showFirstLaunchIntro = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = false;
       _showOnboarding = true;
     });
   }
@@ -349,6 +378,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     setState(() {
       _showFirstLaunchIntro = true;
       _onboardingEntryPoint = _OnboardingEntryPoint.intro;
+      _shouldPrewarmBottomNavDuringIntro = !_hasCompletedIntroBottomNavPrewarm;
       _showOnboarding = true;
       _overlayTransition = _OverlayTransition.introToOnboarding;
     });
@@ -358,9 +388,23 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
     setState(() {
       _showFirstLaunchIntro = false;
+      _shouldPrewarmBottomNavDuringIntro = false;
       _overlayTransition = _OverlayTransition.none;
     });
     _overlayTransitionController.value = 0;
+  }
+
+  void _handleIntroBottomNavPrewarmCompleted() {
+    if (!_showFirstLaunchIntro ||
+        _showOnboarding ||
+        _overlayTransition != _OverlayTransition.none ||
+        _hasCompletedIntroBottomNavPrewarm) {
+      return;
+    }
+    setState(() {
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = true;
+    });
   }
 
   Future<void> _dismissFirstLaunchIntro() async {
@@ -378,6 +422,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showFirstLaunchIntro = true;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = !_hasCompletedIntroBottomNavPrewarm;
       _overlayTransition = _OverlayTransition.introToShell;
     });
     await _overlayTransitionController.forward(from: 0);
@@ -386,6 +431,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
     setState(() {
       _showFirstLaunchIntro = false;
+      _shouldPrewarmBottomNavDuringIntro = false;
       _overlayTransition = _OverlayTransition.none;
     });
     _overlayTransitionController.value = 0;
@@ -397,6 +443,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showOnboarding = false;
       _showFirstLaunchIntro = true;
       _onboardingEntryPoint = _OnboardingEntryPoint.intro;
+      _shouldPrewarmBottomNavDuringIntro = !_hasCompletedIntroBottomNavPrewarm;
     });
   }
 
@@ -425,6 +472,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showFirstLaunchIntro = false;
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = false;
       _overlayTransition = _OverlayTransition.none;
     });
     _overlayTransitionController.value = 0;
@@ -435,6 +484,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
     setState(() {
       _showOnboarding = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = false;
     });
   }
 
@@ -469,6 +520,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showOnboarding = false;
       _activeChecklistKey = sectionKey;
       _highlightedChecklistItemKey = intent.payload.key;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = false;
       _overlayTransition = _OverlayTransition.none;
     });
     _overlayTransitionController.value = 0;
@@ -531,6 +584,7 @@ class _PetNoteBody extends StatelessWidget {
     required this.onAddFirstPet,
     required this.onStartOnboardingFromIntro,
     required this.onExploreFirstLaunchIntro,
+    required this.shouldStartFirstLaunchIntroAnimation,
     required this.onEditPet,
     required this.onSubmitOnboarding,
     required this.onDeferOnboarding,
@@ -555,6 +609,7 @@ class _PetNoteBody extends StatelessWidget {
   final VoidCallback onAddFirstPet;
   final Future<void> Function() onStartOnboardingFromIntro;
   final Future<void> Function() onExploreFirstLaunchIntro;
+  final bool shouldStartFirstLaunchIntroAnimation;
   final ValueChanged<Pet> onEditPet;
   final Future<void> Function(PetOnboardingResult result) onSubmitOnboarding;
   final Future<void> Function() onDeferOnboarding;
@@ -579,6 +634,8 @@ class _PetNoteBody extends StatelessWidget {
         final introShellExitOffset =
             introToShell ? -introShellExitProgress * 260 : 0.0;
         final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
+        final shouldIgnoreBottomNavigation = showOnboarding ||
+            (showFirstLaunchIntro && (!introToShell || introOpacity > 0.05));
         return RepaintBoundary(
           key: const ValueKey('page_content_boundary'),
           child: Stack(
@@ -639,9 +696,7 @@ class _PetNoteBody extends StatelessWidget {
                   right: 0,
                   bottom: 0,
                   child: IgnorePointer(
-                    ignoring: showFirstLaunchIntro ||
-                        showOnboarding ||
-                        overlayTransition != _OverlayTransition.none,
+                    ignoring: shouldIgnoreBottomNavigation,
                     child: bottomNavigationOverlay!,
                   ),
                 ),
@@ -680,6 +735,8 @@ class _PetNoteBody extends StatelessWidget {
                                 onboardingExitProgress: introToOnboarding
                                     ? overlayTransitionProgress
                                     : 0,
+                                shouldStartLaunchAnimation:
+                                    shouldStartFirstLaunchIntroAnimation,
                                 onStartOnboarding: onStartOnboardingFromIntro,
                                 onExploreFirst: onExploreFirstLaunchIntro,
                               ),
@@ -901,3 +958,7 @@ class _TabButton extends StatelessWidget {
     );
   }
 }
+
+
+
+

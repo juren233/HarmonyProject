@@ -17,11 +17,15 @@ class AndroidLiquidGlassDockHost extends StatefulWidget {
     required this.selectedTab,
     required this.onTabSelected,
     required this.onAddTap,
+    this.onFirstInteractionPrewarmed,
+    this.shouldPrewarmFirstInteraction = false,
   });
 
   final AppTab selectedTab;
   final ValueChanged<AppTab> onTabSelected;
   final VoidCallback onAddTap;
+  final VoidCallback? onFirstInteractionPrewarmed;
+  final bool shouldPrewarmFirstInteraction;
 
   @override
   State<AndroidLiquidGlassDockHost> createState() =>
@@ -30,7 +34,11 @@ class AndroidLiquidGlassDockHost extends StatefulWidget {
 
 class _AndroidLiquidGlassDockHostState
     extends State<AndroidLiquidGlassDockHost> {
+  static const _firstInteractionPrewarmRetryDelay = Duration(milliseconds: 120);
+
   MethodChannel? _channel;
+  bool _hasRequestedFirstInteractionPrewarm = false;
+  int _firstInteractionPrewarmEpoch = 0;
 
   @override
   void didUpdateWidget(covariant AndroidLiquidGlassDockHost oldWidget) {
@@ -39,6 +47,14 @@ class _AndroidLiquidGlassDockHostState
       _syncSelectedTab();
     }
     _syncBrightness();
+    if (oldWidget.shouldPrewarmFirstInteraction &&
+        !widget.shouldPrewarmFirstInteraction) {
+      _resetFirstInteractionPrewarmState();
+    }
+    if (!oldWidget.shouldPrewarmFirstInteraction &&
+        widget.shouldPrewarmFirstInteraction) {
+      _maybeRequestFirstInteractionPrewarm();
+    }
   }
 
   @override
@@ -60,6 +76,7 @@ class _AndroidLiquidGlassDockHostState
           'selectedTab': widget.selectedTab.name,
           'brightness': Theme.of(context).brightness.name,
           'bottomInset': viewPadding.bottom,
+          'shouldPrewarmFirstInteraction': widget.shouldPrewarmFirstInteraction,
         },
         creationParamsCodec: const StandardMessageCodec(),
         onPlatformViewCreated: _onPlatformViewCreated,
@@ -70,9 +87,11 @@ class _AndroidLiquidGlassDockHostState
   void _onPlatformViewCreated(int viewId) {
     final channel = MethodChannel('petnote/android_liquid_glass_dock_$viewId');
     _channel = channel;
+    _resetFirstInteractionPrewarmState(syncNative: false);
     channel.setMethodCallHandler(_handleMethodCall);
     _syncSelectedTab();
     _syncBrightness();
+    _maybeRequestFirstInteractionPrewarm();
   }
 
   Future<void> _syncSelectedTab() async {
@@ -105,17 +124,68 @@ class _AndroidLiquidGlassDockHostState
     }
   }
 
+  Future<void> _maybeRequestFirstInteractionPrewarm() async {
+    final channel = _channel;
+    if (channel == null ||
+        _hasRequestedFirstInteractionPrewarm ||
+        !widget.shouldPrewarmFirstInteraction) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>('prewarmFirstInteraction');
+      _hasRequestedFirstInteractionPrewarm = true;
+    } on PlatformException {
+      _scheduleFirstInteractionPrewarmRetry();
+    }
+  }
+
+  void _resetFirstInteractionPrewarmState({bool syncNative = true}) {
+    _hasRequestedFirstInteractionPrewarm = false;
+    _firstInteractionPrewarmEpoch += 1;
+    if (syncNative) {
+      _resetNativeFirstInteractionPrewarmState();
+    }
+  }
+
+  Future<void> _resetNativeFirstInteractionPrewarmState() async {
+    final channel = _channel;
+    if (channel == null) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>('resetFirstInteractionPrewarm');
+    } on PlatformException {
+      // 忽略原生视图初始化早期的瞬时同步失败。
+    }
+  }
+
+  void _scheduleFirstInteractionPrewarmRetry() {
+    final retryEpoch = _firstInteractionPrewarmEpoch;
+    Future<void>.delayed(_firstInteractionPrewarmRetryDelay, () async {
+      if (!mounted || retryEpoch != _firstInteractionPrewarmEpoch) {
+        return;
+      }
+      await _maybeRequestFirstInteractionPrewarm();
+    });
+  }
+
   Future<void> _handleMethodCall(MethodCall call) async {
     switch (call.method) {
+      case 'firstInteractionPrewarmed':
+        _hasRequestedFirstInteractionPrewarm = true;
+        widget.onFirstInteractionPrewarmed?.call();
+        return;
       case 'tabSelected':
         final tab = _appTabFromName(call.arguments as String?);
         if (tab != null) {
           widget.onTabSelected(tab);
         }
+        return;
       case 'addTapped':
         widget.onAddTap();
+        return;
       default:
-        break;
+        return;
     }
   }
 }
