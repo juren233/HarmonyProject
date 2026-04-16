@@ -8,19 +8,12 @@ import 'package:petnote/ai/ai_connection_tester.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
-import 'package:petnote/ai/ai_url_utils.dart';
 import 'package:petnote/logging/app_log_controller.dart';
-import 'package:petnote/state/petnote_store.dart';
 
 abstract class AiInsightsService {
   Future<bool> hasActiveProvider();
 
   Future<AiCareReport> generateCareReport(
-    AiGenerationContext context, {
-    bool forceRefresh = false,
-  });
-
-  Future<AiVisitSummary> generateVisitSummary(
     AiGenerationContext context, {
     bool forceRefresh = false,
   });
@@ -41,12 +34,8 @@ class NetworkAiInsightsService implements AiInsightsService {
   final AiHttpTransport _transport;
   final AppLogController? appLogController;
   final Map<String, AiCareReport> _careReportCache = <String, AiCareReport>{};
-  final Map<String, AiVisitSummary> _visitSummaryCache =
-      <String, AiVisitSummary>{};
   final Map<String, Future<AiCareReport>> _careReportInFlight =
       <String, Future<AiCareReport>>{};
-  final Map<String, Future<AiVisitSummary>> _visitSummaryInFlight =
-      <String, Future<AiVisitSummary>>{};
 
   @override
   Future<bool> hasActiveProvider() async {
@@ -99,74 +88,6 @@ class NetworkAiInsightsService implements AiInsightsService {
     } finally {
       _careReportInFlight.remove(cacheKey);
     }
-  }
-
-  @override
-  Future<AiVisitSummary> generateVisitSummary(
-    AiGenerationContext context, {
-    bool forceRefresh = false,
-  }) async {
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '开始生成看诊摘要',
-      message:
-          '${context.rangeLabel} · pets=${context.pets.length}, todos=${context.todos.length}, reminders=${context.reminders.length}, records=${context.records.length}',
-    );
-    if (_hasNoVisitSummarySourceData(context)) {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: '看诊摘要跳过远端请求',
-        message: '当前区间没有足够数据，直接返回保守摘要。',
-      );
-      return _buildEmptyVisitSummary(context);
-    }
-
-    final client = await _requireClient();
-    final cacheKey = '${client.configId}:visit:${context.cacheKey}';
-    if (!forceRefresh && _visitSummaryCache.containsKey(cacheKey)) {
-      return _visitSummaryCache[cacheKey]!;
-    }
-    if (!forceRefresh && _visitSummaryInFlight.containsKey(cacheKey)) {
-      return _visitSummaryInFlight[cacheKey]!;
-    }
-
-    final future = _generateVisitSummary(client, context);
-    _visitSummaryInFlight[cacheKey] = future;
-    try {
-      final result = await future;
-      _visitSummaryCache[cacheKey] = result;
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: '看诊摘要生成成功',
-        message: result.visitReason,
-      );
-      return result;
-    } catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.ai,
-        title: '看诊摘要生成失败',
-        message: error.toString(),
-      );
-      rethrow;
-    } finally {
-      _visitSummaryInFlight.remove(cacheKey);
-    }
-  }
-
-  bool _hasNoVisitSummarySourceData(AiGenerationContext context) {
-    return context.todos.isEmpty &&
-        context.reminders.isEmpty &&
-        context.records.isEmpty;
-  }
-
-  AiVisitSummary _buildEmptyVisitSummary(AiGenerationContext context) {
-    return AiVisitSummary(
-      visitReason: '${context.rangeLabel}内暂无足够记录可整理为看诊摘要，建议先补充症状、提醒或就诊经过后再生成。',
-      timeline: const ['当前区间暂无可用时间线记录。'],
-      medicationsAndTreatments: const ['暂无可归纳的用药或护理处置。'],
-      testsAndResults: const ['暂无检查项目或结果记录。'],
-      questionsToAskVet: const ['如需就诊，建议带上最新观察和近期变化描述与兽医确认。'],
-    );
   }
 
   Future<AiProviderClient> _requireClient() async {
@@ -295,20 +216,6 @@ class NetworkAiInsightsService implements AiInsightsService {
       );
       rethrow;
     }
-  }
-
-  Future<AiVisitSummary> _generateVisitSummary(
-    AiProviderClient client,
-    AiGenerationContext context,
-  ) async {
-    final runtimeProfile = _resolveAiGenerationRuntimeProfile(client);
-    final jsonObject = await _generateStructuredJson(
-      client: client,
-      systemPrompt: _visitSummarySystemPrompt,
-      userPrompt: _buildVisitSummaryPrompt(context),
-      timeout: runtimeProfile.requestTimeout,
-    );
-    return AiVisitSummary.fromJson(jsonObject);
   }
 
   AiCareReport _buildLocalFastCareReport(
@@ -835,26 +742,6 @@ JSON schema:
 - 默认短句和短数组；除 executiveSummary / summary 外，单字段优先控制在 1-3 条
 ''';
 
-const String _visitSummarySystemPrompt = '''
-你是宠物就诊准备助手。你只能整理用户提供的宠物历史数据，不得编造不存在的就诊结论，不得输出诊断结论。
-
-始终使用简体中文，输出必须是一个 JSON object，不能出现 Markdown、解释文字或额外前后缀。
-
-JSON schema:
-{
-  "visitReason": "本次就诊/复盘背景",
-  "timeline": ["按时间排序的关键事件"],
-  "medicationsAndTreatments": ["用药/护理/处置"],
-  "testsAndResults": ["检查与结果"],
-  "questionsToAskVet": ["建议问医生的问题"]
-}
-
-约束:
-- 时间线尽量精炼，保留日期和事件
-- 没有数据时要明确说明“暂无相关信息”
-- 问题列表聚焦复查、观察点和下一步确认事项
-''';
-
 String _buildCareReportPrompt(
   AiGenerationContext context, {
   required AiCareScorecard scorecard,
@@ -885,30 +772,6 @@ String _buildCareReportPrompt(
 
 压缩上下文:
 ${jsonEncode(payload)}
-''';
-}
-
-String _buildVisitSummaryPrompt(AiGenerationContext context) {
-  final summaryPackage = const AiPortableSummaryBuilder(
-    maxEvidencePerTopic: 3,
-    maxActiveItems: 10,
-    maxRiskCandidates: 6,
-  ).build(
-    title: context.title,
-    context: context,
-    generatedAt: context.rangeEnd,
-  );
-  return '''
-请基于以下宠物照护上下文生成就诊准备摘要。
-
-分析目标:
-- 归纳本次复查/就诊背景
-- 提炼关键时间线
-- 整理护理、用药、检查和结果
-- 给出值得向兽医确认的问题
-
-上下文数据:
-${jsonEncode(summaryPackage.toJson())}
 ''';
 }
 
@@ -1101,122 +964,6 @@ String _summaryTopicLabel(String key) => switch (key) {
       'cleaning' => '清洁',
       _ => '日常',
     };
-
-Map<String, int> _countByName(Iterable<String> values) {
-  final counts = <String, int>{};
-  for (final value in values) {
-    counts.update(value, (current) => current + 1, ifAbsent: () => 1);
-  }
-  return counts;
-}
-
-List<Map<String, dynamic>> _sampleTodos(
-  List<TodoItem> todos, {
-  required int maxItems,
-}) {
-  final sampled = List<TodoItem>.from(todos)
-    ..sort((a, b) {
-      final priorityCompare = _todoPriority(a).compareTo(_todoPriority(b));
-      if (priorityCompare != 0) {
-        return priorityCompare;
-      }
-      return b.dueAt.compareTo(a.dueAt);
-    });
-  return sampled.take(maxItems).map((todo) {
-    return {
-      'petId': todo.petId,
-      'title': todo.title,
-      'dueAt': todo.dueAt.toIso8601String(),
-      'status': todo.status.name,
-      'note': _trimPromptText(todo.note, 70),
-    };
-  }).toList(growable: false);
-}
-
-List<Map<String, dynamic>> _sampleReminders(
-  List<ReminderItem> reminders, {
-  required int maxItems,
-}) {
-  final sampled = List<ReminderItem>.from(reminders)
-    ..sort((a, b) {
-      final priorityCompare =
-          _reminderPriority(a).compareTo(_reminderPriority(b));
-      if (priorityCompare != 0) {
-        return priorityCompare;
-      }
-      return b.scheduledAt.compareTo(a.scheduledAt);
-    });
-  return sampled.take(maxItems).map((reminder) {
-    return {
-      'petId': reminder.petId,
-      'kind': reminder.kind.name,
-      'title': reminder.title,
-      'scheduledAt': reminder.scheduledAt.toIso8601String(),
-      'status': reminder.status.name,
-      'recurrence': reminder.recurrence,
-      'note': _trimPromptText(reminder.note, 70),
-    };
-  }).toList(growable: false);
-}
-
-List<Map<String, dynamic>> _sampleRecords(
-  List<PetRecord> records, {
-  required int maxItems,
-}) {
-  final sampled = List<PetRecord>.from(records)
-    ..sort((a, b) {
-      final priorityCompare = _recordPriority(a).compareTo(_recordPriority(b));
-      if (priorityCompare != 0) {
-        return priorityCompare;
-      }
-      return b.recordDate.compareTo(a.recordDate);
-    });
-  return sampled.take(maxItems).map((record) {
-    return {
-      'petId': record.petId,
-      'type': record.type.name,
-      'title': record.title,
-      'recordDate': record.recordDate.toIso8601String(),
-      'summary': _trimPromptText(record.summary, 80),
-      'note': _trimPromptText(record.note, 100),
-    };
-  }).toList(growable: false);
-}
-
-int _todoPriority(TodoItem item) => switch (item.status) {
-      TodoStatus.overdue => 0,
-      TodoStatus.open => 1,
-      TodoStatus.postponed => 2,
-      TodoStatus.skipped => 3,
-      TodoStatus.done => 4,
-    };
-
-int _reminderPriority(ReminderItem item) => switch (item.status) {
-      ReminderStatus.overdue => 0,
-      ReminderStatus.pending => 1,
-      ReminderStatus.postponed => 2,
-      ReminderStatus.skipped => 3,
-      ReminderStatus.done => 4,
-    };
-
-int _recordPriority(PetRecord item) => switch (item.type) {
-      PetRecordType.medical => 0,
-      PetRecordType.testResult => 1,
-      PetRecordType.image => 2,
-      PetRecordType.receipt => 3,
-      PetRecordType.other => 4,
-    };
-
-String _trimPromptText(String value, int maxLength) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) {
-    return '';
-  }
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-  return '${trimmed.substring(0, maxLength)}…';
-}
 
 class _CareReportPromptPlan {
   const _CareReportPromptPlan({
@@ -1427,14 +1174,4 @@ _AiGenerationRuntimeProfile _resolveAiGenerationRuntimeProfile(
 int _rangeDays(AiGenerationContext context) {
   final inclusiveRange = context.rangeEnd.difference(context.rangeStart).inDays;
   return inclusiveRange <= 0 ? 1 : inclusiveRange;
-}
-
-String _buildCareReportRetryExhaustedMessage(
-  AiGenerationContext context, {
-  required bool usedCondensedSummary,
-}) {
-  if (usedCondensedSummary) {
-    return '当前 AI 服务基础连接可用，但在生成${context.rangeLabel} AI 总览时，即使已自动改用精简事实摘要仍然超时或过载。建议先切换到较短时间范围，或更换更稳定的模型/供应商后再试。';
-  }
-  return '当前 AI 服务基础连接可用，但在生成${context.rangeLabel} AI 总览时仍然超时或过载。建议先切换到较短时间范围，或更换更稳定的模型/供应商后再试。';
 }

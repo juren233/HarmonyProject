@@ -3,6 +3,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -19,9 +20,11 @@ class AddActionSheet extends StatefulWidget {
   const AddActionSheet({
     super.key,
     required this.store,
+    this.nativePetPhotoPicker,
   });
 
   final PetNoteStore store;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
 
   @override
   State<AddActionSheet> createState() => _AddSheetState();
@@ -216,6 +219,7 @@ class _AddSheetState extends State<AddActionSheet>
         key: key,
         child: PetOnboardingFlow(
           embedded: true,
+          nativePetPhotoPicker: widget.nativePetPhotoPicker,
           onSubmit: _submitPetOnboarding,
           onDefer: _closePetOnboarding,
           onReturnToActions: _beginCollapseToActions,
@@ -420,6 +424,7 @@ class _AddSheetState extends State<AddActionSheet>
     await widget.store.addPet(
       name: result.name,
       type: result.type,
+      photoPath: result.photoPath,
       breed: result.breed,
       sex: result.sex,
       birthday: result.birthday,

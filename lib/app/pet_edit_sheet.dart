@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 class PetEditSheet extends StatefulWidget {
@@ -8,10 +12,12 @@ class PetEditSheet extends StatefulWidget {
     super.key,
     required this.store,
     required this.pet,
+    this.nativePetPhotoPicker,
   });
 
   final PetNoteStore store;
   final Pet pet;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
 
   @override
   State<PetEditSheet> createState() => _PetEditSheetState();
@@ -24,12 +30,17 @@ class _PetEditSheetState extends State<PetEditSheet> {
   late final TextEditingController _feeding;
   late final TextEditingController _allergies;
   late final TextEditingController _note;
+  late final NativePetPhotoPicker _nativePetPhotoPicker =
+      widget.nativePetPhotoPicker ?? MethodChannelNativePetPhotoPicker();
 
   late PetType _type;
+  late String? _photoPath;
   late String _sex;
   late PetNeuterStatus _neuterStatus;
   late DateTime _birthday;
   bool _isSaving = false;
+  bool _isPickingPhoto = false;
+  bool _hasSaved = false;
 
   @override
   void initState() {
@@ -47,6 +58,7 @@ class _PetEditSheetState extends State<PetEditSheet> {
       text: _emptyDisplayToBlank(widget.pet.note),
     );
     _type = widget.pet.type;
+    _photoPath = widget.pet.photoPath;
     _sex = widget.pet.sex;
     _neuterStatus = widget.pet.neuterStatus;
     _birthday = DateTime.parse(widget.pet.birthday);
@@ -65,6 +77,11 @@ class _PetEditSheetState extends State<PetEditSheet> {
 
   @override
   void dispose() {
+    if (!_hasSaved &&
+        _photoPath != null &&
+        _photoPath != widget.pet.photoPath) {
+      unawaited(_nativePetPhotoPicker.deletePetPhoto(_photoPath!));
+    }
     for (final controller in [
       _name,
       _breed,
@@ -162,6 +179,13 @@ class _PetEditSheetState extends State<PetEditSheet> {
                 SectionCard(
                   title: '基础信息',
                   children: [
+                    PetPhotoPickerCard(
+                      photoPath: _photoPath,
+                      enabled: !_isSaving && !_isPickingPhoto,
+                      onTap: _pickPetPhoto,
+                      title: '宠物照片',
+                      subtitle: '更换后会同步更新爱宠页头像和档案大图。',
+                    ),
                     const SectionLabel(text: '名字'),
                     HyperTextField(
                       key: const ValueKey('edit_pet_name_field'),
@@ -278,6 +302,7 @@ class _PetEditSheetState extends State<PetEditSheet> {
         petId: widget.pet.id,
         name: _name.text.trim(),
         type: _type,
+        photoPath: _photoPath,
         breed: _breed.text.trim(),
         sex: _sex,
         birthday: _formatBirthday(_birthday),
@@ -287,6 +312,12 @@ class _PetEditSheetState extends State<PetEditSheet> {
         allergies: _textOrDefault(_allergies.text),
         note: _textOrDefault(_note.text),
       );
+      _hasSaved = true;
+      if (widget.pet.photoPath != null &&
+          widget.pet.photoPath != _photoPath &&
+          !_isPhotoPathReferencedByOtherPets(widget.pet.photoPath!)) {
+        await _nativePetPhotoPicker.deletePetPhoto(widget.pet.photoPath!);
+      }
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -310,6 +341,55 @@ class _PetEditSheetState extends State<PetEditSheet> {
 
   String _emptyDisplayToBlank(String value) {
     return value == '未填写' ? '' : value;
+  }
+
+  Future<void> _pickPetPhoto() async {
+    if (_isSaving || _isPickingPhoto) {
+      return;
+    }
+    setState(() => _isPickingPhoto = true);
+    final previousPath = _photoPath;
+    try {
+      final result = await _nativePetPhotoPicker.pickPetPhoto();
+      if (!mounted) {
+        if (result.isSuccess &&
+            result.localPath != null &&
+            result.localPath != previousPath) {
+          await _nativePetPhotoPicker.deletePetPhoto(result.localPath!);
+        }
+        return;
+      }
+      if (result.isSuccess) {
+        final newPath = result.localPath!;
+        if (previousPath != null &&
+            previousPath != widget.pet.photoPath &&
+            previousPath != newPath) {
+          await _nativePetPhotoPicker.deletePetPhoto(previousPath);
+        }
+        setState(() => _photoPath = newPath);
+        return;
+      }
+      if (result.isCancelled) {
+        return;
+      }
+      _showPhotoError(result.errorMessage ?? '图片导入失败，请稍后再试。');
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingPhoto = false);
+      }
+    }
+  }
+
+  bool _isPhotoPathReferencedByOtherPets(String path) {
+    return widget.store.pets.any(
+      (pet) => pet.id != widget.pet.id && pet.photoPath == path,
+    );
+  }
+
+  void _showPhotoError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   void _onFieldChanged() {

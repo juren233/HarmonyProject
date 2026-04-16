@@ -4,6 +4,7 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -587,497 +588,382 @@ class OverviewAiHistoryDetailPage extends StatelessWidget {
   }
 }
 
-class PetsPage extends StatefulWidget {
+class PetsPage extends StatelessWidget {
   const PetsPage({
     super.key,
     required this.store,
     required this.onAddFirstPet,
     required this.onEditPet,
-    this.aiInsightsService,
   });
 
   final PetNoteStore store;
   final VoidCallback onAddFirstPet;
   final ValueChanged<Pet> onEditPet;
-  final AiInsightsService? aiInsightsService;
-
-  @override
-  State<PetsPage> createState() => _PetsPageState();
-}
-
-class _PetsPageState extends State<PetsPage> {
-  _VisitSummaryRange _selectedVisitRange = _VisitSummaryRange.thirtyDays;
-  DateTimeRange? _customDateRange;
-  AiVisitSummary? _visitSummary;
-  String? _visitErrorMessage;
-  bool _visitLoading = false;
-  bool _hasActiveProvider = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshProviderAvailability();
-  }
-
-  @override
-  void didUpdateWidget(covariant PetsPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.aiInsightsService, widget.aiInsightsService)) {
-      _refreshProviderAvailability();
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final pet = widget.store.selectedPet;
-    final remindersForSelectedPet = widget.store.remindersForSelectedPet;
-    final recordsForSelectedPet = widget.store.recordsForSelectedPet;
     final pagePadding =
         pageContentPaddingForInsets(MediaQuery.viewPaddingOf(context));
-    return ListView(
-      padding: pagePadding,
-      children: [
-        PageHeader(
-          title: '爱宠',
-          subtitle: pet == null ? '管理你的宠物档案' : '${pet.name} 的照护档案',
-        ),
-        SizedBox(
-          height: 76,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: widget.store.pets.length,
-            separatorBuilder: (context, index) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final item = widget.store.pets[index];
-              final selected = pet?.id == item.id;
-              return GestureDetector(
-                onTap: () => widget.store.selectPet(item.id),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xFFF2A65A)
-                        : const Color(0xF4FFFFFF),
-                    borderRadius: BorderRadius.circular(26),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: selected
-                            ? const Color(0x33FFFFFF)
-                            : const Color(0xFFE8EEFF),
-                        child: Text(
-                          item.avatarText,
-                          style: TextStyle(
-                            color: selected
-                                ? Colors.white
-                                : const Color(0xFF335FCA),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                          ),
-                        ),
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final pet = store.selectedPet;
+        final remindersForSelectedPet = store.remindersForSelectedPet;
+        final recordsForSelectedPet = store.recordsForSelectedPet;
+        return ListView(
+          padding: pagePadding,
+          children: [
+            PageHeader(
+              title: '爱宠',
+              subtitle: pet == null ? '管理你的宠物档案' : '${pet.name} 的照护档案',
+            ),
+            SizedBox(
+              height: 76,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: store.pets.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final item = store.pets[index];
+                  final selected = pet?.id == item.id;
+                  return GestureDetector(
+                    onTap: () => store.selectPet(item.id),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
-                      const SizedBox(width: 10),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? const Color(0xFFF2A65A)
+                            : const Color(0xF4FFFFFF),
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Row(
                         children: [
-                          Text(
-                            item.name,
-                            style:
-                                Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          SizedBox(
+                            key: ValueKey('pet_selector_photo_${item.id}'),
+                            width: 40,
+                            height: 40,
+                            child: PetPhotoAvatar(
+                              photoPath: item.photoPath,
+                              fallbackText: item.avatarText,
+                              radius: 20,
+                              backgroundColor: selected
+                                  ? const Color(0x33FFFFFF)
+                                  : const Color(0xFFE8EEFF),
+                              foregroundColor: selected
+                                  ? Colors.white
+                                  : const Color(0xFF335FCA),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.name,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyLarge
+                                    ?.copyWith(
                                       color: selected
                                           ? Colors.white
                                           : const Color(0xFF17181C),
                                       fontWeight: FontWeight.w800,
                                     ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.ageLabel,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                item.ageLabel,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
                                       color: selected
                                           ? Colors.white70
                                           : const Color(0xFF6C7280),
                                     ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 18),
-        if (pet == null)
-          EmptyCard(
-            title: '先添加第一只爱宠',
-            subtitle: '建好第一份宠物档案后，提醒、记录和照护观察都会围绕它展开。',
-            actionLabel: '开始添加宠物',
-            onAction: widget.onAddFirstPet,
-          )
-        else ...[
-          HeroPanel(
-            title: pet.name,
-            subtitle:
-                '${petTypeLabel(pet.type)} · ${pet.breed} · ${pet.ageLabel} · 当前体重 ${pet.weightKg} kg',
-            child: Row(
-              children: [
-                Expanded(
-                  child: MetricOverview(
-                    metrics: [
-                      MetricItem(
-                        label: '近期提醒',
-                        value: '${remindersForSelectedPet.length}',
-                        background: const Color(0xFFEAF0FF),
-                        foreground: const Color(0xFF335FCA),
-                      ),
-                      MetricItem(
-                        label: '资料记录',
-                        value: '${recordsForSelectedPet.length}',
-                        background: const Color(0xFFF5F0FF),
-                        foreground: const Color(0xFF6B51C9),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SectionCard(
-            title: '基础信息',
-            trailing: TextButton(
-              key: const ValueKey('edit_pet_button'),
-              onPressed: () => widget.onEditPet(pet),
-              child: const Text('编辑信息'),
-            ),
-            children: [
-              InfoRow(label: '类型', value: petTypeLabel(pet.type)),
-              InfoRow(label: '性别', value: pet.sex),
-              InfoRow(label: '生日', value: pet.birthday),
-              InfoRow(
-                  label: '绝育状态', value: petNeuterStatusLabel(pet.neuterStatus)),
-              InfoRow(label: '喂养偏好', value: pet.feedingPreferences),
-              InfoRow(label: '过敏/禁忌', value: pet.allergies),
-              InfoRow(label: '备注', value: pet.note),
-            ],
-          ),
-          SectionCard(
-            title: '近期提醒',
-            children: remindersForSelectedPet.isEmpty
-                ? [
-                    Text(
-                      '暂无提醒',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: const Color(0xFF6C7280)),
                     ),
-                  ]
-                : remindersForSelectedPet
-                    .map(
-                      (item) => ListRow(
-                        title: item.title,
-                        subtitle:
-                            '${formatDate(item.scheduledAt)} · ${item.recurrence}',
-                        leading: Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF1DD),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(Icons.notifications_active_rounded,
-                              color: Color(0xFFF2A65A)),
-                        ),
-                        trailing: HyperBadge(
-                          text: _reminderKindLabel(item.kind),
-                          foreground: const Color(0xFFC57A14),
-                          background: const Color(0xFFFFF1DD),
-                        ),
-                      ),
-                    )
-                    .toList(),
-          ),
-          SectionCard(
-            title: '资料记录',
-            children: recordsForSelectedPet.isEmpty
-                ? [
-                    Text(
-                      '暂无资料记录',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: const Color(0xFF6C7280)),
-                    ),
-                  ]
-                : recordsForSelectedPet
-                    .map(
-                      (item) => ListRow(
-                        title: item.title,
-                        subtitle:
-                            '${formatDate(item.recordDate, withTime: false)} · ${item.summary}',
-                        leading: Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE8F7EE),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(Icons.description_rounded,
-                              color: Color(0xFF4FB57C)),
-                        ),
-                        trailing: HyperBadge(
-                          text: _recordTypeLabel(item.type),
-                          foreground: const Color(0xFF2F8F5B),
-                          background: const Color(0xFFE8F7EE),
-                        ),
-                      ),
-                    )
-                    .toList(),
-          ),
-          SectionCard(
-            title: 'AI 看诊摘要',
-            children: [
-              HyperSegmentedControl(
-                items: const [
-                  SegmentItem(key: 'thirtyDays', label: '近30天'),
-                  SegmentItem(key: 'ninetyDays', label: '近90天'),
-                  SegmentItem(key: 'custom', label: '自定义'),
-                ],
-                selectedKey: _selectedVisitRange.name,
-                onChanged: _onVisitRangeChanged,
+                  );
+                },
               ),
-              if (_selectedVisitRange == _VisitSummaryRange.custom)
-                ListRow(
-                  title: '自定义区间',
-                  subtitle: _customDateRange == null
-                      ? '尚未选择时间范围'
-                      : '${formatDate(_customDateRange!.start, withTime: false)} 至 ${formatDate(_customDateRange!.end, withTime: false)}',
-                  trailing: TextButton(
-                    onPressed: _pickCustomDateRange,
-                    child: const Text('选择区间'),
-                  ),
-                )
-              else
-                Text(
-                  _selectedVisitRange == _VisitSummaryRange.thirtyDays
-                      ? '按最近 30 天的提醒、待办和资料记录生成摘要。'
-                      : '按最近 90 天的提醒、待办和资料记录生成摘要。',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: context.petNoteTokens.secondaryText,
-                        height: 1.55,
+            ),
+            const SizedBox(height: 18),
+            if (pet == null)
+              EmptyCard(
+                title: '先添加第一只爱宠',
+                subtitle: '建好第一份宠物档案后，提醒、记录和照护观察都会围绕它展开。',
+                actionLabel: '开始添加宠物',
+                onAction: onAddFirstPet,
+              )
+            else ...[
+              HeroPanel(
+                header: hasPetPhoto(pet.photoPath)
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          key: ValueKey('selected_pet_hero_photo'),
+                          width: 96,
+                          height: 96,
+                          child: PetPhotoSquare(
+                            photoPath: pet.photoPath,
+                            size: 96,
+                          ),
+                        ),
+                      )
+                    : null,
+                title: pet.name,
+                subtitle:
+                    '${petTypeLabel(pet.type)} · ${pet.breed} · ${pet.ageLabel} · 当前体重 ${pet.weightKg} kg',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: MetricOverview(
+                        metrics: [
+                          MetricItem(
+                            label: '近期提醒',
+                            value: '${remindersForSelectedPet.length}',
+                            background: const Color(0xFFEAF0FF),
+                            foreground: const Color(0xFF335FCA),
+                            semanticLabel: '查看${pet.name}的近期提醒',
+                            onTap: () => _openReminderDetailPage(context, pet),
+                          ),
+                          MetricItem(
+                            label: '资料记录',
+                            value: '${recordsForSelectedPet.length}',
+                            background: const Color(0xFFF5F0FF),
+                            foreground: const Color(0xFF6B51C9),
+                            semanticLabel: '查看${pet.name}的资料记录',
+                            onTap: () => _openRecordDetailPage(context, pet),
+                          ),
+                        ],
                       ),
+                    ),
+                  ],
                 ),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              ),
+              SectionCard(
+                title: '基础信息',
+                trailing: TextButton(
+                  key: const ValueKey('edit_pet_button'),
+                  onPressed: () => onEditPet(pet),
+                  child: const Text('编辑信息'),
+                ),
                 children: [
-                  FilledButton(
-                    onPressed: _canGenerateVisitSummary(pet)
-                        ? _generateVisitSummary
-                        : null,
-                    child: Text(
-                      _visitSummary == null ? '生成看诊摘要' : '重新生成看诊摘要',
-                    ),
+                  InfoRow(label: '类型', value: petTypeLabel(pet.type)),
+                  InfoRow(label: '性别', value: pet.sex),
+                  InfoRow(label: '生日', value: pet.birthday),
+                  InfoRow(
+                    label: '绝育状态',
+                    value: petNeuterStatusLabel(pet.neuterStatus),
                   ),
-                  Text(
-                    _visitStatusText(),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: context.petNoteTokens.secondaryText,
-                          height: 1.5,
-                        ),
-                  ),
+                  InfoRow(label: '喂养偏好', value: pet.feedingPreferences),
+                  InfoRow(label: '过敏/禁忌', value: pet.allergies),
+                  InfoRow(label: '备注', value: pet.note),
                 ],
               ),
-              if (_visitLoading)
-                const _AiLoadingState(message: '正在整理时间线、检查结果和就诊问题…'),
-              if (_visitErrorMessage != null)
-                Text(
-                  _visitErrorMessage!,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFFC7533E),
-                        height: 1.6,
-                      ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _openReminderDetailPage(BuildContext context, Pet pet) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PetReminderDetailPage(
+          store: store,
+          petId: pet.id,
+          petName: pet.name,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRecordDetailPage(BuildContext context, Pet pet) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PetRecordDetailPage(
+          store: store,
+          petId: pet.id,
+          petName: pet.name,
+        ),
+      ),
+    );
+  }
+}
+
+class _PetReminderDetailPage extends StatelessWidget {
+  const _PetReminderDetailPage({
+    required this.store,
+    required this.petId,
+    required this.petName,
+  });
+
+  final PetNoteStore store;
+  final String petId;
+  final String petName;
+
+  @override
+  Widget build(BuildContext context) {
+    final pagePadding =
+        pageContentPaddingForInsets(MediaQuery.viewPaddingOf(context));
+    return Scaffold(
+      body: HyperPageBackground(
+        child: AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            final reminders = store.reminders
+                .where((item) => item.petId == petId)
+                .toList(growable: false);
+            return ListView(
+              padding: pagePadding,
+              children: [
+                PageHeader(
+                  title: '$petName 的近期提醒',
+                  subtitle: '查看当前宠物的提醒安排与执行状态',
+                  trailing: IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
                 ),
-              if (_visitSummary != null) ...[
-                Text(
-                  _visitSummary!.visitReason,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: context.petNoteTokens.primaryText,
-                        height: 1.6,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                _InlineBulletGroup(
-                  title: '关键时间线',
-                  items: _visitSummary!.timeline,
-                ),
-                _InlineBulletGroup(
-                  title: '用药 / 护理 / 处置',
-                  items: _visitSummary!.medicationsAndTreatments,
-                ),
-                _InlineBulletGroup(
-                  title: '检查与结果',
-                  items: _visitSummary!.testsAndResults,
-                ),
-                _InlineBulletGroup(
-                  title: '建议问医生',
-                  items: _visitSummary!.questionsToAskVet,
+                SectionCard(
+                  title: '近期提醒',
+                  children: reminders.isEmpty
+                      ? [
+                          Text(
+                            '暂无提醒',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: const Color(0xFF6C7280)),
+                          ),
+                        ]
+                      : reminders
+                          .map(
+                            (item) => ListRow(
+                              title: item.title,
+                              subtitle:
+                                  '${formatDate(item.scheduledAt)} · ${item.recurrence}',
+                              leading: Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF1DD),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Icon(
+                                  Icons.notifications_active_rounded,
+                                  color: Color(0xFFF2A65A),
+                                ),
+                              ),
+                              trailing: HyperBadge(
+                                text: _reminderKindLabel(item.kind),
+                                foreground: const Color(0xFFC57A14),
+                                background: const Color(0xFFFFF1DD),
+                              ),
+                            ),
+                          )
+                          .toList(),
                 ),
               ],
-            ],
-          ),
-        ],
-      ],
+            );
+          },
+        ),
+      ),
     );
   }
+}
 
-  bool _canGenerateVisitSummary(Pet? pet) {
-    if (pet == null || _visitLoading || !_hasActiveProvider) {
-      return false;
-    }
-    if (_selectedVisitRange == _VisitSummaryRange.custom) {
-      return _customDateRange != null;
-    }
-    return true;
-  }
+class _PetRecordDetailPage extends StatelessWidget {
+  const _PetRecordDetailPage({
+    required this.store,
+    required this.petId,
+    required this.petName,
+  });
 
-  String _visitStatusText() {
-    if (_visitLoading) {
-      return 'AI 正在整理当前宠物的就诊摘要…';
-    }
-    if (_visitSummary != null) {
-      return '摘要仅供就诊准备和记录整理参考，不替代专业诊疗建议。';
-    }
-    if (_hasActiveProvider) {
-      return '支持近 30 天、近 90 天和自定义区间。';
-    }
-    return '配置 AI 后可生成可读的时间线和就诊问题清单。';
-  }
+  final PetNoteStore store;
+  final String petId;
+  final String petName;
 
-  Future<void> _refreshProviderAvailability() async {
-    final service = widget.aiInsightsService;
-    if (service == null) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _hasActiveProvider = false;
-      });
-      return;
-    }
-    bool hasProvider = false;
-    try {
-      hasProvider = await service.hasActiveProvider();
-    } catch (_) {
-      hasProvider = false;
-    }
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _hasActiveProvider = hasProvider;
-    });
-  }
-
-  Future<void> _onVisitRangeChanged(String key) async {
-    final nextRange = switch (key) {
-      'ninetyDays' => _VisitSummaryRange.ninetyDays,
-      'custom' => _VisitSummaryRange.custom,
-      _ => _VisitSummaryRange.thirtyDays,
-    };
-    if (nextRange == _VisitSummaryRange.custom) {
-      await _pickCustomDateRange();
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _selectedVisitRange = nextRange;
-      _visitSummary = null;
-      _visitErrorMessage = null;
-    });
-  }
-
-  Future<void> _pickCustomDateRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(now.year - 2, 1, 1),
-      lastDate: DateTime(now.year + 1, 12, 31),
-      initialDateRange: _customDateRange,
-      locale: const Locale('zh', 'CN'),
+  @override
+  Widget build(BuildContext context) {
+    final pagePadding =
+        pageContentPaddingForInsets(MediaQuery.viewPaddingOf(context));
+    return Scaffold(
+      body: HyperPageBackground(
+        child: AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            final records = store.records
+                .where((item) => item.petId == petId)
+                .toList(growable: false);
+            return ListView(
+              padding: pagePadding,
+              children: [
+                PageHeader(
+                  title: '$petName 的资料记录',
+                  subtitle: '查看当前宠物的病历、检查和留档记录',
+                  trailing: IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+                SectionCard(
+                  title: '资料记录',
+                  children: records.isEmpty
+                      ? [
+                          Text(
+                            '暂无资料记录',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: const Color(0xFF6C7280)),
+                          ),
+                        ]
+                      : records
+                          .map(
+                            (item) => ListRow(
+                              title: item.title,
+                              subtitle:
+                                  '${formatDate(item.recordDate, withTime: false)} · ${item.summary}',
+                              leading: Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F7EE),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Icon(
+                                  Icons.description_rounded,
+                                  color: Color(0xFF4FB57C),
+                                ),
+                              ),
+                              trailing: HyperBadge(
+                                text: _recordTypeLabel(item.type),
+                                foreground: const Color(0xFF2F8F5B),
+                                background: const Color(0xFFE8F7EE),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
-    if (!mounted || picked == null) {
-      return;
-    }
-    setState(() {
-      _selectedVisitRange = _VisitSummaryRange.custom;
-      _customDateRange = picked;
-      _visitSummary = null;
-      _visitErrorMessage = null;
-    });
-  }
-
-  Future<void> _generateVisitSummary() async {
-    final service = widget.aiInsightsService;
-    final pet = widget.store.selectedPet;
-    if (service == null || pet == null) {
-      return;
-    }
-
-    final context = _buildVisitContext(
-      widget.store,
-      pet,
-      _selectedVisitRange,
-      customDateRange: _customDateRange,
-    );
-    setState(() {
-      _visitLoading = true;
-      _visitErrorMessage = null;
-    });
-
-    try {
-      final summary = await service.generateVisitSummary(
-        context,
-        forceRefresh: _visitSummary != null,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _visitSummary = summary;
-        _visitLoading = false;
-      });
-    } on AiGenerationException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _visitSummary = null;
-        _visitErrorMessage = error.message;
-        _visitLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _visitSummary = null;
-        _visitErrorMessage = 'AI 看诊摘要暂时无法生成，请稍后重试。';
-        _visitLoading = false;
-      });
-    }
   }
 }
 
@@ -1118,29 +1004,38 @@ class MePage extends StatelessWidget {
                 AppThemePreference.dark => 'Dark mode',
               },
             ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_system'),
-              title: 'Follow system',
-              subtitle: 'Use the device appearance setting automatically.',
-              value: AppThemePreference.system,
+            RadioGroup<AppThemePreference>(
               groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
-            ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_light'),
-              title: 'Light mode',
-              subtitle: 'Keep the current bright interface style.',
-              value: AppThemePreference.light,
-              groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
-            ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_dark'),
-              title: 'Dark mode',
-              subtitle: 'Reduce glare for low-light usage.',
-              value: AppThemePreference.dark,
-              groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
+              onChanged: (next) {
+                if (next != null) {
+                  onThemePreferenceChanged(next);
+                }
+              },
+              child: Column(
+                children: [
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_system'),
+                    title: 'Follow system',
+                    subtitle: 'Use the device appearance setting automatically.',
+                    value: AppThemePreference.system,
+                    selected: themePreference == AppThemePreference.system,
+                  ),
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_light'),
+                    title: 'Light mode',
+                    subtitle: 'Keep the current bright interface style.',
+                    value: AppThemePreference.light,
+                    selected: themePreference == AppThemePreference.light,
+                  ),
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_dark'),
+                    title: 'Dark mode',
+                    subtitle: 'Reduce glare for low-light usage.',
+                    value: AppThemePreference.dark,
+                    selected: themePreference == AppThemePreference.dark,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1176,15 +1071,13 @@ class _ThemePreferenceTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.value,
-    required this.groupValue,
-    required this.onChanged,
+    required this.selected,
   });
 
   final String title;
   final String subtitle;
   final AppThemePreference value;
-  final AppThemePreference groupValue;
-  final ValueChanged<AppThemePreference> onChanged;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -1196,12 +1089,7 @@ class _ThemePreferenceTile extends StatelessWidget {
       ),
       child: RadioListTile<AppThemePreference>(
         value: value,
-        groupValue: groupValue,
-        onChanged: (next) {
-          if (next != null) {
-            onChanged(next);
-          }
-        },
+        selected: selected,
         title: Text(title),
         subtitle: Text(
           subtitle,
@@ -1263,8 +1151,6 @@ String _recordTypeLabel(PetRecordType type) => switch (type) {
       PetRecordType.testResult => '检查结果',
       PetRecordType.other => '其他',
     };
-
-enum _VisitSummaryRange { thirtyDays, ninetyDays, custom }
 
 List<Widget> _buildCareReportCards(AiCareReport report) {
   return [
@@ -1436,64 +1322,6 @@ List<Widget> _buildCareReportCards(AiCareReport report) {
   ];
 }
 
-AiGenerationContext _buildVisitContext(
-  PetNoteStore store,
-  Pet pet,
-  _VisitSummaryRange range, {
-  DateTimeRange? customDateRange,
-}) {
-  final now = store.referenceNow;
-  final start = switch (range) {
-    _VisitSummaryRange.thirtyDays => now.subtract(const Duration(days: 30)),
-    _VisitSummaryRange.ninetyDays => now.subtract(const Duration(days: 90)),
-    _VisitSummaryRange.custom =>
-      customDateRange?.start ?? now.subtract(const Duration(days: 30)),
-  };
-  final end = switch (range) {
-    _VisitSummaryRange.custom => customDateRange?.end ?? now,
-    _ => now,
-  };
-
-  final todos = store.todos
-      .where(
-        (todo) =>
-            todo.petId == pet.id &&
-            !todo.dueAt.isBefore(start) &&
-            !todo.dueAt.isAfter(end),
-      )
-      .toList(growable: false);
-  final reminders = store.reminders
-      .where(
-        (reminder) =>
-            reminder.petId == pet.id &&
-            !reminder.scheduledAt.isBefore(start) &&
-            !reminder.scheduledAt.isAfter(end),
-      )
-      .toList(growable: false);
-  final records = store.records
-      .where(
-        (record) =>
-            record.petId == pet.id &&
-            !record.recordDate.isBefore(start) &&
-            !record.recordDate.isAfter(end),
-      )
-      .toList(growable: false);
-
-  return AiGenerationContext(
-    title: '${pet.name} 的看诊摘要',
-    rangeLabel: range == _VisitSummaryRange.custom
-        ? '自定义区间'
-        : (range == _VisitSummaryRange.thirtyDays ? '最近 30 天' : '最近 90 天'),
-    rangeStart: start,
-    rangeEnd: end,
-    languageTag: 'zh-CN',
-    pets: [pet],
-    todos: todos,
-    reminders: reminders,
-    records: records,
-  );
-}
-
 class _AiLoadingState extends StatelessWidget {
   const _AiLoadingState({required this.message});
 
@@ -1516,36 +1344,6 @@ class _AiLoadingState extends StatelessWidget {
                 Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _InlineBulletGroup extends StatelessWidget {
-  const _InlineBulletGroup({
-    required this.title,
-    required this.items,
-  });
-
-  final String title;
-  final List<String> items;
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-        ),
-        const SizedBox(height: 8),
-        ...items.map((item) => BulletText(text: item)),
       ],
     );
   }

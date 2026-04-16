@@ -116,10 +116,10 @@ object PetNoteNotificationScheduler {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    val payloadJson = item.optJSONObject("payload")?.toString() ?: continue
                     val payload = item.optJSONObject("payload")
+                    val payloadJson = payload?.toString() ?: continue
                     val key = item.optString("key").ifBlank {
-                        payload?.optString("sourceType")
+                        payload.optString("sourceType")
                             ?.let { sourceType ->
                                 "$sourceType:${payload.optString("sourceId")}"
                             }

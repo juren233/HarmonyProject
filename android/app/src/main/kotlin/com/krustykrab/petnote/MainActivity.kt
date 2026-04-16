@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity(), ViewModelStoreOwner, SavedStateRegistryO
     private var aiSecretStoreBridge: PetNoteAiSecretStoreBridge? = null
     private var dataPackageFileAccessBridge: PetNoteDataPackageFileAccessBridge? = null
     private var nativeOptionPickerBridge: PetNoteNativeOptionPickerBridge? = null
+    private var nativePetPhotoPickerBridge: PetNoteNativePetPhotoPickerBridge? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         _savedStateRegistryController.performRestore(savedInstanceState)
@@ -75,6 +76,10 @@ class MainActivity : FlutterActivity(), ViewModelStoreOwner, SavedStateRegistryO
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
         nativeOptionPickerBridge = PetNoteNativeOptionPickerBridge(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
+        nativePetPhotoPickerBridge = PetNoteNativePetPhotoPickerBridge(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )

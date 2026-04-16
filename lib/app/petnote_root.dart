@@ -13,6 +13,7 @@ import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/me_page.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
 import 'package:petnote/logging/app_log_controller.dart';
@@ -37,6 +38,7 @@ class PetNoteRoot extends StatefulWidget {
     this.iosDockBuilder,
     this.storeLoader,
     this.notificationAdapter,
+    this.nativePetPhotoPicker,
   });
 
   final AppSettingsController? settingsController;
@@ -46,6 +48,7 @@ class PetNoteRoot extends StatefulWidget {
   final IosDockBuilder? iosDockBuilder;
   final Future<PetNoteStore> Function()? storeLoader;
   final NotificationPlatformAdapter? notificationAdapter;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
 
   @override
   State<PetNoteRoot> createState() => _PetNoteRootState();
@@ -278,6 +281,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
               _onboardingEntryPoint == _OnboardingEntryPoint.intro
                   ? _returnToIntroFromOnboarding
                   : null,
+          nativePetPhotoPicker: widget.nativePetPhotoPicker,
           bottomNavigationOverlay:
               showBottomNavigationInBody ? bottomNavigation : null,
         ),
@@ -338,7 +342,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(36)),
       ),
-      builder: (context) => AddActionSheet(store: store),
+      builder: (context) => AddActionSheet(
+        store: store,
+        nativePetPhotoPicker: widget.nativePetPhotoPicker,
+      ),
     );
   }
 
@@ -352,7 +359,11 @@ class _PetNoteRootState extends State<PetNoteRoot>
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => PetEditSheet(store: store, pet: pet),
+      builder: (context) => PetEditSheet(
+        store: store,
+        pet: pet,
+        nativePetPhotoPicker: widget.nativePetPhotoPicker,
+      ),
     );
   }
 
@@ -458,6 +469,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     await store.addPet(
       name: result.name,
       type: result.type,
+      photoPath: result.photoPath,
       breed: result.breed,
       sex: result.sex,
       birthday: result.birthday,
@@ -614,6 +626,7 @@ class _PetNoteBody extends StatelessWidget {
     required this.onSubmitOnboarding,
     required this.onDeferOnboarding,
     required this.onReturnToIntroFromOnboarding,
+    required this.nativePetPhotoPicker,
     this.bottomNavigationOverlay,
   });
 
@@ -639,6 +652,7 @@ class _PetNoteBody extends StatelessWidget {
   final Future<void> Function(PetOnboardingResult result) onSubmitOnboarding;
   final Future<void> Function() onDeferOnboarding;
   final VoidCallback? onReturnToIntroFromOnboarding;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
   final Widget? bottomNavigationOverlay;
 
   @override
@@ -683,7 +697,6 @@ class _PetNoteBody extends StatelessWidget {
                       store: store,
                       onAddFirstPet: onAddFirstPet,
                       onEditPet: onEditPet,
-                      aiInsightsService: aiInsightsService,
                     ),
                   AppTab.me => MePage(
                       themePreference: settingsController?.themePreference ??
@@ -739,6 +752,7 @@ class _PetNoteBody extends StatelessWidget {
                           externalRevealProgress: introToOnboarding
                               ? overlayTransitionProgress
                               : null,
+                          nativePetPhotoPicker: nativePetPhotoPicker,
                           onSubmit: onSubmitOnboarding,
                           onDefer: onDeferOnboarding,
                           onReturnToIntro: onReturnToIntroFromOnboarding,
@@ -986,7 +1000,3 @@ class _TabButton extends StatelessWidget {
     );
   }
 }
-
-
-
-

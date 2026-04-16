@@ -209,6 +209,7 @@ class Pet {
     required this.id,
     required this.name,
     required this.avatarText,
+    this.photoPath,
     required this.type,
     required this.breed,
     required this.sex,
@@ -224,6 +225,7 @@ class Pet {
   final String id;
   final String name;
   final String avatarText;
+  final String? photoPath;
   final PetType type;
   final String breed;
   final String sex;
@@ -240,6 +242,7 @@ class Pet {
       'id': id,
       'name': name,
       'avatarText': avatarText,
+      'photoPath': photoPath,
       'type': type.name,
       'breed': breed,
       'sex': sex,
@@ -258,6 +261,7 @@ class Pet {
       id: json['id'] as String,
       name: json['name'] as String,
       avatarText: json['avatarText'] as String,
+      photoPath: json['photoPath'] as String?,
       type: _petTypeFromName(json['type'] as String?),
       breed: json['breed'] as String,
       sex: json['sex'] as String,
@@ -1317,11 +1321,13 @@ class PetNoteStore extends ChangeNotifier {
     required String feedingPreferences,
     required String allergies,
     required String note,
+    String? photoPath,
   }) async {
     final pet = Pet(
       id: 'pet-${_pets.length + 1}',
       name: name,
       avatarText: _avatarTextForName(name),
+      photoPath: photoPath,
       type: type,
       breed: breed,
       sex: sex,
@@ -1353,6 +1359,7 @@ class PetNoteStore extends ChangeNotifier {
     required String feedingPreferences,
     required String allergies,
     required String note,
+    String? photoPath,
   }) async {
     final index = _pets.indexWhere((pet) => pet.id == petId);
     if (index == -1) {
@@ -1364,6 +1371,7 @@ class PetNoteStore extends ChangeNotifier {
       id: current.id,
       name: name,
       avatarText: _avatarTextForName(name),
+      photoPath: photoPath,
       type: type,
       breed: breed,
       sex: sex,

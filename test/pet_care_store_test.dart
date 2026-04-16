@@ -24,6 +24,7 @@ void main() {
       await store.addPet(
         name: 'Mochi',
         type: PetType.cat,
+        photoPath: '/tmp/mochi.png',
         breed: '英短',
         sex: '母',
         birthday: '2024-02-12',
@@ -39,6 +40,7 @@ void main() {
       expect(reloaded.pets, hasLength(1));
       expect(reloaded.pets.single.name, 'Mochi');
       expect(reloaded.pets.single.type, PetType.cat);
+      expect(reloaded.pets.single.photoPath, '/tmp/mochi.png');
       expect(reloaded.pets.single.breed, '英短');
       expect(reloaded.pets.single.neuterStatus, PetNeuterStatus.neutered);
     });
@@ -112,6 +114,7 @@ void main() {
         petId: store.pets.single.id,
         name: 'Tofu',
         type: PetType.dog,
+        photoPath: '/tmp/tofu.png',
         breed: '柯基',
         sex: '公',
         birthday: '2023-11-01',
@@ -127,9 +130,31 @@ void main() {
       expect(reloaded.pets, hasLength(1));
       expect(reloaded.pets.single.name, 'Tofu');
       expect(reloaded.pets.single.type, PetType.dog);
+      expect(reloaded.pets.single.photoPath, '/tmp/tofu.png');
       expect(reloaded.pets.single.breed, '柯基');
       expect(reloaded.pets.single.neuterStatus, PetNeuterStatus.notNeutered);
       expect(reloaded.pets.single.note, '喜欢追球');
+    });
+
+    test('legacy pet json without photoPath still loads successfully', () {
+      final pet = Pet.fromJson(<String, Object?>{
+        'id': 'pet-legacy-1',
+        'name': 'Luna',
+        'avatarText': 'LU',
+        'type': 'cat',
+        'breed': '英短',
+        'sex': '母',
+        'birthday': '2024-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 4.2,
+        'neuterStatus': 'neutered',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+
+      expect(pet.photoPath, isNull);
+      expect(pet.name, 'Luna');
     });
 
     test('dismissing first-launch intro persists auto-show disabled', () async {

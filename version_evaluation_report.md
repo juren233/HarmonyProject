@@ -48,7 +48,6 @@
 abstract class AiInsightsService {
   Future<bool> hasActiveProvider();
   Future<AiCareReport> generateCareReport(...);
-  Future<AiVisitSummary> generateVisitSummary(...);
 }
 
 // 完善的缓存与并发控制

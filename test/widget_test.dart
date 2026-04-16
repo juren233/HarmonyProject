@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:collection';
+import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +10,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_dock.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/pet_edit_sheet.dart';
 import 'package:petnote/app/pet_first_launch_intro.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_app.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
@@ -1152,7 +1157,7 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
@@ -1285,17 +1290,17 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('onboarding_name_field')), 'Mochi');
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('英短'));
+    await _tapVisibleText(tester, '英短');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('母'));
+    await _tapVisibleText(tester, '母');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
@@ -1326,9 +1331,212 @@ void main() {
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsNothing);
     expect(find.text('今天 0 项待处理'), findsOneWidget);
-    await tester.tap(find.text('爱宠'));
+    await tester.tap(find.text('爱宠').first);
     await tester.pumpAndSettle();
     expect(find.text('Mochi'), findsWidgets);
+  });
+
+  testWidgets('onboarding first step pet photo button shows pressed state',
+      (tester) async {
+    final picker = _FakeNativePetPhotoPicker();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            nativePetPhotoPicker: picker,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    BoxDecoration decoration = tester
+        .widget<AnimatedContainer>(
+          find.byKey(const ValueKey('pet_photo_picker_placeholder_surface')),
+        )
+        .decoration! as BoxDecoration;
+    expect(decoration.color, petPhotoPlaceholderIdleSurfaceColor);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('pet_photo_picker_button'))),
+    );
+    await tester.pump(const Duration(milliseconds: 220));
+
+    decoration = tester
+        .widget<AnimatedContainer>(
+          find.byKey(const ValueKey('pet_photo_picker_placeholder_surface')),
+        )
+        .decoration! as BoxDecoration;
+    expect(decoration.color, petPhotoPlaceholderPressedSurfaceColor);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('pet photo picker uses a text-led layout without outer card',
+      (tester) async {
+    final picker = _FakeNativePetPhotoPicker();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            nativePetPhotoPicker: picker,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pet_photo_picker_card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_photo_picker_preview')), findsNothing);
+    expect(find.text('宠物照片'), findsNothing);
+    expect(find.text('添加宠物图片'), findsOneWidget);
+    final pickerCenter =
+        tester.getCenter(find.byKey(const ValueKey('pet_photo_picker_button')));
+    final nameFieldCenter =
+        tester.getCenter(find.byKey(const ValueKey('onboarding_name_field')));
+    final pickerCardSize =
+        tester.getSize(find.byKey(const ValueKey('pet_photo_picker_card')));
+    final nameFieldSize =
+        tester.getSize(find.byKey(const ValueKey('onboarding_name_field')));
+
+    expect(pickerCardSize.width, closeTo(nameFieldSize.width, 1));
+    expect(pickerCenter.dx, closeTo(nameFieldCenter.dx, 1));
+    expect(
+      tester.getCenter(find.text('添加宠物图片')).dx,
+      closeTo(pickerCenter.dx, 1),
+    );
+  });
+
+  testWidgets('pet photo picker text does not trigger selection outside circle',
+      (tester) async {
+    final picker = _FakeNativePetPhotoPicker(
+      queuedResults: [
+        const NativePetPhotoPickerResult.cancelled(),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            nativePetPhotoPicker: picker,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('添加宠物图片'));
+    await tester.pumpAndSettle();
+    expect(picker.pickCount, 0);
+
+    await tester.tap(find.byKey(const ValueKey('pet_photo_picker_button')));
+    await tester.pumpAndSettle();
+    expect(picker.pickCount, 1);
+  });
+
+  testWidgets('pet photo picker adapts cleanly to dark mode without card shell',
+      (tester) async {
+    final picker = _FakeNativePetPhotoPicker();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.dark),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            nativePetPhotoPicker: picker,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final decoration = tester
+        .widget<AnimatedContainer>(
+          find.byKey(const ValueKey('pet_photo_picker_placeholder_surface')),
+        )
+        .decoration! as BoxDecoration;
+    final pickerCenter =
+        tester.getCenter(find.byKey(const ValueKey('pet_photo_picker_button')));
+    final nameFieldCenter =
+        tester.getCenter(find.byKey(const ValueKey('onboarding_name_field')));
+
+    expect(find.byKey(const ValueKey('pet_photo_picker_card')), findsOneWidget);
+    expect(decoration.color, petPhotoPlaceholderIdleSurfaceColor);
+    expect(pickerCenter.dx, closeTo(nameFieldCenter.dx, 1));
+  });
+
+  testWidgets('selected onboarding pet photo appears on pets page',
+      (tester) async {
+    final photoPath = _createTempPetPhotoFile('onboarding-photo');
+    addTearDown(() => File(photoPath).deleteSync());
+    final picker = _FakeNativePetPhotoPicker(
+      queuedResults: [
+        NativePetPhotoPickerResult.success(localPath: photoPath),
+      ],
+    );
+
+    await tester.pumpWidget(PetNoteApp(nativePetPhotoPicker: picker));
+    await tester.pumpAndSettle();
+    await _enterOnboardingFromIntro(tester);
+
+    await tester.tap(find.byKey(const ValueKey('pet_photo_picker_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pet_photo_picker_preview')),
+        findsOneWidget);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('onboarding_name_field')), 'Mochi');
+    await _tapVisibleText(tester, '猫');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    await _tapVisibleText(tester, '英短');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    await _tapVisibleText(tester, '母');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('onboarding_weight_field')), '4.2');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_save_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('爱宠').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pet_selector_photo_pet-1')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('selected_pet_hero_photo')),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -1340,11 +1548,11 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('其他'));
+    await _tapVisibleText(tester, '其他');
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('onboarding_custom_breed_field')),
@@ -1458,17 +1666,17 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('英短'));
+    await _tapVisibleText(tester, '英短');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('母'));
+    await _tapVisibleText(tester, '母');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
@@ -1500,17 +1708,17 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('onboarding_name_field')), 'Mochi');
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('英短'));
+    await _tapVisibleText(tester, '英短');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('母'));
+    await _tapVisibleText(tester, '母');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
@@ -1545,7 +1753,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('first_launch_onboarding_overlay')),
         findsNothing);
-    await tester.tap(find.text('爱宠'));
+    await tester.tap(find.text('爱宠').first);
     await tester.pumpAndSettle();
     expect(find.text('未填写'), findsWidgets);
   });
@@ -2228,7 +2436,7 @@ void main() {
       find.byKey(const ValueKey('onboarding_name_field')),
       'Mochi',
     );
-    await tester.tap(find.text('猫'));
+    await _tapVisibleText(tester, '猫');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
@@ -2526,12 +2734,17 @@ void main() {
     await tester.pumpAndSettle();
 
     final coolAccentCards = find.byWidgetPredicate((widget) {
-      if (widget is! Container) {
-        return false;
+      if (widget is Ink) {
+        final decoration = widget.decoration;
+        return decoration is BoxDecoration &&
+            decoration.color == const Color(0xFFEAF0FF);
       }
-      final decoration = widget.decoration;
-      return decoration is BoxDecoration &&
-          decoration.color == const Color(0xFFEAF0FF);
+      if (widget is Container) {
+        final decoration = widget.decoration;
+        return decoration is BoxDecoration &&
+            decoration.color == const Color(0xFFEAF0FF);
+      }
+      return false;
     });
 
     expect(coolAccentCards, findsWidgets);
@@ -2757,7 +2970,7 @@ void main() {
     await tester.pumpWidget(const PetNoteApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('爱宠'));
+    await tester.tap(find.text('爱宠').first);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit_pet_button')));
     await tester.pumpAndSettle();
@@ -2950,7 +3163,7 @@ void main() {
     await tester.pumpWidget(const PetNoteApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('爱宠'));
+    await tester.tap(find.text('爱宠').first);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit_pet_button')));
     await tester.pumpAndSettle();
@@ -2966,6 +3179,61 @@ void main() {
 
     final title = tester.widget<Text>(find.text('编辑爱宠资料'));
     expect(title.style?.color, darkPetNoteTokens.primaryText);
+  });
+
+  testWidgets('pet edit photo replacement updates store and deletes old file',
+      (tester) async {
+    final originalPhotoPath = _createTempPetPhotoFile('original-photo');
+    final updatedPhotoPath = _createTempPetPhotoFile('updated-photo');
+    addTearDown(() => _deleteFileIfExists(originalPhotoPath));
+    addTearDown(() => _deleteFileIfExists(updatedPhotoPath));
+
+    final store = await PetNoteStore.load();
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      photoPath: originalPhotoPath,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-01-15',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+    final picker = _FakeNativePetPhotoPicker(
+      queuedResults: [
+        NativePetPhotoPickerResult.success(localPath: updatedPhotoPath),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetEditSheet(
+            store: store,
+            pet: store.selectedPet!,
+            nativePetPhotoPicker: picker,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pet_photo_picker_button')));
+    await tester.pumpAndSettle();
+    final editSheetScrollable = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('edit_pet_save_button')),
+      120,
+      scrollable: editSheetScrollable,
+    );
+    await tester.tap(find.byKey(const ValueKey('edit_pet_save_button')));
+    await tester.pumpAndSettle();
+
+    expect(store.selectedPet?.photoPath, updatedPhotoPath);
+    expect(picker.deletedPaths, contains(originalPhotoPath));
   });
 
   testWidgets('restores persisted system theme preference', (tester) async {
@@ -3146,17 +3414,17 @@ Future<void> _enterBirthdayStep(WidgetTester tester) async {
 Future<void> _enterBirthdayStepInCurrentFlow(WidgetTester tester) async {
   await tester.enterText(
       find.byKey(const ValueKey('onboarding_name_field')), 'Nori');
-  await tester.tap(find.text('猫'));
+  await _tapVisibleText(tester, '猫');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
   await tester.pumpAndSettle();
 
-  await tester.tap(find.text('英短'));
+  await _tapVisibleText(tester, '英短');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
   await tester.pumpAndSettle();
 
-  await tester.tap(find.text('母'));
+  await _tapVisibleText(tester, '母');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
   await tester.pumpAndSettle();
@@ -3175,6 +3443,12 @@ Future<void> _selectBirthdayDay(WidgetTester tester, DateTime date) async {
   await tester.ensureVisible(dayFinder.first);
   await tester.tap(dayFinder.first);
   await tester.pumpAndSettle();
+}
+
+Future<void> _tapVisibleText(WidgetTester tester, String text) async {
+  final finder = find.text(text).first;
+  await tester.ensureVisible(finder);
+  await tester.tap(finder, warnIfMissed: false);
 }
 
 String _birthdayPromptText(DateTime date) {
@@ -3204,6 +3478,46 @@ Map<String, Object> _persistedSinglePetPreferences() {
       },
     ]),
   };
+}
+
+String _createTempPetPhotoFile(String name) {
+  final file = File('${Directory.systemTemp.path}/$name.png');
+  file.writeAsBytesSync(base64Decode(_tinyPngBase64));
+  return file.path;
+}
+
+void _deleteFileIfExists(String path) {
+  final file = File(path);
+  if (file.existsSync()) {
+    file.deleteSync();
+  }
+}
+
+const String _tinyPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9l9h8AAAAASUVORK5CYII=';
+
+class _FakeNativePetPhotoPicker implements NativePetPhotoPicker {
+  _FakeNativePetPhotoPicker({
+    List<NativePetPhotoPickerResult> queuedResults = const [],
+  }) : _queuedResults = Queue<NativePetPhotoPickerResult>.from(queuedResults);
+
+  final Queue<NativePetPhotoPickerResult> _queuedResults;
+  final List<String> deletedPaths = <String>[];
+  int pickCount = 0;
+
+  @override
+  Future<void> deletePetPhoto(String path) async {
+    deletedPaths.add(path);
+  }
+
+  @override
+  Future<NativePetPhotoPickerResult> pickPetPhoto() async {
+    pickCount += 1;
+    if (_queuedResults.isEmpty) {
+      return const NativePetPhotoPickerResult.cancelled();
+    }
+    return _queuedResults.removeFirst();
+  }
 }
 
 void _noop() {}

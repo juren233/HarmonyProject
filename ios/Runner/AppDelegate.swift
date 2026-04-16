@@ -1,5 +1,7 @@
 import Flutter
+import PhotosUI
 import Security
+import UniformTypeIdentifiers
 import UIKit
 import UserNotifications
 
@@ -28,6 +30,11 @@ import UserNotifications
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
+    }
+    if #available(iOS 14.0, *),
+      let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativePetPhotoPickerPlugin")
+    {
+      PetNoteNativePetPhotoPickerPlugin.register(with: registrar)
     }
   }
 
@@ -562,6 +569,216 @@ private enum IosNativeDockTab: Int, CaseIterable {
     case .me:
       return "person.fill"
     }
+  }
+}
+
+@available(iOS 14.0, *)
+final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+  static let channelName = "petnote/native_pet_photo_picker"
+
+  private static let photoDirectoryName = "pet_photos"
+
+  private var pendingResult: FlutterResult?
+  private var presentedController: UIViewController?
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteNativePetPhotoPickerPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "pickPetPhoto":
+      guard pendingResult == nil else {
+        result(Self.errorPayload(code: "invalidResponse", message: "Another native pet photo request is already running."))
+        return
+      }
+      presentPicker(result: result)
+    case "deletePetPhoto":
+      let arguments = call.arguments as? [String: Any]
+      deletePetPhoto(at: arguments?["path"] as? String)
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    if pendingResult != nil {
+      finish(with: Self.cancelledPayload())
+    }
+  }
+
+  func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+    picker.dismiss(animated: true)
+    guard let item = results.first else {
+      finish(with: Self.cancelledPayload())
+      return
+    }
+
+    let typeIdentifier = UTType.image.identifier
+    item.itemProvider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] data, error in
+      guard let self else { return }
+      if let error {
+        self.finish(with: Self.errorPayload(code: "platformError", message: error.localizedDescription))
+        return
+      }
+      guard let data else {
+        self.finish(with: Self.errorPayload(code: "invalidResponse", message: "System photo picker did not return image data."))
+        return
+      }
+      do {
+        let localPath = try self.writePhotoToSandbox(
+          data: data,
+          typeIdentifier: item.itemProvider.registeredTypeIdentifiers.first,
+        )
+        self.finish(with: Self.successPayload(localPath: localPath))
+      } catch {
+        self.finish(with: Self.errorPayload(code: "platformError", message: error.localizedDescription))
+      }
+    }
+  }
+
+  private func presentPicker(result: @escaping FlutterResult) {
+    guard #available(iOS 14, *) else {
+      result(Self.errorPayload(code: "unavailable", message: "PHPickerViewController requires iOS 14 or later."))
+      return
+    }
+    guard let presenter = Self.topViewController() else {
+      result(Self.errorPayload(code: "unavailable", message: "Unable to present the system photo picker."))
+      return
+    }
+
+    var configuration = PHPickerConfiguration(photoLibrary: .shared())
+    configuration.filter = .images
+    configuration.selectionLimit = 1
+
+    let picker = PHPickerViewController(configuration: configuration)
+    picker.delegate = self
+    picker.presentationController?.delegate = self
+    pendingResult = result
+    presentedController = picker
+    presenter.present(picker, animated: true)
+  }
+
+  private func writePhotoToSandbox(
+    data: Data,
+    typeIdentifier: String?
+  ) throws -> String {
+    let directory = try photoDirectoryURL()
+    let fileExtension = Self.fileExtension(for: typeIdentifier)
+    let fileName = "pet_\(Int(Date().timeIntervalSince1970 * 1000))_\(UUID().uuidString.prefix(8)).\(fileExtension)"
+    let targetURL = directory.appendingPathComponent(fileName)
+    try data.write(to: targetURL, options: .atomic)
+    return targetURL.path
+  }
+
+  private func photoDirectoryURL() throws -> URL {
+    let baseURL = try FileManager.default.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let directory = baseURL.appendingPathComponent(Self.photoDirectoryName, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true,
+      attributes: nil
+    )
+    return directory
+  }
+
+  private func deletePetPhoto(at path: String?) {
+    guard let path, !path.isEmpty else {
+      return
+    }
+    do {
+      let safeDirectory = try photoDirectoryURL().standardizedFileURL.path
+      let targetURL = URL(fileURLWithPath: path).standardizedFileURL
+      guard targetURL.path.hasPrefix(safeDirectory) else {
+        return
+      }
+      if FileManager.default.fileExists(atPath: targetURL.path) {
+        try FileManager.default.removeItem(at: targetURL)
+      }
+    } catch {
+      return
+    }
+  }
+
+  private func finish(with payload: [String: Any?]) {
+    let callback = pendingResult
+    pendingResult = nil
+    presentedController = nil
+    DispatchQueue.main.async {
+      callback?(payload)
+    }
+  }
+
+  private static func fileExtension(for typeIdentifier: String?) -> String {
+    guard let typeIdentifier else {
+      return "jpg"
+    }
+    let lowered = typeIdentifier.lowercased()
+    if lowered.contains("png") {
+      return "png"
+    }
+    if lowered.contains("webp") {
+      return "webp"
+    }
+    if lowered.contains("heic") {
+      return "heic"
+    }
+    if lowered.contains("heif") {
+      return "heif"
+    }
+    return "jpg"
+  }
+
+  private static func topViewController(
+    base: UIViewController? = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first(where: \.isKeyWindow)?
+      .rootViewController
+  ) -> UIViewController? {
+    if let navigationController = base as? UINavigationController {
+      return topViewController(base: navigationController.visibleViewController)
+    }
+    if let tabBarController = base as? UITabBarController {
+      return topViewController(base: tabBarController.selectedViewController)
+    }
+    if let presentedViewController = base?.presentedViewController {
+      return topViewController(base: presentedViewController)
+    }
+    return base
+  }
+
+  private static func successPayload(localPath: String) -> [String: Any?] {
+    return [
+      "status": "success",
+      "localPath": localPath,
+    ]
+  }
+
+  private static func cancelledPayload() -> [String: Any?] {
+    return [
+      "status": "cancelled",
+      "errorCode": "cancelled",
+    ]
+  }
+
+  private static func errorPayload(code: String, message: String) -> [String: Any?] {
+    return [
+      "status": "error",
+      "errorCode": code,
+      "errorMessage": message,
+    ]
   }
 }
 

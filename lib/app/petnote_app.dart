@@ -6,6 +6,7 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/ai/ai_settings_coordinator.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/logging/app_crash_diagnostics.dart';
 import 'package:petnote/logging/app_log_controller.dart';
@@ -21,6 +22,7 @@ class PetNoteApp extends StatefulWidget {
     this.aiConnectionTester,
     this.aiInsightsService,
     this.appLogController,
+    this.nativePetPhotoPicker,
   });
 
   final AppSettingsController? settingsController;
@@ -28,6 +30,7 @@ class PetNoteApp extends StatefulWidget {
   final AiConnectionTester? aiConnectionTester;
   final AiInsightsService? aiInsightsService;
   final AppLogController? appLogController;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
 
   @override
   State<PetNoteApp> createState() => _PetNoteAppState();
@@ -98,9 +101,10 @@ class _PetNoteAppState extends State<PetNoteApp> {
         theme: buildPetNoteTheme(Brightness.light),
         darkTheme: buildPetNoteTheme(Brightness.dark),
         themeMode: ThemeMode.system,
-        home: PetNoteRoot(
-          appLogController: appLogController,
-          aiSettingsCoordinator: _settingsController == null
+          home: PetNoteRoot(
+            appLogController: appLogController,
+            nativePetPhotoPicker: widget.nativePetPhotoPicker,
+            aiSettingsCoordinator: _settingsController == null
               ? null
               : AiSettingsCoordinator(
                   settingsController: _settingsController!,
@@ -144,6 +148,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
           home: PetNoteRoot(
             appLogController: appLogController,
             settingsController: settingsController,
+            nativePetPhotoPicker: widget.nativePetPhotoPicker,
             aiSettingsCoordinator: AiSettingsCoordinator(
               settingsController: settingsController,
               secretStore: secretStore,

@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 1,
+  "packageType": "backup",
+  "packageName": "PetNote AI 联调高分短样本备份（单宠 3个月）",
+  "description": "用于 AI 功能联调的单宠 3 个月伪真实高分备份样本，覆盖最近 90 天历史并保留少量未来计划。",
+  "createdAt": "2026-04-09T12:00:00+08:00",
+  "appVersion": "1.0.0-beta.2+3",
+  "data": {
+    "pets": [
+      {
+        "id": "pet-mochi-01",
+        "name": "Mochi",
+        "avatarText": "MO",
+        "type": "cat",
+        "breed": "米克斯短毛猫",
+        "sex": "母",
+        "birthday": "2024-01-16",
+        "ageLabel": "2岁",
+        "weightKg": 4.3,
+        "neuterStatus": "neutered",
+        "feedingPreferences": "早晚主食罐各一餐，夜间少量低敏烘焙粮，饮水机需每日换水",
+        "allergies": "鸡肉配方偶发软便，已优先选择低敏鱼肉主粮",
+        "note": "对陌生声音敏感，洗澡后会躲猫窝半天，梳毛时需要零食分散注意力。"
+      }
+    ],
+    "todos": [
+      {
+        "id": "todo-202603-065",
+        "petId": "pet-mochi-01",
+        "title": "复查与化验处理 #1",
+        "dueAt": "2026-03-01T18:00:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-066",
+        "petId": "pet-mochi-01",
+        "title": "主粮调整处理 #2",
+        "dueAt": "2026-03-03T19:11:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-067",
+        "petId": "pet-mochi-01",
+        "title": "胃肠敏感处理 #3",
+        "dueAt": "2026-03-05T20:22:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-068",
+        "petId": "pet-mochi-01",
+        "title": "轻微抓挠观察处理 #4",
+        "dueAt": "2026-03-07T21:33:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-069",
+        "petId": "pet-mochi-01",
+        "title": "复查与化验处理 #5",
+        "dueAt": "2026-03-09T18:44:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-070",
+        "petId": "pet-mochi-01",
+        "title": "主粮调整处理 #6",
+        "dueAt": "2026-03-11T19:55:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-071",
+        "petId": "pet-mochi-01",
+        "title": "胃肠敏感处理 #7",
+        "dueAt": "2026-03-13T20:06:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202603-072",
+        "petId": "pet-mochi-01",
+        "title": "轻微抓挠观察处理 #8",
+        "dueAt": "2026-03-15T21:17:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202604-073",
+        "petId": "pet-mochi-01",
+        "title": "未来三个月计划处理 #1",
+        "dueAt": "2026-04-01T18:00:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202604-074",
+        "petId": "pet-mochi-01",
+        "title": "环境清洁优化处理 #2",
+        "dueAt": "2026-04-03T19:11:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202604-075",
+        "petId": "pet-mochi-01",
+        "title": "年度体检准备处理 #3",
+        "dueAt": "2026-04-05T20:22:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202604-076",
+        "petId": "pet-mochi-01",
+        "title": "体重趋势跟踪处理 #4",
+        "dueAt": "2026-04-07T21:33:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "done",
+        "note": "已发生待办项，用于 AI 总结执行节奏和遗漏点。"
+      },
+      {
+        "id": "todo-202604-084",
+        "petId": "pet-mochi-01",
+        "title": "体重趋势跟踪安排 #12",
+        "dueAt": "2026-04-23T21:01:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "open",
+        "note": "未来待办项，供 AI 计划、排期与提醒联调使用。"
+      }
+    ],
+    "reminders": [
+      {
+        "id": "reminder-202603-067",
+        "petId": "pet-mochi-01",
+        "kind": "medication",
+        "title": "主粮调整提醒 #3",
+        "scheduledAt": "2026-03-07T11:10:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202603-068",
+        "petId": "pet-mochi-01",
+        "kind": "review",
+        "title": "胃肠敏感提醒 #4",
+        "scheduledAt": "2026-03-10T12:15:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202603-069",
+        "petId": "pet-mochi-01",
+        "kind": "grooming",
+        "title": "轻微抓挠观察提醒 #5",
+        "scheduledAt": "2026-03-13T13:20:00+08:00",
+        "notificationLeadTime": "none",
+        "recurrence": "每季",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202603-070",
+        "petId": "pet-mochi-01",
+        "kind": "custom",
+        "title": "复查与化验提醒 #6",
+        "scheduledAt": "2026-03-16T14:25:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202603-071",
+        "petId": "pet-mochi-01",
+        "kind": "vaccine",
+        "title": "主粮调整提醒 #7",
+        "scheduledAt": "2026-03-19T15:30:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "每季",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202603-072",
+        "petId": "pet-mochi-01",
+        "kind": "deworming",
+        "title": "胃肠敏感提醒 #8",
+        "scheduledAt": "2026-03-22T16:35:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202604-073",
+        "petId": "pet-mochi-01",
+        "kind": "vaccine",
+        "title": "体重趋势跟踪提醒 #1",
+        "scheduledAt": "2026-04-01T09:00:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "recurrence": "每季",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202604-076",
+        "petId": "pet-mochi-01",
+        "kind": "review",
+        "title": "年度体检准备提醒 #4",
+        "scheduledAt": "2026-04-01T12:15:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202604-074",
+        "petId": "pet-mochi-01",
+        "kind": "deworming",
+        "title": "未来三个月计划提醒 #2",
+        "scheduledAt": "2026-04-04T10:05:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202604-075",
+        "petId": "pet-mochi-01",
+        "kind": "medication",
+        "title": "环境清洁优化提醒 #3",
+        "scheduledAt": "2026-04-07T11:10:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "已发生提醒项，用于 AI 汇总历史执行表现。"
+      },
+      {
+        "id": "reminder-202604-082",
+        "petId": "pet-mochi-01",
+        "kind": "review",
+        "title": "未来三个月计划计划 #10",
+        "scheduledAt": "2026-04-25T10:45:00+08:00",
+        "notificationLeadTime": "none",
+        "recurrence": "单次",
+        "status": "pending",
+        "note": "未来计划项，供 AI 规划与提醒联调使用。"
+      }
+    ],
+    "records": [
+      {
+        "id": "record-202603-156",
+        "petId": "pet-mochi-01",
+        "type": "testResult",
+        "title": "主粮调整检查结果 #12",
+        "recordDate": "2026-03-12T09:17:00+08:00",
+        "summary": "本次居家或门诊检查已回收结果，当前体重趋势约 4.59kg。",
+        "note": "用于串联体重、胃肠和季节性波动。"
+      },
+      {
+        "id": "record-202603-157",
+        "petId": "pet-mochi-01",
+        "type": "medical",
+        "title": "胃肠敏感复盘 #13",
+        "recordDate": "2026-03-13T10:24:00+08:00",
+        "summary": "胃肠敏感相关状态记录完成，精神、食欲和排便已做对照观察。",
+        "note": "适合作为 AI 月报里的健康变化输入。"
+      },
+      {
+        "id": "record-202603-158",
+        "petId": "pet-mochi-01",
+        "type": "receipt",
+        "title": "轻微抓挠观察采购小票 #14",
+        "recordDate": "2026-03-14T11:31:00+08:00",
+        "summary": "记录本月 轻微抓挠观察 相关采购金额与库存变化。",
+        "note": "可用于后续 AI 整理消费与补货节奏。"
+      },
+      {
+        "id": "record-202603-159",
+        "petId": "pet-mochi-01",
+        "type": "other",
+        "title": "复查与化验日常观察 #15",
+        "recordDate": "2026-03-15T12:38:00+08:00",
+        "summary": "复查与化验已记录到时间线，未见明显异常升级。",
+        "note": "保留上下文，便于 AI 做趋势总结。"
+      },
+      {
+        "id": "record-202603-160",
+        "petId": "pet-mochi-01",
+        "type": "testResult",
+        "title": "主粮调整检查结果 #16",
+        "recordDate": "2026-03-16T13:45:00+08:00",
+        "summary": "本次居家或门诊检查已回收结果，当前体重趋势约 4.64kg。",
+        "note": "用于串联体重、胃肠和季节性波动。"
+      },
+      {
+        "id": "record-202603-161",
+        "petId": "pet-mochi-01",
+        "type": "medical",
+        "title": "胃肠敏感复盘 #17",
+        "recordDate": "2026-03-17T14:52:00+08:00",
+        "summary": "胃肠敏感相关状态记录完成，精神、食欲和排便已做对照观察。",
+        "note": "适合作为 AI 月报里的健康变化输入。"
+      },
+      {
+        "id": "record-202603-162",
+        "petId": "pet-mochi-01",
+        "type": "receipt",
+        "title": "轻微抓挠观察采购小票 #18",
+        "recordDate": "2026-03-18T15:59:00+08:00",
+        "summary": "记录本月 轻微抓挠观察 相关采购金额与库存变化。",
+        "note": "可用于后续 AI 整理消费与补货节奏。"
+      },
+      {
+        "id": "record-202604-163",
+        "petId": "pet-mochi-01",
+        "type": "medical",
+        "title": "年度体检准备复盘 #1",
+        "recordDate": "2026-04-01T08:00:00+08:00",
+        "summary": "年度体检准备相关状态记录完成，精神、食欲和排便已做对照观察。",
+        "note": "适合作为 AI 月报里的健康变化输入。"
+      },
+      {
+        "id": "record-202604-172",
+        "petId": "pet-mochi-01",
+        "type": "receipt",
+        "title": "体重趋势跟踪采购小票 #10",
+        "recordDate": "2026-04-01T17:03:00+08:00",
+        "summary": "记录本月 体重趋势跟踪 相关采购金额与库存变化。",
+        "note": "可用于后续 AI 整理消费与补货节奏。"
+      },
+      {
+        "id": "record-202604-173",
+        "petId": "pet-mochi-01",
+        "type": "other",
+        "title": "未来三个月计划日常观察 #11",
+        "recordDate": "2026-04-02T08:10:00+08:00",
+        "summary": "未来三个月计划已记录到时间线，未见明显异常升级。",
+        "note": "保留上下文，便于 AI 做趋势总结。"
+      },
+      {
+        "id": "record-202604-164",
+        "petId": "pet-mochi-01",
+        "type": "receipt",
+        "title": "体重趋势跟踪采购小票 #2",
+        "recordDate": "2026-04-02T09:07:00+08:00",
+        "summary": "记录本月 体重趋势跟踪 相关采购金额与库存变化。",
+        "note": "可用于后续 AI 整理消费与补货节奏。"
+      },
+      {
+        "id": "record-202604-174",
+        "petId": "pet-mochi-01",
+        "type": "testResult",
+        "title": "环境清洁优化检查结果 #12",
+        "recordDate": "2026-04-03T09:17:00+08:00",
+        "summary": "本次居家或门诊检查已回收结果，当前体重趋势约 4.65kg。",
+        "note": "用于串联体重、胃肠和季节性波动。"
+      },
+      {
+        "id": "record-202604-165",
+        "petId": "pet-mochi-01",
+        "type": "other",
+        "title": "未来三个月计划日常观察 #3",
+        "recordDate": "2026-04-03T10:14:00+08:00",
+        "summary": "未来三个月计划已记录到时间线，未见明显异常升级。",
+        "note": "保留上下文，便于 AI 做趋势总结。"
+      },
+      {
+        "id": "record-202604-166",
+        "petId": "pet-mochi-01",
+        "type": "testResult",
+        "title": "环境清洁优化检查结果 #4",
+        "recordDate": "2026-04-04T11:21:00+08:00",
+        "summary": "本次居家或门诊检查已回收结果，当前体重趋势约 4.69kg。",
+        "note": "用于串联体重、胃肠和季节性波动。"
+      },
+      {
+        "id": "record-202604-167",
+        "petId": "pet-mochi-01",
+        "type": "medical",
+        "title": "年度体检准备复盘 #5",
+        "recordDate": "2026-04-05T12:28:00+08:00",
+        "summary": "年度体检准备相关状态记录完成，精神、食欲和排便已做对照观察。",
+        "note": "适合作为 AI 月报里的健康变化输入。"
+      },
+      {
+        "id": "record-202604-168",
+        "petId": "pet-mochi-01",
+        "type": "receipt",
+        "title": "体重趋势跟踪采购小票 #6",
+        "recordDate": "2026-04-06T13:35:00+08:00",
+        "summary": "记录本月 体重趋势跟踪 相关采购金额与库存变化。",
+        "note": "可用于后续 AI 整理消费与补货节奏。"
+      },
+      {
+        "id": "record-202604-169",
+        "petId": "pet-mochi-01",
+        "type": "other",
+        "title": "未来三个月计划日常观察 #7",
+        "recordDate": "2026-04-07T14:42:00+08:00",
+        "summary": "未来三个月计划已记录到时间线，未见明显异常升级。",
+        "note": "保留上下文，便于 AI 做趋势总结。"
+      },
+      {
+        "id": "record-202604-170",
+        "petId": "pet-mochi-01",
+        "type": "testResult",
+        "title": "环境清洁优化检查结果 #8",
+        "recordDate": "2026-04-08T15:49:00+08:00",
+        "summary": "本次居家或门诊检查已回收结果，当前体重趋势约 4.67kg。",
+        "note": "用于串联体重、胃肠和季节性波动。"
+      }
+    ]
+  },
+  "settings": {
+    "themePreferenceName": "system",
+    "aiProviderConfigs": [],
+    "activeAiProviderConfigId": null
+  },
+  "meta": {
+    "source": "sample_backup",
+    "generatedFor": "ai_feature_testing",
+    "datasetStyle": "realistic_high_density",
+    "dateRangeStart": "2025-07-01",
+    "dateRangeEnd": "2026-06-30",
+    "baselineAt": "2026-04-09T23:59:59+08:00",
+    "petScope": "single_pet"
+  }
+}

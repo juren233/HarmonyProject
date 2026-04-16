@@ -211,7 +211,7 @@ void main() {
     expect(find.textContaining('Base URL'), findsNothing);
   });
 
-  testWidgets('pets page generates and displays visit summary', (tester) async {
+  testWidgets('pets page keeps overview compact without detail sections', (tester) async {
     tester.view.physicalSize = const Size(1200, 2200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -226,28 +226,101 @@ void main() {
             store: store,
             onAddFirstPet: () {},
             onEditPet: (_) {},
-            aiInsightsService: _FakeAiInsightsService(
-              visitSummary: AiVisitSummary(
-                visitReason: '近两周耳道护理后仍偶尔抓耳，建议复查。',
-                timeline: const ['04-01 抓耳增加', '04-03 做耳道清洁'],
-                medicationsAndTreatments: const ['耳道清洁 1 次'],
-                testsAndResults: const ['暂无新增检查结果'],
-                questionsToAskVet: const ['是否需要继续滴耳液'],
-              ),
-            ),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    final generateButton = find.widgetWithText(FilledButton, '生成看诊摘要');
-    await tester.tap(generateButton, warnIfMissed: false);
+    expect(find.text('Luna'), findsWidgets);
+    expect(find.text('近期提醒'), findsOneWidget);
+    expect(find.text('资料记录'), findsOneWidget);
+    expect(find.text('基础信息'), findsOneWidget);
+    expect(find.text('三联疫苗加强'), findsNothing);
+    expect(find.text('耳道清洁复诊'), findsNothing);
+    expect(find.text('AI 看诊摘要'), findsNothing);
+  });
+
+  testWidgets('pets page opens reminder detail page for selected pet',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetsPage(
+            store: store,
+            onAddFirstPet: () {},
+            onEditPet: (_) {},
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('AI 看诊摘要'), findsOneWidget);
-    expect(find.text('近两周耳道护理后仍偶尔抓耳，建议复查。'), findsOneWidget);
-    expect(find.text('是否需要继续滴耳液'), findsOneWidget);
+    await tester.tap(find.text('近期提醒'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Luna 的近期提醒'), findsOneWidget);
+    expect(find.text('三联疫苗加强'), findsOneWidget);
+    expect(find.text('体内驱虫'), findsNothing);
+  });
+
+  testWidgets('pets page opens record detail page for selected pet',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetsPage(
+            store: store,
+            onAddFirstPet: () {},
+            onEditPet: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('资料记录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Luna 的资料记录'), findsOneWidget);
+    expect(find.text('耳道清洁复诊'), findsOneWidget);
+    expect(find.text('皮肤镜检查'), findsNothing);
+  });
+
+  testWidgets('pets page detail navigation uses the currently selected pet',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetsPage(
+            store: store,
+            onAddFirstPet: () {},
+            onEditPet: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    store.selectPet(store.pets[1].id);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('资料记录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Milo 的资料记录'), findsOneWidget);
+    expect(find.text('皮肤镜检查'), findsOneWidget);
+    expect(find.text('洗护消费小票'), findsOneWidget);
+    expect(find.text('耳道清洁复诊'), findsNothing);
   });
 
   testWidgets(
@@ -666,13 +739,11 @@ AiCareReport _buildDetailedCareReport({
 class _FakeAiInsightsService implements AiInsightsService {
   _FakeAiInsightsService({
     this.careReport,
-    this.visitSummary,
     this.isConfigured = true,
     this.generateCareReportError,
   });
 
   final AiCareReport? careReport;
-  final AiVisitSummary? visitSummary;
   final bool isConfigured;
   final AiGenerationException? generateCareReportError;
   int generateCareReportCalls = 0;
@@ -694,17 +765,6 @@ class _FakeAiInsightsService implements AiInsightsService {
       throw const AiGenerationException('missing care report');
     }
     return careReport!;
-  }
-
-  @override
-  Future<AiVisitSummary> generateVisitSummary(
-    AiGenerationContext context, {
-    bool forceRefresh = false,
-  }) async {
-    if (visitSummary == null) {
-      throw const AiGenerationException('missing visit summary');
-    }
-    return visitSummary!;
   }
 
   @override
@@ -738,14 +798,6 @@ class _DeferredAiInsightsService implements AiInsightsService {
     generateCareReportCalls += 1;
     forceRefreshValues.add(forceRefresh);
     return careReportFuture.future;
-  }
-
-  @override
-  Future<AiVisitSummary> generateVisitSummary(
-    AiGenerationContext context, {
-    bool forceRefresh = false,
-  }) async {
-    throw const AiGenerationException('missing visit summary');
   }
 
   @override
@@ -786,7 +838,6 @@ class _OverviewTabHarness extends StatelessWidget {
                 store: store,
                 onAddFirstPet: () {},
                 onEditPet: (_) {},
-                aiInsightsService: service,
               ),
             AppTab.me => const SizedBox.shrink(),
           };

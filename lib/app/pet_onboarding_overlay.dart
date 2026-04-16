@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/pet_onboarding_taxonomy.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -12,6 +15,7 @@ class PetOnboardingResult {
   const PetOnboardingResult({
     required this.name,
     required this.type,
+    this.photoPath,
     required this.breed,
     required this.sex,
     required this.birthday,
@@ -24,6 +28,7 @@ class PetOnboardingResult {
 
   final String name;
   final PetType type;
+  final String? photoPath;
   final String breed;
   final String sex;
   final String birthday;
@@ -39,6 +44,7 @@ class PetOnboardingOverlay extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.onDefer,
+    this.nativePetPhotoPicker,
     this.animateInitialEntry = true,
     this.externalRevealProgress,
     this.onReturnToIntro,
@@ -46,6 +52,7 @@ class PetOnboardingOverlay extends StatefulWidget {
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
   final bool animateInitialEntry;
   final double? externalRevealProgress;
   final VoidCallback? onReturnToIntro;
@@ -82,6 +89,7 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
             child: PetOnboardingFlow(
               animateInitialEntry: widget.animateInitialEntry,
               externalRevealProgress: widget.externalRevealProgress,
+              nativePetPhotoPicker: widget.nativePetPhotoPicker,
               onSubmit: widget.onSubmit,
               onDefer: widget.onDefer,
               onReturnToIntro: widget.onReturnToIntro,
@@ -111,6 +119,7 @@ class PetOnboardingFlow extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.onDefer,
+    this.nativePetPhotoPicker,
     this.animateInitialEntry = true,
     this.externalRevealProgress,
     this.embedded = false,
@@ -120,6 +129,7 @@ class PetOnboardingFlow extends StatefulWidget {
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
+  final NativePetPhotoPicker? nativePetPhotoPicker;
   final bool animateInitialEntry;
   final double? externalRevealProgress;
   final bool embedded;
@@ -140,14 +150,19 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   final _weight = TextEditingController();
   late final PageController _stepPageController;
   late final AnimationController _entryController;
+  late final NativePetPhotoPicker _nativePetPhotoPicker =
+      widget.nativePetPhotoPicker ?? MethodChannelNativePetPhotoPicker();
 
   int _stepIndex = 0;
   PetType? _type;
+  String? _photoPath;
   String? _breed;
   String? _sex;
   DateTime? _birthday;
   PetNeuterStatus? _neuterStatus;
   bool _isSubmitting = false;
+  bool _isPickingPhoto = false;
+  bool _hasSubmitted = false;
 
   static const List<_StepCopy> _steps = [
     _StepCopy('先认识一下', '先给爱宠起个名字，并告诉我它是什么类型。'),
@@ -205,6 +220,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     _weight.dispose();
     _stepPageController.dispose();
     _entryController.dispose();
+    if (!_hasSubmitted && _photoPath != null) {
+      unawaited(_nativePetPhotoPicker.deletePetPhoto(_photoPath!));
+    }
     super.dispose();
   }
 
@@ -565,6 +583,12 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
 
   List<Widget> _identityStep() {
     return [
+      PetPhotoPickerCard(
+        photoPath: _photoPath,
+        enabled: !_isSubmitting && !_isPickingPhoto,
+        onTap: _pickPetPhoto,
+        title: '',
+      ),
       const SectionLabel(text: '名字'),
       HyperTextField(
         key: const ValueKey('onboarding_name_field'),
@@ -746,6 +770,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
       final result = PetOnboardingResult(
         name: _name.text.trim(),
         type: _type ?? PetType.other,
+        photoPath: _photoPath,
         breed: _breed == otherBreedLabel
             ? _customBreed.text.trim()
             : (_breed ?? otherBreedLabel),
@@ -757,10 +782,46 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
         allergies: _textOrDefault(_allergies.text),
         note: _textOrDefault(_note.text),
       );
+      _hasSubmitted = true;
       await widget.onSubmit(result);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  Future<void> _pickPetPhoto() async {
+    if (_isSubmitting || _isPickingPhoto) {
+      return;
+    }
+    setState(() => _isPickingPhoto = true);
+    final previousPath = _photoPath;
+    try {
+      final result = await _nativePetPhotoPicker.pickPetPhoto();
+      if (!mounted) {
+        if (result.isSuccess &&
+            result.localPath != null &&
+            result.localPath != previousPath) {
+          await _nativePetPhotoPicker.deletePetPhoto(result.localPath!);
+        }
+        return;
+      }
+      if (result.isSuccess) {
+        final newPath = result.localPath!;
+        if (previousPath != null && previousPath != newPath) {
+          await _nativePetPhotoPicker.deletePetPhoto(previousPath);
+        }
+        setState(() => _photoPath = newPath);
+        return;
+      }
+      if (result.isCancelled) {
+        return;
+      }
+      _showPhotoError(result.errorMessage ?? '图片导入失败，请稍后再试。');
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingPhoto = false);
       }
     }
   }
@@ -786,6 +847,12 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _showPhotoError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   bool _canPopForSystemBack() {

@@ -155,11 +155,13 @@ class HeroPanel extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
+    this.header,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
@@ -171,6 +173,10 @@ class HeroPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (header != null) ...[
+            header!,
+            const SizedBox(height: 18),
+          ],
           Text(
             title,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -208,34 +214,53 @@ class MetricOverview extends StatelessWidget {
             (item) => Expanded(
               child: Padding(
                 padding: EdgeInsets.only(right: item == metrics.last ? 0 : 10),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: item.background,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.value,
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  color: item.foreground,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.8,
-                                ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        item.label,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: item.foreground.withValues(alpha: 0.74),
-                              fontWeight: FontWeight.w600,
+                child: Semantics(
+                  button: item.onTap != null,
+                  label: item.semanticLabel ?? item.label,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: item.onTap,
+                      borderRadius: BorderRadius.circular(24),
+                      child: Ink(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          color: item.background,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.value,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(
+                                    color: item.foreground,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.8,
+                                  ),
                             ),
+                            const SizedBox(height: 8),
+                            Text(
+                              item.label,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color:
+                                        item.foreground.withValues(alpha: 0.74),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -252,12 +277,16 @@ class MetricItem {
     required this.value,
     required this.background,
     required this.foreground,
+    this.onTap,
+    this.semanticLabel,
   });
 
   final String label;
   final String value;
   final Color background;
   final Color foreground;
+  final VoidCallback? onTap;
+  final String? semanticLabel;
 }
 
 class HyperSegmentedControl extends StatelessWidget {
