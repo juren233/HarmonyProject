@@ -1,0 +1,692 @@
+{
+  "schemaVersion": 1,
+  "packageType": "backup",
+  "packageName": "PetNote AI 联调季度样例备份（双宠 3 个月）",
+  "description": "用于 AI 功能联调的双宠季度备份样本，覆盖 3 个月历史与当月未来计划。",
+  "createdAt": "2026-04-16T12:00:00+08:00",
+  "appVersion": "1.0.0-beta.2+3",
+  "data": {
+    "pets": [
+      {
+        "id": "pet-luna-01",
+        "name": "Luna",
+        "avatarText": "LU",
+        "type": "cat",
+        "breed": "布偶猫",
+        "sex": "母",
+        "birthday": "2023-09-12",
+        "ageLabel": "2岁",
+        "weightKg": 4.6,
+        "neuterStatus": "neutered",
+        "feedingPreferences": "早晚冻干拌主食罐，夜间少量低敏猫粮，饮水机隔天彻底清洗",
+        "allergies": "对高油零食较敏感，连续食用会出现轻微软便",
+        "note": "换季时偶发打喷嚏，需要留意空气净化器滤芯和猫砂扬尘。"
+      },
+      {
+        "id": "pet-cocoa-02",
+        "name": "Cocoa",
+        "avatarText": "CO",
+        "type": "dog",
+        "breed": "柯基犬",
+        "sex": "公",
+        "birthday": "2022-06-03",
+        "ageLabel": "3岁",
+        "weightKg": 11.8,
+        "neuterStatus": "notNeutered",
+        "feedingPreferences": "早晚鲜食拌主粮，训练时使用低脂零食，散步回家后固定补水",
+        "allergies": "对高盐肉干敏感，摄入后容易抓耳朵",
+        "note": "精力旺盛，雨天散步不足时会在晚上出现拆家倾向。"
+      }
+    ],
+    "todos": [
+      {
+        "id": "todo-pet-luna-01-202602-001",
+        "petId": "pet-luna-01",
+        "title": "主粮补货复核 #1",
+        "dueAt": "2026-02-02T18:00:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202602-002",
+        "petId": "pet-luna-01",
+        "title": "饮水与食欲观察 #2",
+        "dueAt": "2026-02-08T19:13:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202602-003",
+        "petId": "pet-luna-01",
+        "title": "梳毛排毛计划 #3",
+        "dueAt": "2026-02-16T20:26:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "skipped",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202602-004",
+        "petId": "pet-luna-01",
+        "title": "猫砂环境检查 #4",
+        "dueAt": "2026-02-24T18:39:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202603-005",
+        "petId": "pet-luna-01",
+        "title": "主粮补货复核 #5",
+        "dueAt": "2026-03-03T18:00:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202603-006",
+        "petId": "pet-luna-01",
+        "title": "饮水与食欲观察 #6",
+        "dueAt": "2026-03-09T19:13:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202603-007",
+        "petId": "pet-luna-01",
+        "title": "梳毛排毛计划 #7",
+        "dueAt": "2026-03-17T20:26:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "skipped",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202603-008",
+        "petId": "pet-luna-01",
+        "title": "猫砂环境检查 #8",
+        "dueAt": "2026-03-25T18:39:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202604-009",
+        "petId": "pet-luna-01",
+        "title": "主粮补货复核 #9",
+        "dueAt": "2026-04-04T18:00:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202604-010",
+        "petId": "pet-luna-01",
+        "title": "饮水与食欲观察 #10",
+        "dueAt": "2026-04-12T19:13:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "postponed",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202604-011",
+        "petId": "pet-luna-01",
+        "title": "梳毛排毛计划 #11",
+        "dueAt": "2026-04-20T20:26:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "open",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-luna-01-202604-012",
+        "petId": "pet-luna-01",
+        "title": "猫砂环境检查 #12",
+        "dueAt": "2026-04-28T18:39:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于观察饮食、补货和居家护理节奏，方便 AI 做季度总结。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202602-001",
+        "petId": "pet-cocoa-02",
+        "title": "散步里程回顾 #1",
+        "dueAt": "2026-02-02T18:03:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202602-002",
+        "petId": "pet-cocoa-02",
+        "title": "耳道清洁确认 #2",
+        "dueAt": "2026-02-08T19:16:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202602-003",
+        "petId": "pet-cocoa-02",
+        "title": "关节保养补给 #3",
+        "dueAt": "2026-02-16T20:29:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "skipped",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202602-004",
+        "petId": "pet-cocoa-02",
+        "title": "训犬零食补货 #4",
+        "dueAt": "2026-02-24T18:42:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202603-005",
+        "petId": "pet-cocoa-02",
+        "title": "散步里程回顾 #5",
+        "dueAt": "2026-03-03T18:03:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202603-006",
+        "petId": "pet-cocoa-02",
+        "title": "耳道清洁确认 #6",
+        "dueAt": "2026-03-09T19:16:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "done",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202603-007",
+        "petId": "pet-cocoa-02",
+        "title": "关节保养补给 #7",
+        "dueAt": "2026-03-17T20:29:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "skipped",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202603-008",
+        "petId": "pet-cocoa-02",
+        "title": "训犬零食补货 #8",
+        "dueAt": "2026-03-25T18:42:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202604-009",
+        "petId": "pet-cocoa-02",
+        "title": "散步里程回顾 #9",
+        "dueAt": "2026-04-04T18:03:00+08:00",
+        "notificationLeadTime": "none",
+        "status": "done",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202604-010",
+        "petId": "pet-cocoa-02",
+        "title": "耳道清洁确认 #10",
+        "dueAt": "2026-04-12T19:16:00+08:00",
+        "notificationLeadTime": "fiveMinutes",
+        "status": "postponed",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202604-011",
+        "petId": "pet-cocoa-02",
+        "title": "关节保养补给 #11",
+        "dueAt": "2026-04-20T20:29:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "status": "open",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      },
+      {
+        "id": "todo-pet-cocoa-02-202604-012",
+        "petId": "pet-cocoa-02",
+        "title": "训犬零食补货 #12",
+        "dueAt": "2026-04-28T18:42:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "status": "postponed",
+        "note": "用于追踪运动、护理和补货执行情况，方便 AI 评估稳定性。"
+      }
+    ],
+    "reminders": [
+      {
+        "id": "reminder-pet-luna-01-202602-001",
+        "petId": "pet-luna-01",
+        "kind": "deworming",
+        "title": "体内外驱虫提醒",
+        "scheduledAt": "2026-02-05T09:00:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202602-002",
+        "petId": "pet-luna-01",
+        "kind": "grooming",
+        "title": "护理梳毛复盘",
+        "scheduledAt": "2026-02-14T11:17:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202602-003",
+        "petId": "pet-luna-01",
+        "kind": "review",
+        "title": "肠胃稳定度复查",
+        "scheduledAt": "2026-02-26T13:34:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202603-004",
+        "petId": "pet-luna-01",
+        "kind": "deworming",
+        "title": "体内外驱虫提醒",
+        "scheduledAt": "2026-03-06T09:00:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202603-005",
+        "petId": "pet-luna-01",
+        "kind": "grooming",
+        "title": "护理梳毛复盘",
+        "scheduledAt": "2026-03-15T11:17:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202603-006",
+        "petId": "pet-luna-01",
+        "kind": "review",
+        "title": "肠胃稳定度复查",
+        "scheduledAt": "2026-03-27T13:34:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202604-007",
+        "petId": "pet-luna-01",
+        "kind": "deworming",
+        "title": "体内外驱虫提醒",
+        "scheduledAt": "2026-04-06T09:00:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202604-008",
+        "petId": "pet-luna-01",
+        "kind": "grooming",
+        "title": "护理梳毛复盘",
+        "scheduledAt": "2026-04-15T11:17:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "pending",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-luna-01-202604-009",
+        "petId": "pet-luna-01",
+        "kind": "review",
+        "title": "肠胃稳定度复查",
+        "scheduledAt": "2026-04-25T13:34:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "pending",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202602-001",
+        "petId": "pet-cocoa-02",
+        "kind": "medication",
+        "title": "关节营养补充提醒",
+        "scheduledAt": "2026-02-05T10:05:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202602-002",
+        "petId": "pet-cocoa-02",
+        "kind": "grooming",
+        "title": "洗护与修爪提醒",
+        "scheduledAt": "2026-02-14T12:22:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202602-003",
+        "petId": "pet-cocoa-02",
+        "kind": "review",
+        "title": "耳道与皮肤复查",
+        "scheduledAt": "2026-02-26T14:39:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202603-004",
+        "petId": "pet-cocoa-02",
+        "kind": "medication",
+        "title": "关节营养补充提醒",
+        "scheduledAt": "2026-03-06T10:05:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202603-005",
+        "petId": "pet-cocoa-02",
+        "kind": "grooming",
+        "title": "洗护与修爪提醒",
+        "scheduledAt": "2026-03-15T12:22:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202603-006",
+        "petId": "pet-cocoa-02",
+        "kind": "review",
+        "title": "耳道与皮肤复查",
+        "scheduledAt": "2026-03-27T14:39:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202604-007",
+        "petId": "pet-cocoa-02",
+        "kind": "medication",
+        "title": "关节营养补充提醒",
+        "scheduledAt": "2026-04-06T10:05:00+08:00",
+        "notificationLeadTime": "oneDay",
+        "recurrence": "每月",
+        "status": "done",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202604-008",
+        "petId": "pet-cocoa-02",
+        "kind": "grooming",
+        "title": "洗护与修爪提醒",
+        "scheduledAt": "2026-04-15T12:22:00+08:00",
+        "notificationLeadTime": "oneHour",
+        "recurrence": "每月",
+        "status": "pending",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      },
+      {
+        "id": "reminder-pet-cocoa-02-202604-009",
+        "petId": "pet-cocoa-02",
+        "kind": "review",
+        "title": "耳道与皮肤复查",
+        "scheduledAt": "2026-04-25T14:39:00+08:00",
+        "notificationLeadTime": "fifteenMinutes",
+        "recurrence": "单次",
+        "status": "pending",
+        "note": "用于保留护理计划的提醒节奏，便于 AI 识别执行连续性。"
+      }
+    ],
+    "records": [
+      {
+        "id": "record-pet-luna-01-202602-001",
+        "petId": "pet-luna-01",
+        "type": "medical",
+        "title": "2026年02月食欲与排便观察 #1",
+        "recordDate": "2026-02-02T10:00:00+08:00",
+        "summary": "记录本周食欲、精神与排便状态，整体保持稳定。",
+        "note": "用于后续 AI 串联换季反应与饮食调整。"
+      },
+      {
+        "id": "record-pet-luna-01-202602-002",
+        "petId": "pet-luna-01",
+        "type": "receipt",
+        "title": "2026年02月主粮与猫砂采购 #2",
+        "recordDate": "2026-02-05T12:11:00+08:00",
+        "summary": "补充主粮与猫砂库存，记录本轮采购金额和余量变化。",
+        "note": "可用于分析补货节奏与月度消耗。"
+      },
+      {
+        "id": "record-pet-luna-01-202602-003",
+        "petId": "pet-luna-01",
+        "type": "testResult",
+        "title": "2026年02月毛球与过敏观察结果 #3",
+        "recordDate": "2026-02-08T14:22:00+08:00",
+        "summary": "针对毛球和轻敏表现做阶段复盘，目前未见异常升级。",
+        "note": "便于 AI 提取季节性波动趋势。"
+      },
+      {
+        "id": "record-pet-luna-01-202602-004",
+        "petId": "pet-luna-01",
+        "type": "other",
+        "title": "2026年02月居家环境护理笔记 #4",
+        "recordDate": "2026-02-12T16:33:00+08:00",
+        "summary": "记录空气净化器、猫抓板和饮水机维护情况。",
+        "note": "保留环境变量，辅助解释行为变化。"
+      },
+      {
+        "id": "record-pet-luna-01-202603-005",
+        "petId": "pet-luna-01",
+        "type": "medical",
+        "title": "2026年03月食欲与排便观察 #5",
+        "recordDate": "2026-03-03T10:00:00+08:00",
+        "summary": "记录本周食欲、精神与排便状态，整体保持稳定。",
+        "note": "用于后续 AI 串联换季反应与饮食调整。"
+      },
+      {
+        "id": "record-pet-luna-01-202603-006",
+        "petId": "pet-luna-01",
+        "type": "receipt",
+        "title": "2026年03月主粮与猫砂采购 #6",
+        "recordDate": "2026-03-06T12:11:00+08:00",
+        "summary": "补充主粮与猫砂库存，记录本轮采购金额和余量变化。",
+        "note": "可用于分析补货节奏与月度消耗。"
+      },
+      {
+        "id": "record-pet-luna-01-202603-007",
+        "petId": "pet-luna-01",
+        "type": "testResult",
+        "title": "2026年03月毛球与过敏观察结果 #7",
+        "recordDate": "2026-03-09T14:22:00+08:00",
+        "summary": "针对毛球和轻敏表现做阶段复盘，目前未见异常升级。",
+        "note": "便于 AI 提取季节性波动趋势。"
+      },
+      {
+        "id": "record-pet-luna-01-202603-008",
+        "petId": "pet-luna-01",
+        "type": "other",
+        "title": "2026年03月居家环境护理笔记 #8",
+        "recordDate": "2026-03-13T16:33:00+08:00",
+        "summary": "记录空气净化器、猫抓板和饮水机维护情况。",
+        "note": "保留环境变量，辅助解释行为变化。"
+      },
+      {
+        "id": "record-pet-luna-01-202604-009",
+        "petId": "pet-luna-01",
+        "type": "medical",
+        "title": "2026年04月食欲与排便观察 #9",
+        "recordDate": "2026-04-01T10:00:00+08:00",
+        "summary": "记录本周食欲、精神与排便状态，整体保持稳定。",
+        "note": "用于后续 AI 串联换季反应与饮食调整。"
+      },
+      {
+        "id": "record-pet-luna-01-202604-010",
+        "petId": "pet-luna-01",
+        "type": "receipt",
+        "title": "2026年04月主粮与猫砂采购 #10",
+        "recordDate": "2026-04-03T12:11:00+08:00",
+        "summary": "补充主粮与猫砂库存，记录本轮采购金额和余量变化。",
+        "note": "可用于分析补货节奏与月度消耗。"
+      },
+      {
+        "id": "record-pet-luna-01-202604-011",
+        "petId": "pet-luna-01",
+        "type": "testResult",
+        "title": "2026年04月毛球与过敏观察结果 #11",
+        "recordDate": "2026-04-05T14:22:00+08:00",
+        "summary": "针对毛球和轻敏表现做阶段复盘，目前未见异常升级。",
+        "note": "便于 AI 提取季节性波动趋势。"
+      },
+      {
+        "id": "record-pet-luna-01-202604-012",
+        "petId": "pet-luna-01",
+        "type": "other",
+        "title": "2026年04月居家环境护理笔记 #12",
+        "recordDate": "2026-04-08T16:33:00+08:00",
+        "summary": "记录空气净化器、猫抓板和饮水机维护情况。",
+        "note": "保留环境变量，辅助解释行为变化。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202602-001",
+        "petId": "pet-cocoa-02",
+        "type": "medical",
+        "title": "2026年02月运动量与步态观察 #1",
+        "recordDate": "2026-02-02T11:07:00+08:00",
+        "summary": "记录近一周步态、跳跃和晨起精神状态，未见明显异常。",
+        "note": "用于 AI 分析运动量与关节压力变化。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202602-002",
+        "petId": "pet-cocoa-02",
+        "type": "receipt",
+        "title": "2026年02月主粮与零食采购 #2",
+        "recordDate": "2026-02-05T13:18:00+08:00",
+        "summary": "记录主粮和训练零食补货批次，库存可支撑至下次提醒。",
+        "note": "可用于总结训练消耗与补货计划。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202602-003",
+        "petId": "pet-cocoa-02",
+        "type": "image",
+        "title": "2026年02月皮肤与耳道拍照留档 #3",
+        "recordDate": "2026-02-08T15:29:00+08:00",
+        "summary": "完成耳道和腹部皮肤留档，对照上月状态无显著恶化。",
+        "note": "供后续 AI 做可视化回顾。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202602-004",
+        "petId": "pet-cocoa-02",
+        "type": "other",
+        "title": "2026年02月社交与行为观察笔记 #4",
+        "recordDate": "2026-02-12T17:40:00+08:00",
+        "summary": "记录散步社交、分离焦虑和雨天活动替代方案执行情况。",
+        "note": "帮助解释行为波动和情绪管理效果。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202603-005",
+        "petId": "pet-cocoa-02",
+        "type": "medical",
+        "title": "2026年03月运动量与步态观察 #5",
+        "recordDate": "2026-03-03T11:07:00+08:00",
+        "summary": "记录近一周步态、跳跃和晨起精神状态，未见明显异常。",
+        "note": "用于 AI 分析运动量与关节压力变化。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202603-006",
+        "petId": "pet-cocoa-02",
+        "type": "receipt",
+        "title": "2026年03月主粮与零食采购 #6",
+        "recordDate": "2026-03-06T13:18:00+08:00",
+        "summary": "记录主粮和训练零食补货批次，库存可支撑至下次提醒。",
+        "note": "可用于总结训练消耗与补货计划。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202603-007",
+        "petId": "pet-cocoa-02",
+        "type": "image",
+        "title": "2026年03月皮肤与耳道拍照留档 #7",
+        "recordDate": "2026-03-09T15:29:00+08:00",
+        "summary": "完成耳道和腹部皮肤留档，对照上月状态无显著恶化。",
+        "note": "供后续 AI 做可视化回顾。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202603-008",
+        "petId": "pet-cocoa-02",
+        "type": "other",
+        "title": "2026年03月社交与行为观察笔记 #8",
+        "recordDate": "2026-03-13T17:40:00+08:00",
+        "summary": "记录散步社交、分离焦虑和雨天活动替代方案执行情况。",
+        "note": "帮助解释行为波动和情绪管理效果。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202604-009",
+        "petId": "pet-cocoa-02",
+        "type": "medical",
+        "title": "2026年04月运动量与步态观察 #9",
+        "recordDate": "2026-04-01T11:07:00+08:00",
+        "summary": "记录近一周步态、跳跃和晨起精神状态，未见明显异常。",
+        "note": "用于 AI 分析运动量与关节压力变化。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202604-010",
+        "petId": "pet-cocoa-02",
+        "type": "receipt",
+        "title": "2026年04月主粮与零食采购 #10",
+        "recordDate": "2026-04-03T13:18:00+08:00",
+        "summary": "记录主粮和训练零食补货批次，库存可支撑至下次提醒。",
+        "note": "可用于总结训练消耗与补货计划。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202604-011",
+        "petId": "pet-cocoa-02",
+        "type": "image",
+        "title": "2026年04月皮肤与耳道拍照留档 #11",
+        "recordDate": "2026-04-05T15:29:00+08:00",
+        "summary": "完成耳道和腹部皮肤留档，对照上月状态无显著恶化。",
+        "note": "供后续 AI 做可视化回顾。"
+      },
+      {
+        "id": "record-pet-cocoa-02-202604-012",
+        "petId": "pet-cocoa-02",
+        "type": "other",
+        "title": "2026年04月社交与行为观察笔记 #12",
+        "recordDate": "2026-04-08T17:40:00+08:00",
+        "summary": "记录散步社交、分离焦虑和雨天活动替代方案执行情况。",
+        "note": "帮助解释行为波动和情绪管理效果。"
+      }
+    ]
+  },
+  "settings": {
+    "themePreferenceName": "system",
+    "aiProviderConfigs": [],
+    "activeAiProviderConfigId": null
+  },
+  "meta": {
+    "source": "sample_backup",
+    "generatedFor": "ai_feature_testing",
+    "datasetStyle": "realistic_quarterly_dual_pet",
+    "dateRangeStart": "2026-02-01",
+    "dateRangeEnd": "2026-04-30",
+    "baselineAt": "2026-04-09T23:59:59+08:00",
+    "petScope": "dual_pet"
+  }
+}

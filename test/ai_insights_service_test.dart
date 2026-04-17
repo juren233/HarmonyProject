@@ -9,7 +9,6 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/state/app_settings_controller.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -101,11 +100,18 @@ void main() {
       ),
     );
 
-    expect(report.executiveSummary, contains('整体稳定'));
+    expect(report.overallScore, 84);
+    expect(report.statusLabel, '基本稳定');
+    expect(report.oneLineSummary, contains('整体稳定'));
+    expect(report.recommendationRankings, hasLength(5));
+    expect(report.recommendationRankings.first.petNames, contains('Mochi'));
     expect(report.overallScore, inInclusiveRange(0, 100));
-    expect(report.scoreBreakdown, hasLength(4));
-    expect(report.keyFindings, contains('完成驱虫提醒'));
+    expect(report.recommendationRankings.first.kind, 'action');
     expect(report.perPetReports.single.petName, 'Mochi');
+    expect(report.perPetReports.single.score, 82);
+    expect(report.perPetReports.single.statusLabel, '基本稳定');
+    expect(report.perPetReports.single.whyThisScore, isNotEmpty);
+    expect(report.perPetReports.single.followUpPlan, isNotEmpty);
   });
 
   test(
@@ -179,8 +185,8 @@ void main() {
     );
 
     expect(requestBodies, hasLength(2));
-    expect(report.executiveSummary, '本周期稳定。');
-    expect(report.keyFindings, contains('完成驱虫提醒'));
+    expect(report.oneLineSummary, '本周期稳定。');
+    expect(report.recommendationRankings, hasLength(5));
   });
 
   test('extracts openai-compatible content when message content is an object',
@@ -246,11 +252,14 @@ void main() {
       ),
     );
 
-    expect(report.executiveSummary, '整体稳定。');
-    expect(report.priorityActions, contains('本周补一次耳道观察'));
+    expect(report.oneLineSummary, '整体稳定。');
+    expect(
+      report.recommendationRankings.map((item) => item.suggestedAction),
+      contains('本周补一次耳道观察'),
+    );
   });
 
-  test('uses a 10-second timeout budget for care report generation', () async {
+  test('uses a longer timeout for remote generation requests', () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -315,11 +324,10 @@ void main() {
     );
 
     expect(recordedTimeouts, isNotEmpty);
-    expect(
-        recordedTimeouts.first!.inMilliseconds, inInclusiveRange(9900, 10000));
+    expect(recordedTimeouts.first, const Duration(seconds: 45));
   });
 
-  test('falls back locally after provider overload instead of retrying remote',
+  test('retries care report with a smaller prompt after provider overload',
       () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
@@ -349,13 +357,33 @@ void main() {
         handler: (request) async {
           final body = jsonDecode(request.body!) as Map<String, dynamic>;
           final messages = body['messages'] as List<dynamic>;
-          final userPrompt =
-              (messages[1] as Map<String, dynamic>)['content'] as String;
+          final userPrompt = (messages[1] as Map<String, dynamic>)['content']
+              as String;
           userPromptLengths.add(userPrompt.length);
-          return const AiHttpResponse(
-            statusCode: 503,
-            body:
-                '{"errors":[{"message":"AiError: Max retries exhausted","code":3050}],"success":false}',
+          if (userPromptLengths.length == 1) {
+            return const AiHttpResponse(
+              statusCode: 503,
+              body:
+                  '{"errors":[{"message":"AiError: Max retries exhausted","code":3050}],"success":false}',
+            );
+          }
+          return AiHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'choices': [
+                {
+                  'message': {
+                    'content': jsonEncode(
+                      _careReportResponseJson(
+                        petId: 'pet-1',
+                        petName: 'Mochi',
+                        executiveSummary: '经过降载后成功生成报告。',
+                      ),
+                    ),
+                  },
+                },
+              ],
+            }),
           );
         },
       ),
@@ -363,14 +391,12 @@ void main() {
 
     final report = await service.generateCareReport(_heavyCareContext());
 
-    expect(report.executiveSummary, contains('极速'));
-    expect(report.dataQualityNotes.join(' '), contains('本地'));
-    expect(userPromptLengths, hasLength(1));
+    expect(report.oneLineSummary, '经过降载后成功生成报告。');
+    expect(userPromptLengths, hasLength(2));
+    expect(userPromptLengths.last, lessThan(userPromptLengths.first));
   });
 
-  test(
-      'falls back locally instead of retrying remote care report after timeout',
-      () async {
+  test('retries care report after a timeout with a smaller prompt', () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -399,60 +425,12 @@ void main() {
         handler: (request) async {
           final body = jsonDecode(request.body!) as Map<String, dynamic>;
           final messages = body['messages'] as List<dynamic>;
-          final userPrompt =
-              (messages[1] as Map<String, dynamic>)['content'] as String;
+          final userPrompt = (messages[1] as Map<String, dynamic>)['content']
+              as String;
           userPromptLengths.add(userPrompt.length);
-          throw TimeoutException('future not completed');
-        },
-      ),
-    );
-
-    final report = await service.generateCareReport(_heavyCareContext());
-
-    expect(report.executiveSummary, contains('极速'));
-    expect(report.priorityActions, isNotEmpty);
-    expect(userPromptLengths, hasLength(1));
-  });
-
-  test('bigmodel long-range care report starts with condensed budget profile',
-      () async {
-    final settingsController = await AppSettingsController.load();
-    final secretStore = InMemoryAiSecretStore();
-    final appLogController = AppLogController.memory();
-    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
-    final userPromptDetails = <String>[];
-    final timeouts = <Duration?>[];
-
-    await settingsController.upsertAiProviderConfig(
-      AiProviderConfig(
-        id: 'cfg-bigmodel-budget',
-        displayName: 'BigModel',
-        providerType: AiProviderType.openaiCompatible,
-        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        model: 'glm-4.7',
-        isActive: true,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await secretStore.writeKey('cfg-bigmodel-budget', 'sk-test-123');
-
-    final service = NetworkAiInsightsService(
-      clientFactory: AiClientFactory(
-        settingsController: settingsController,
-        secretStore: secretStore,
-      ),
-      appLogController: appLogController,
-      transport: _FakeAiHttpTransport(
-        handler: (request) async {
-          timeouts.add(request.timeout);
-          final body = jsonDecode(request.body!) as Map<String, dynamic>;
-          final messages = body['messages'] as List<dynamic>;
-          final userPrompt =
-              (messages[1] as Map<String, dynamic>)['content'] as String;
-          final detailLevelMatch =
-              RegExp(r'"detailLevel":"([^"]+)"').firstMatch(userPrompt);
-          userPromptDetails.add(detailLevelMatch?.group(1) ?? 'unknown');
+          if (userPromptLengths.length == 1) {
+            throw TimeoutException('future not completed');
+          }
           return AiHttpResponse(
             statusCode: 200,
             body: jsonEncode({
@@ -463,7 +441,7 @@ void main() {
                       _careReportResponseJson(
                         petId: 'pet-1',
                         petName: 'Mochi',
-                        executiveSummary: '精简事实摘要生成成功。',
+                        executiveSummary: '超时后使用轻量上下文生成成功。',
                       ),
                     ),
                   },
@@ -477,197 +455,13 @@ void main() {
 
     final report = await service.generateCareReport(_heavyCareContext());
 
-    expect(report.executiveSummary, '精简事实摘要生成成功。');
-    expect(userPromptDetails, ['distilled']);
-    expect(timeouts.single, isNotNull);
-    expect(
-      appLogController.entries.any(
-        (entry) =>
-            entry.title == 'AI 总览生成画像' &&
-            entry.message.contains('profile=openai-compatible-bigmodel'),
-      ),
-      isTrue,
-    );
-  });
-
-  test('bigmodel 3-month care report starts with distilled prompt budget',
-      () async {
-    final settingsController = await AppSettingsController.load();
-    final secretStore = InMemoryAiSecretStore();
-    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
-    final userPromptDetails = <String>[];
-
-    await settingsController.upsertAiProviderConfig(
-      AiProviderConfig(
-        id: 'cfg-bigmodel-quarter-budget',
-        displayName: 'BigModel',
-        providerType: AiProviderType.openaiCompatible,
-        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        model: 'glm-4.7',
-        isActive: true,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await secretStore.writeKey('cfg-bigmodel-quarter-budget', 'sk-test-123');
-
-    final service = NetworkAiInsightsService(
-      clientFactory: AiClientFactory(
-        settingsController: settingsController,
-        secretStore: secretStore,
-      ),
-      transport: _FakeAiHttpTransport(
-        handler: (request) async {
-          final body = jsonDecode(request.body!) as Map<String, dynamic>;
-          final messages = body['messages'] as List<dynamic>;
-          final userPrompt =
-              (messages[1] as Map<String, dynamic>)['content'] as String;
-          final detailLevelMatch =
-              RegExp(r'"detailLevel":"([^"]+)"').firstMatch(userPrompt);
-          userPromptDetails.add(detailLevelMatch?.group(1) ?? 'unknown');
-          return AiHttpResponse(
-            statusCode: 200,
-            body: jsonEncode({
-              'choices': [
-                {
-                  'message': {
-                    'content': jsonEncode(
-                      _careReportResponseJson(
-                        petId: 'pet-1',
-                        petName: 'Mochi',
-                        executiveSummary: '3 个月极速总览生成成功。',
-                      ),
-                    ),
-                  },
-                },
-              ],
-            }),
-          );
-        },
-      ),
-    );
-
-    final report = await service.generateCareReport(_quarterCareContext());
-
-    expect(report.executiveSummary, '3 个月极速总览生成成功。');
-    expect(userPromptDetails, ['distilled']);
-  });
-
-  test('falls back to a local fast care report after timeout', () async {
-    final settingsController = await AppSettingsController.load();
-    final secretStore = InMemoryAiSecretStore();
-    final appLogController = AppLogController.memory();
-    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
-    var requestCount = 0;
-
-    await settingsController.upsertAiProviderConfig(
-      AiProviderConfig(
-        id: 'cfg-timeout-fallback',
-        displayName: 'BigModel',
-        providerType: AiProviderType.openaiCompatible,
-        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        model: 'glm-4.7',
-        isActive: true,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await secretStore.writeKey('cfg-timeout-fallback', 'sk-test-123');
-
-    final service = NetworkAiInsightsService(
-      clientFactory: AiClientFactory(
-        settingsController: settingsController,
-        secretStore: secretStore,
-      ),
-      appLogController: appLogController,
-      transport: _FakeAiHttpTransport(
-        handler: (request) async {
-          requestCount += 1;
-          throw TimeoutException('future not completed');
-        },
-      ),
-    );
-
-    final report = await service.generateCareReport(_quarterCareContext());
-
-    expect(requestCount, 1);
-    expect(report.executiveSummary, contains('极速'));
-    expect(report.overallAssessment, isNotEmpty);
-    expect(report.priorityActions, isNotEmpty);
-    expect(report.perPetReports.single.petName, 'Mochi');
-    expect(report.dataQualityNotes.join(' '), contains('本地'));
-    expect(
-      appLogController.entries.any(
-        (entry) => entry.title == 'AI 总览极速兜底',
-      ),
-      isTrue,
-    );
-  });
-
-  test('falls back to a local fast care report after structured-output failure',
-      () async {
-    final settingsController = await AppSettingsController.load();
-    final secretStore = InMemoryAiSecretStore();
-    final appLogController = AppLogController.memory();
-    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
-
-    await settingsController.upsertAiProviderConfig(
-      AiProviderConfig(
-        id: 'cfg-structured-output-failure',
-        displayName: 'Compatible',
-        providerType: AiProviderType.openaiCompatible,
-        baseUrl: 'https://llm.example.com/v1',
-        model: 'petnote-ai',
-        isActive: true,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await secretStore.writeKey('cfg-structured-output-failure', 'sk-test-123');
-
-    final service = NetworkAiInsightsService(
-      clientFactory: AiClientFactory(
-        settingsController: settingsController,
-        secretStore: secretStore,
-      ),
-      appLogController: appLogController,
-      transport: _FakeAiHttpTransport(
-        handler: (request) async => AiHttpResponse(
-          statusCode: 200,
-          body: jsonEncode({
-            'choices': [
-              {
-                'message': {
-                  'content': '这不是合法 JSON',
-                },
-              },
-            ],
-          }),
-        ),
-      ),
-    );
-
-    final report = await service.generateCareReport(_sampleCareContext());
-
-    expect(
-      appLogController.entries.any(
-        (entry) =>
-            entry.title == 'AI 总览结构化输出失败' && entry.message.contains('结构化'),
-      ),
-      isTrue,
-    );
-    expect(
-      appLogController.entries.any(
-        (entry) => entry.title == 'AI 总览极速兜底',
-      ),
-      isTrue,
-    );
-    expect(report.executiveSummary, contains('极速'));
-    expect(report.dataQualityNotes.join(' '), contains('本地'));
+    expect(report.oneLineSummary, '超时后使用轻量上下文生成成功。');
+    expect(userPromptLengths, hasLength(2));
+    expect(userPromptLengths.last, lessThan(userPromptLengths.first));
   });
 
   test(
-      'care report uses local scorecard values instead of provider supplied scores',
+      'care report uses provider supplied scores and status labels from AI output',
       () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
@@ -704,7 +498,8 @@ void main() {
                       petId: 'pet-1',
                       petName: 'Mochi',
                     ),
-                    'overallScore': 3,
+                    'overallScore': 61,
+                    'statusLabel': '急需关注',
                     'perPetReports': [
                       {
                         ...(_careReportResponseJson(
@@ -712,7 +507,8 @@ void main() {
                           petName: 'Mochi',
                         )['perPetReports'] as List)
                             .single as Map<String, dynamic>,
-                        'score': 1,
+                        'score': 58,
+                        'statusLabel': '存在隐患',
                       },
                     ],
                   }),
@@ -726,11 +522,173 @@ void main() {
 
     final report = await service.generateCareReport(_sampleCareContext());
 
-    expect(report.overallScore, isNot(3));
-    expect(report.perPetReports.single.score, isNot(1));
+    expect(report.overallScore, 61);
+    expect(report.statusLabel, '急需关注');
+    expect(report.perPetReports.single.score, 58);
+    expect(report.perPetReports.single.statusLabel, '存在隐患');
   });
 
-  test('falls back locally when provider response is malformed', () async {
+  test('care report prompt payload excludes precomputed score and status labels',
+      () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+    String? capturedUserPrompt;
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-payload-check',
+        displayName: 'Compatible',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://llm.example.com/v1',
+        model: 'petnote-ai',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-payload-check', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          final body = jsonDecode(request.body!) as Map<String, dynamic>;
+          final messages = body['messages'] as List<dynamic>;
+          capturedUserPrompt =
+              (messages[1] as Map<String, dynamic>)['content'] as String;
+          return AiHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'choices': [
+                {
+                  'message': {
+                    'content': jsonEncode(
+                      _careReportResponseJson(
+                        petId: 'pet-1',
+                        petName: 'Mochi',
+                      ),
+                    ),
+                  },
+                },
+              ],
+            }),
+          );
+        },
+      ),
+    );
+
+    await service.generateCareReport(_sampleCareContext());
+
+    expect(capturedUserPrompt, isNotNull);
+    expect(capturedUserPrompt, contains('analysisConfig'));
+    expect(capturedUserPrompt, contains('scoringGuidelines'));
+    expect(capturedUserPrompt, contains('expectedCare'));
+    expect(capturedUserPrompt, contains('missingCare'));
+    expect(capturedUserPrompt, isNot(contains('"overallScore"')));
+    expect(capturedUserPrompt, isNot(contains('"statusLabel"')));
+    expect(capturedUserPrompt, isNot(contains('scorecard')));
+  });
+
+  test('generates visit summary from anthropic messages', () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-anthropic',
+        displayName: 'Anthropic',
+        providerType: AiProviderType.anthropic,
+        baseUrl: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet-4-20250514',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-anthropic', 'anthropic-test-token');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          expect(request.method, 'POST');
+          expect(request.uri.path.endsWith('/messages'), isTrue);
+          return AiHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'content': [
+                {
+                  'type': 'text',
+                  'text': jsonEncode({
+                    'visitReason': '近两周耳道护理后仍有抓耳行为，准备复查。',
+                    'timeline': ['04-01 出现抓耳', '04-03 做了耳道清洁'],
+                    'medicationsAndTreatments': ['耳道清洁 1 次'],
+                    'testsAndResults': ['暂无新检查结果'],
+                    'questionsToAskVet': ['是否需要继续滴耳液'],
+                  }),
+                },
+              ],
+            }),
+          );
+        },
+      ),
+    );
+
+    final summary = await service.generateVisitSummary(
+      AiGenerationContext(
+        title: '最近 30 天看诊摘要',
+        rangeLabel: '最近 30 天',
+        rangeStart: DateTime.parse('2026-03-10T00:00:00+08:00'),
+        rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
+        languageTag: 'zh-CN',
+        pets: [
+          Pet(
+            id: 'pet-1',
+            name: 'Mochi',
+            avatarText: 'MO',
+            type: PetType.cat,
+            breed: '英短',
+            sex: '母',
+            birthday: '2024-02-12',
+            ageLabel: '2岁',
+            weightKg: 4.2,
+            neuterStatus: PetNeuterStatus.neutered,
+            feedingPreferences: '主粮+冻干',
+            allergies: '鸡肉敏感',
+            note: '偶尔紧张',
+          ),
+        ],
+        todos: const [],
+        reminders: const [],
+        records: [
+          PetRecord(
+            id: 'record-1',
+            petId: 'pet-1',
+            type: PetRecordType.medical,
+            title: '耳道复查',
+            recordDate: DateTime.parse('2026-04-03T18:00:00+08:00'),
+            summary: '抓耳次数略有增加，准备复查。',
+            note: '近两周有耳道护理。',
+          ),
+        ],
+      ),
+    );
+
+    expect(summary.visitReason, contains('复查'));
+    expect(summary.timeline, hasLength(2));
+    expect(summary.questionsToAskVet.single, contains('滴耳液'));
+  });
+
+  test('throws a readable exception when provider response is malformed',
+      () async {
     final settingsController = await AppSettingsController.load();
     final secretStore = InMemoryAiSecretStore();
     final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
@@ -764,22 +722,97 @@ void main() {
       ),
     );
 
-    final report = await service.generateCareReport(
+    await expectLater(
+      () => service.generateCareReport(
+        AiGenerationContext(
+          title: '最近 7 天的总结',
+          rangeLabel: '最近 7 天',
+          rangeStart: DateTime.parse('2026-04-02T00:00:00+08:00'),
+          rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
+          languageTag: 'zh-CN',
+          pets: const [],
+          todos: const [],
+          reminders: const [],
+          records: const [],
+        ),
+      ),
+      throwsA(
+        isA<AiGenerationException>().having(
+          (error) => error.message,
+          'message',
+          contains('结构化'),
+        ),
+      ),
+    );
+  });
+
+  test(
+      'returns a conservative visit summary when the selected range has no data',
+      () async {
+    final settingsController = await AppSettingsController.load();
+    final secretStore = InMemoryAiSecretStore();
+    final createdAt = DateTime.parse('2026-04-09T10:00:00+08:00');
+
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-openai',
+        displayName: 'OpenAI',
+        providerType: AiProviderType.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await secretStore.writeKey('cfg-openai', 'sk-test-123');
+
+    final service = NetworkAiInsightsService(
+      clientFactory: AiClientFactory(
+        settingsController: settingsController,
+        secretStore: secretStore,
+      ),
+      transport: _FakeAiHttpTransport(
+        handler: (request) async {
+          fail(
+              'empty-range visit summaries should not call the remote AI provider');
+        },
+      ),
+    );
+
+    final summary = await service.generateVisitSummary(
       AiGenerationContext(
-        title: '最近 7 天的总结',
-        rangeLabel: '最近 7 天',
-        rangeStart: DateTime.parse('2026-04-02T00:00:00+08:00'),
+        title: '最近 30 天看诊摘要',
+        rangeLabel: '最近 30 天',
+        rangeStart: DateTime.parse('2026-03-10T00:00:00+08:00'),
         rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
         languageTag: 'zh-CN',
-        pets: const [],
+        pets: [
+          Pet(
+            id: 'pet-1',
+            name: 'Mochi',
+            avatarText: 'MO',
+            type: PetType.cat,
+            breed: '英短',
+            sex: '母',
+            birthday: '2024-02-12',
+            ageLabel: '2岁',
+            weightKg: 4.2,
+            neuterStatus: PetNeuterStatus.neutered,
+            feedingPreferences: '主粮+冻干',
+            allergies: '鸡肉敏感',
+            note: '偶尔紧张',
+          ),
+        ],
         todos: const [],
         reminders: const [],
         records: const [],
       ),
     );
 
-    expect(report.executiveSummary, contains('极速'));
-    expect(report.dataQualityNotes.join(' '), contains('本地'));
+    expect(summary.visitReason, contains('暂无足够记录'));
+    expect(summary.timeline.single, contains('暂无'));
+    expect(summary.questionsToAskVet.single, contains('带上最新观察'));
   });
 
   test('hasActiveProvider returns false when secure storage read fails',
@@ -822,24 +855,67 @@ Map<String, dynamic> _careReportResponseJson({
   String executiveSummary = '本周期整体稳定，提醒和记录都有持续跟进。',
 }) {
   return {
-    'executiveSummary': executiveSummary,
-    'overallAssessment': ['本周期整体稳定，提醒和记录都有持续跟进。'],
-    'keyFindings': ['完成驱虫提醒', '补充了两次饮食记录'],
-    'trendAnalysis': ['食欲记录更规律'],
-    'riskAssessment': ['耳道护理间隔略长，建议一周内补观察。'],
-    'priorityActions': ['本周补一次耳道观察', '保持当前提醒节奏'],
-    'dataQualityNotes': ['当前周期样本量充足，结论可信度较高。'],
+    'overallScore': 84,
+    'statusLabel': '基本稳定',
+    'oneLineSummary': executiveSummary,
+    'recommendationRankings': [
+      {
+        'rank': 1,
+        'kind': 'action',
+        'petIds': [petId],
+        'petNames': [petName],
+        'title': '优先补上$petName 的耳道复查',
+        'summary': '$petName 最近仍有耳道护理线索，但后续观察没有闭环。',
+        'suggestedAction': '本周补一次耳道观察',
+      },
+      {
+        'rank': 2,
+        'kind': 'gap',
+        'petIds': [petId],
+        'petNames': [petName],
+        'title': '补齐$petName 的过敏跟进记录',
+        'summary': '现有资料无法稳定判断过敏波动。',
+        'suggestedAction': '补充饮食与症状变化记录',
+      },
+      {
+        'rank': 3,
+        'kind': 'risk',
+        'petIds': [petId],
+        'petNames': [petName],
+        'title': '$petName 的提醒闭环仍需加强',
+        'summary': '关键提醒虽然已建立，但仍有延迟风险。',
+        'suggestedAction': '核对本周提醒完成情况',
+      },
+      {
+        'rank': 4,
+        'kind': 'action',
+        'petIds': [petId],
+        'petNames': [petName],
+        'title': '继续保持$petName 的当前照护节奏',
+        'summary': '当前基础照护节奏整体稳定。',
+        'suggestedAction': '保持当前提醒节奏',
+      },
+      {
+        'rank': 5,
+        'kind': 'gap',
+        'petIds': [petId],
+        'petNames': [petName],
+        'title': '补强$petName 的重点问题证据',
+        'summary': '重点问题记录仍然偏少，影响判断可信度。',
+        'suggestedAction': '补充一条针对重点问题的观察记录',
+      },
+    ],
     'perPetReports': [
       {
         'petId': petId,
         'petName': petName,
-        'summary': '$petName 当前照护节奏稳定。',
-        'careFocus': '重点观察耳道护理与日常精神状态。',
-        'keyEvents': ['完成驱虫提醒', '新增饮食记录'],
-        'trendAnalysis': ['食欲记录更规律'],
-        'riskAssessment': ['耳道护理间隔略长'],
-        'recommendedActions': ['本周补一次耳道观察'],
-        'followUpFocus': '下一个观察重点是耳道状态和进食表现。',
+        'score': 82,
+        'statusLabel': '基本稳定',
+        'whyThisScore': ['耳道护理已有动作，但后续观察还不够连续。'],
+        'topPriority': ['优先补上耳道观察闭环。'],
+        'missedItems': ['近期缺少过敏相关跟进记录。'],
+        'recentChanges': ['最近有新增耳道护理记录。'],
+        'followUpPlan': ['下一个观察重点是耳道状态和进食表现。'],
       },
     ],
   };
@@ -965,69 +1041,6 @@ AiGenerationContext _heavyCareContext() {
         recordDate: baseStart.add(Duration(days: index)),
         summary: '这是第 $index 条记录摘要。',
         note: '用于模拟最近 6 个月的连续观察和护理记录。',
-      );
-    }),
-  );
-}
-
-AiGenerationContext _quarterCareContext() {
-  final baseStart = DateTime.parse('2026-01-09T00:00:00+08:00');
-  return AiGenerationContext(
-    title: '最近 3 个月的总结',
-    rangeLabel: '最近 3 个月',
-    rangeStart: baseStart,
-    rangeEnd: DateTime.parse('2026-04-09T23:59:59+08:00'),
-    languageTag: 'zh-CN',
-    pets: [
-      Pet(
-        id: 'pet-1',
-        name: 'Mochi',
-        avatarText: 'MO',
-        type: PetType.cat,
-        breed: '英短',
-        sex: '母',
-        birthday: '2024-02-12',
-        ageLabel: '2岁',
-        weightKg: 4.2,
-        neuterStatus: PetNeuterStatus.neutered,
-        feedingPreferences: '主粮+冻干',
-        allergies: '鸡肉敏感',
-        note: '需要持续观察耳道与饮食规律。',
-      ),
-    ],
-    todos: List.generate(42, (index) {
-      return TodoItem(
-        id: 'quarter-todo-$index',
-        petId: 'pet-1',
-        title: '季度待办 $index',
-        dueAt: baseStart.add(Duration(days: index * 2)),
-        notificationLeadTime: NotificationLeadTime.none,
-        status: index % 8 == 0 ? TodoStatus.overdue : TodoStatus.done,
-        note: '用于模拟最近 3 个月的待办数据。',
-      );
-    }),
-    reminders: List.generate(38, (index) {
-      return ReminderItem(
-        id: 'quarter-reminder-$index',
-        petId: 'pet-1',
-        kind: index.isEven ? ReminderKind.deworming : ReminderKind.review,
-        title: '季度提醒 $index',
-        scheduledAt: baseStart.add(Duration(days: index * 2 + 1)),
-        notificationLeadTime: NotificationLeadTime.none,
-        recurrence: '每月',
-        status: index % 9 == 0 ? ReminderStatus.overdue : ReminderStatus.done,
-        note: '用于模拟最近 3 个月的提醒数据。',
-      );
-    }),
-    records: List.generate(44, (index) {
-      return PetRecord(
-        id: 'quarter-record-$index',
-        petId: 'pet-1',
-        type: index % 4 == 0 ? PetRecordType.medical : PetRecordType.other,
-        title: '季度记录 $index',
-        recordDate: baseStart.add(Duration(days: index * 2)),
-        summary: '这是第 $index 条季度记录摘要。',
-        note: '用于模拟最近 3 个月的连续观察记录。',
       );
     }),
   );

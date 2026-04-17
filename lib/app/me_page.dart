@@ -68,29 +68,38 @@ class MePage extends StatelessWidget {
               title: themeModeSectionTitle,
               subtitle: themeModeSectionSubtitle,
             ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_system'),
-              title: followSystemTitle,
-              subtitle: followSystemSubtitle,
-              value: AppThemePreference.system,
+            RadioGroup<AppThemePreference>(
               groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
-            ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_light'),
-              title: lightModeTitle,
-              subtitle: lightModeSubtitle,
-              value: AppThemePreference.light,
-              groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
-            ),
-            _ThemePreferenceTile(
-              key: const ValueKey('theme_option_dark'),
-              title: darkModeTitle,
-              subtitle: darkModeSubtitle,
-              value: AppThemePreference.dark,
-              groupValue: themePreference,
-              onChanged: onThemePreferenceChanged,
+              onChanged: (next) {
+                if (next != null) {
+                  onThemePreferenceChanged(next);
+                }
+              },
+              child: Column(
+                children: [
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_system'),
+                    title: followSystemTitle,
+                    subtitle: followSystemSubtitle,
+                    value: AppThemePreference.system,
+                    selected: themePreference == AppThemePreference.system,
+                  ),
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_light'),
+                    title: lightModeTitle,
+                    subtitle: lightModeSubtitle,
+                    value: AppThemePreference.light,
+                    selected: themePreference == AppThemePreference.light,
+                  ),
+                  _ThemePreferenceTile(
+                    key: const ValueKey('theme_option_dark'),
+                    title: darkModeTitle,
+                    subtitle: darkModeSubtitle,
+                    value: AppThemePreference.dark,
+                    selected: themePreference == AppThemePreference.dark,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -385,15 +394,13 @@ class _ThemePreferenceTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.value,
-    required this.groupValue,
-    required this.onChanged,
+    required this.selected,
   });
 
   final String title;
   final String subtitle;
   final AppThemePreference value;
-  final AppThemePreference groupValue;
-  final ValueChanged<AppThemePreference> onChanged;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -405,12 +412,7 @@ class _ThemePreferenceTile extends StatelessWidget {
       ),
       child: RadioListTile<AppThemePreference>(
         value: value,
-        groupValue: groupValue,
-        onChanged: (next) {
-          if (next != null) {
-            onChanged(next);
-          }
-        },
+        selected: selected,
         title: Text(title),
         subtitle: Text(
           subtitle,

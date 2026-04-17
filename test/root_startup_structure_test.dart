@@ -3,12 +3,17 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('root shell avoids eager IndexedStack tab construction on startup', () {
+  test('root shell defers heavy tab prewarm until after first frame', () {
     final source = File('lib/app/petnote_root.dart').readAsStringSync();
 
-    expect(source.contains('IndexedStack('), isFalse);
-    expect(source.contains('final activeTab = store.activeTab;'), isTrue);
-    expect(source.contains('switch (activeTab)'), isTrue);
-    expect(source.contains('PetFirstLaunchIntro('), isTrue);
+    expect(source.contains('IndexedStack('), isTrue);
+    expect(source.contains('_queueDeferredTabPrewarm();'), isTrue);
+    expect(source.contains('WidgetsBinding.instance.addPostFrameCallback'),
+        isTrue);
+    expect(source.contains('_prewarmPersistentTabs()'), isTrue);
+    expect(source.contains('Future<void>.delayed(const Duration(milliseconds: 48))'),
+        isTrue);
+    expect(source.contains('AppTab.overview,'), isTrue);
+    expect(source.contains('AppTab.pets,'), isTrue);
   });
 }

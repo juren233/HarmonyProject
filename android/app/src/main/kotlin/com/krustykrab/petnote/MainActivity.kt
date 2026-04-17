@@ -5,27 +5,10 @@ import android.view.Surface
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
-import androidx.lifecycle.ViewModelStore
-import androidx.lifecycle.ViewModelStoreOwner
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.lifecycle.setViewTreeViewModelStoreOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity(), ViewModelStoreOwner, SavedStateRegistryOwner {
-    private val _viewModelStore = ViewModelStore()
-    private val _savedStateRegistryController = SavedStateRegistryController.create(this)
-
-    override val viewModelStore: ViewModelStore
-        get() = _viewModelStore
-
-    override val savedStateRegistry: SavedStateRegistry
-        get() = _savedStateRegistryController.savedStateRegistry
-
+class MainActivity : FlutterFragmentActivity() {
     private var notificationBridge: PetNoteNotificationBridge? = null
     private var aiSecretStoreBridge: PetNoteAiSecretStoreBridge? = null
     private var dataPackageFileAccessBridge: PetNoteDataPackageFileAccessBridge? = null
@@ -33,25 +16,8 @@ class MainActivity : FlutterActivity(), ViewModelStoreOwner, SavedStateRegistryO
     private var nativePetPhotoPickerBridge: PetNoteNativePetPhotoPickerBridge? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        _savedStateRegistryController.performRestore(savedInstanceState)
         super.onCreate(savedInstanceState)
-        
-        val decorView = window.decorView
-        decorView.setViewTreeLifecycleOwner(this)
-        decorView.setViewTreeViewModelStoreOwner(this)
-        decorView.setViewTreeSavedStateRegistryOwner(this)
-        
         requestHighRefreshRate()
-    }
-
-    override fun onSaveInstanceState(outState: android.os.Bundle) {
-        super.onSaveInstanceState(outState)
-        _savedStateRegistryController.performSave(outState)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        _viewModelStore.clear()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

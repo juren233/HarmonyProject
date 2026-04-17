@@ -674,6 +674,173 @@ class PageFeedbackBanner extends StatelessWidget {
   }
 }
 
+class PageEmptyStateBlock extends StatelessWidget {
+  const PageEmptyStateBlock({
+    super.key,
+    this.heroTitle,
+    this.heroSubtitle,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String? heroTitle;
+  final String? heroSubtitle;
+  final String emptyTitle;
+  final String emptySubtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final showHero = heroTitle != null && heroSubtitle != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showHero)
+          HeroPanel(
+            title: heroTitle!,
+            subtitle: heroSubtitle!,
+            child: const SizedBox.shrink(),
+          ),
+        EmptyCard(
+          title: emptyTitle,
+          subtitle: emptySubtitle,
+          actionLabel: actionLabel,
+          onAction: onAction,
+        ),
+      ],
+    );
+  }
+}
+
+class InlineLoadingMessage extends StatelessWidget {
+  const InlineLoadingMessage({
+    super.key,
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            message,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  height: 1.6,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class TitledBulletGroup extends StatelessWidget {
+  const TitledBulletGroup({
+    super.key,
+    required this.title,
+    required this.items,
+    this.titleStyle,
+    this.topPadding = 0,
+  });
+
+  final String title;
+  final List<String> items;
+  final TextStyle? titleStyle;
+  final double topPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: titleStyle ??
+              Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+        ),
+        const SizedBox(height: 8),
+        ...items.map((item) => BulletText(text: item)),
+      ],
+    );
+
+    if (topPadding <= 0) {
+      return content;
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(top: topPadding),
+      child: content,
+    );
+  }
+}
+
+class StatusListRow extends StatelessWidget {
+  const StatusListRow({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.leadingIcon,
+    required this.leadingBackgroundColor,
+    required this.leadingIconColor,
+    this.trailing,
+    this.leadingText,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData leadingIcon;
+  final Color leadingBackgroundColor;
+  final Color leadingIconColor;
+  final Widget? trailing;
+  final String? leadingText;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListRow(
+      title: title,
+      subtitle: subtitle,
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: leadingBackgroundColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Center(
+          child: leadingText == null
+              ? Icon(leadingIcon, color: leadingIconColor)
+              : Text(
+                  leadingText!,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: leadingIconColor,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+        ),
+      ),
+      trailing: trailing,
+    );
+  }
+}
+
 class EmptyCard extends StatelessWidget {
   const EmptyCard({
     super.key,

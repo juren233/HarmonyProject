@@ -8,6 +8,7 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/ai/ai_settings_coordinator.dart';
 import 'package:petnote/app/add_sheet.dart';
 import 'package:petnote/app/android_native_dock.dart';
+import 'package:petnote/app/ai_settings_page.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_dock.dart';
@@ -129,8 +130,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _showFirstLaunchIntro =
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchIntro;
       _showOnboarding = false;
-      _shouldPrewarmBottomNavDuringIntro =
-          _showFirstLaunchIntro &&
+      _shouldPrewarmBottomNavDuringIntro = _showFirstLaunchIntro &&
           supportsAndroidLiquidGlassDock(defaultTargetPlatform);
       _hasCompletedIntroBottomNavPrewarm = false;
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
@@ -224,8 +224,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
         _overlayTransition == _OverlayTransition.introToShell;
     final useNativeAndroidDock =
         showBottomNavigation && supportsAndroidLiquidGlassDock(platform);
-    final shouldPrewarmBottomNavDuringIntro =
-        useNativeAndroidDock &&
+    final shouldPrewarmBottomNavDuringIntro = useNativeAndroidDock &&
         (_shouldPrewarmBottomNavDuringIntro ||
             (_showFirstLaunchIntro &&
                 !_showOnboarding &&
@@ -602,7 +601,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   }
 }
 
-class _PetNoteBody extends StatelessWidget {
+class _PetNoteBody extends StatefulWidget {
   const _PetNoteBody({
     required this.store,
     required this.activeChecklistKey,
@@ -626,7 +625,7 @@ class _PetNoteBody extends StatelessWidget {
     required this.onSubmitOnboarding,
     required this.onDeferOnboarding,
     required this.onReturnToIntroFromOnboarding,
-    required this.nativePetPhotoPicker,
+    this.nativePetPhotoPicker,
     this.bottomNavigationOverlay,
   });
 
@@ -656,143 +655,353 @@ class _PetNoteBody extends StatelessWidget {
   final Widget? bottomNavigationOverlay;
 
   @override
+  State<_PetNoteBody> createState() => _PetNoteBodyState();
+}
+
+class _PetNoteBodyState extends State<_PetNoteBody> {
+  static const List<AppTab> _tabOrder = <AppTab>[
+    AppTab.checklist,
+    AppTab.overview,
+    AppTab.pets,
+    AppTab.me,
+  ];
+
+  final Set<AppTab> _visitedTabs = <AppTab>{};
+  late AppTab _activeTab;
+  bool _hasScheduledTabPrewarm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeTab = widget.store.activeTab;
+    _visitedTabs.add(_activeTab);
+    widget.store.addListener(_handleStoreChanged);
+    _queueDeferredTabPrewarm();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PetNoteBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.store, widget.store)) {
+      oldWidget.store.removeListener(_handleStoreChanged);
+      widget.store.addListener(_handleStoreChanged);
+    }
+    _activeTab = widget.store.activeTab;
+    _visitedTabs.add(_activeTab);
+    _queueDeferredTabPrewarm();
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_handleStoreChanged);
+    super.dispose();
+  }
+
+  void _handleStoreChanged() {
+    final activeTab = widget.store.activeTab;
+    if (_activeTab == activeTab) {
+      return;
+    }
+    setState(() {
+      _activeTab = activeTab;
+      _visitedTabs.add(activeTab);
+    });
+    _queueDeferredTabPrewarm();
+  }
+
+  bool get _canPrewarmTabs {
+    return !widget.showFirstLaunchIntro &&
+        !widget.showOnboarding &&
+        widget.overlayTransition == _OverlayTransition.none;
+  }
+
+  void _queueDeferredTabPrewarm() {
+    if (_hasScheduledTabPrewarm || !_canPrewarmTabs) {
+      return;
+    }
+    _hasScheduledTabPrewarm = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_prewarmPersistentTabs());
+    });
+  }
+
+  Future<void> _prewarmPersistentTabs() async {
+    for (final tab in _deferredPrewarmTabs(_activeTab)) {
+      await Future<void>.delayed(const Duration(milliseconds: 48));
+      if (!mounted) {
+        return;
+      }
+      if (!_canPrewarmTabs) {
+        _hasScheduledTabPrewarm = false;
+        _queueDeferredTabPrewarm();
+        return;
+      }
+      if (_visitedTabs.contains(tab)) {
+        continue;
+      }
+      setState(() {
+        _visitedTabs.add(tab);
+      });
+    }
+  }
+
+  Iterable<AppTab> _deferredPrewarmTabs(AppTab activeTab) sync* {
+    for (final tab in const <AppTab>[
+      AppTab.overview,
+      AppTab.pets,
+      AppTab.me,
+      AppTab.checklist,
+    ]) {
+      if (tab != activeTab) {
+        yield tab;
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: store,
-      builder: (context, _) {
-        final activeTab = store.activeTab;
-        final notificationCoordinator = this.notificationCoordinator;
-        final introToOnboarding =
-            overlayTransition == _OverlayTransition.introToOnboarding;
-        final introToShell =
-            overlayTransition == _OverlayTransition.introToShell;
-        final introShellExitProgress = introToShell
-            ? Curves.easeOutQuart
-                .transform((overlayTransitionProgress / 0.34).clamp(0.0, 1.0))
-            : 0.0;
-        final introShellExitOffset =
-            introToShell ? -introShellExitProgress * 260 : 0.0;
-        final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
-        final shouldIgnoreBottomNavigation = showOnboarding ||
-            (showFirstLaunchIntro && (!introToShell || introOpacity > 0.05));
-        return RepaintBoundary(
-          key: const ValueKey('page_content_boundary'),
-          child: Stack(
-            children: [
-              HyperPageBackground(
-                child: switch (activeTab) {
-                  AppTab.checklist => ChecklistPage(
-                      store: store,
-                      activeSectionKey: activeChecklistKey,
-                      highlightedChecklistItemKey: highlightedChecklistItemKey,
-                      onSectionChanged: onSectionChanged,
-                      onAddFirstPet: onAddFirstPet,
+    final activeTab = _activeTab;
+    final introToOnboarding =
+        widget.overlayTransition == _OverlayTransition.introToOnboarding;
+    final introToShell =
+        widget.overlayTransition == _OverlayTransition.introToShell;
+    final introShellExitProgress = introToShell
+        ? Curves.easeOutQuart.transform(
+            (widget.overlayTransitionProgress / 0.34).clamp(0.0, 1.0))
+        : 0.0;
+    final introShellExitOffset =
+        introToShell ? -introShellExitProgress * 260 : 0.0;
+    final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
+    final shouldIgnoreBottomNavigation = widget.showOnboarding ||
+        (widget.showFirstLaunchIntro && (!introToShell || introOpacity > 0.05));
+    return RepaintBoundary(
+      key: const ValueKey('page_content_boundary'),
+      child: Stack(
+        children: [
+          HyperPageBackground(
+            child: IndexedStack(
+              index: _tabOrder.indexOf(activeTab),
+              children: _tabOrder
+                  .map(
+                    (tab) => _buildPersistentTabPage(
+                      context,
+                      tab,
+                      isActive: tab == activeTab,
                     ),
-                  AppTab.overview => OverviewPage(
-                      store: store,
-                      onAddFirstPet: onAddFirstPet,
-                      aiInsightsService: aiInsightsService,
-                    ),
-                  AppTab.pets => PetsPage(
-                      store: store,
-                      onAddFirstPet: onAddFirstPet,
-                      onEditPet: onEditPet,
-                    ),
-                  AppTab.me => MePage(
-                      themePreference: settingsController?.themePreference ??
-                          AppThemePreference.system,
-                      onThemePreferenceChanged: (value) =>
-                          settingsController?.setThemePreference(value),
-                      settingsController: settingsController,
-                      appLogController: appLogController,
-                      aiSettingsCoordinator: aiSettingsCoordinator,
-                      dataStorageCoordinator: dataStorageCoordinator,
-                      notificationPermissionState:
-                          notificationCoordinator?.permissionState ??
-                              NotificationPermissionState.unknown,
-                      notificationCapabilities:
-                          notificationCoordinator?.capabilities ??
-                              const NotificationPlatformCapabilities(),
-                      notificationPushToken: notificationCoordinator?.pushToken,
-                      onRequestNotificationPermission:
-                          notificationCoordinator == null
-                              ? null
-                              : () async {
-                                  await notificationCoordinator
-                                      .requestPermission();
-                                },
-                      onOpenNotificationSettings:
-                          notificationCoordinator == null
-                              ? null
-                              : () async {
-                                  await notificationCoordinator
-                                      .openNotificationSettings();
-                                },
-                    ),
-                },
+                  )
+                  .toList(growable: false),
+            ),
+          ),
+          if (widget.bottomNavigationOverlay != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: shouldIgnoreBottomNavigation,
+                child: widget.bottomNavigationOverlay!,
               ),
-              if (bottomNavigationOverlay != null)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: IgnorePointer(
-                    ignoring: shouldIgnoreBottomNavigation,
-                    child: bottomNavigationOverlay!,
-                  ),
-                ),
-              Positioned.fill(
-                key: const ValueKey('onboarding_overlay_layer'),
-                child: showOnboarding
-                    ? IgnorePointer(
-                        ignoring: introToOnboarding &&
-                            overlayTransitionProgress < 0.96,
-                        child: PetOnboardingOverlay(
-                          animateInitialEntry: !introToOnboarding,
-                          externalRevealProgress: introToOnboarding
-                              ? overlayTransitionProgress
-                              : null,
-                          nativePetPhotoPicker: nativePetPhotoPicker,
-                          onSubmit: onSubmitOnboarding,
-                          onDefer: onDeferOnboarding,
-                          onReturnToIntro: onReturnToIntroFromOnboarding,
+            ),
+          Positioned.fill(
+            key: const ValueKey('onboarding_overlay_layer'),
+            child: widget.showOnboarding
+                ? IgnorePointer(
+                    ignoring: introToOnboarding &&
+                        widget.overlayTransitionProgress < 0.96,
+                    child: PetOnboardingOverlay(
+                      animateInitialEntry: !introToOnboarding,
+                      externalRevealProgress: introToOnboarding
+                          ? widget.overlayTransitionProgress
+                          : null,
+                      nativePetPhotoPicker: widget.nativePetPhotoPicker,
+                      onSubmit: widget.onSubmitOnboarding,
+                      onDefer: widget.onDeferOnboarding,
+                      onReturnToIntro: widget.onReturnToIntroFromOnboarding,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          Positioned.fill(
+            key: const ValueKey('intro_overlay_layer'),
+            child: widget.showFirstLaunchIntro
+                ? IgnorePointer(
+                    ignoring:
+                        widget.overlayTransition != _OverlayTransition.none,
+                    child: Opacity(
+                      key: const ValueKey('intro_shell_exit_opacity'),
+                      opacity: introOpacity,
+                      child: SizedBox.expand(
+                        key: const ValueKey('intro_shell_exit_motion'),
+                        child: Transform.translate(
+                          offset: Offset(0, introShellExitOffset),
+                          child: PetFirstLaunchIntro(
+                            fillParent: false,
+                            onboardingExitProgress: introToOnboarding
+                                ? widget.overlayTransitionProgress
+                                : 0,
+                            shouldStartLaunchAnimation:
+                                widget.shouldStartFirstLaunchIntroAnimation,
+                            onStartOnboarding:
+                                widget.onStartOnboardingFromIntro,
+                            onExploreFirst: widget.onExploreFirstLaunchIntro,
+                          ),
                         ),
-                      )
-                    : const SizedBox.shrink(),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersistentTabPage(
+    BuildContext context,
+    AppTab tab, {
+    required bool isActive,
+  }) {
+    if (!_visitedTabs.contains(tab)) {
+      return const SizedBox.shrink();
+    }
+    return TickerMode(
+      enabled: isActive,
+      child: KeyedSubtree(
+        key: ValueKey<String>('persistent_tab_${tab.name}'),
+        child: switch (tab) {
+          AppTab.checklist => _StoreDrivenPageHost(
+              store: widget.store,
+              isActive: isActive,
+              builder: (context) => ChecklistPage(
+                store: widget.store,
+                activeSectionKey: widget.activeChecklistKey,
+                highlightedChecklistItemKey: widget.highlightedChecklistItemKey,
+                onSectionChanged: widget.onSectionChanged,
+                onAddFirstPet: widget.onAddFirstPet,
               ),
-              Positioned.fill(
-                key: const ValueKey('intro_overlay_layer'),
-                child: showFirstLaunchIntro
-                    ? IgnorePointer(
-                        ignoring: overlayTransition != _OverlayTransition.none,
-                        child: Opacity(
-                          key: const ValueKey('intro_shell_exit_opacity'),
-                          opacity: introOpacity,
-                          child: SizedBox.expand(
-                            key: const ValueKey('intro_shell_exit_motion'),
-                            child: Transform.translate(
-                              offset: Offset(0, introShellExitOffset),
-                              child: PetFirstLaunchIntro(
-                                fillParent: false,
-                                onboardingExitProgress: introToOnboarding
-                                    ? overlayTransitionProgress
-                                    : 0,
-                                shouldStartLaunchAnimation:
-                                    shouldStartFirstLaunchIntroAnimation,
-                                onStartOnboarding: onStartOnboardingFromIntro,
-                                onExploreFirst: onExploreFirstLaunchIntro,
-                              ),
+            ),
+          AppTab.overview => _StoreDrivenPageHost(
+              store: widget.store,
+              isActive: isActive,
+              builder: (context) => OverviewPage(
+                store: widget.store,
+                onAddFirstPet: widget.onAddFirstPet,
+                onOpenAiSettings: widget.settingsController == null ||
+                        widget.aiSettingsCoordinator == null
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (context) => AiSettingsPage(
+                              settingsController: widget.settingsController!,
+                              coordinator: widget.aiSettingsCoordinator!,
                             ),
                           ),
                         ),
-                      )
-                    : const SizedBox.shrink(),
+                aiInsightsService: widget.aiInsightsService,
               ),
-            ],
-          ),
-        );
-      },
+            ),
+          AppTab.pets => _StoreDrivenPageHost(
+              store: widget.store,
+              isActive: isActive,
+              builder: (context) => PetsPage(
+                store: widget.store,
+                onAddFirstPet: widget.onAddFirstPet,
+                onEditPet: widget.onEditPet,
+                aiInsightsService: widget.aiInsightsService,
+              ),
+            ),
+          AppTab.me => _StoreDrivenPageHost(
+              store: widget.store,
+              isActive: isActive,
+              builder: (context) => MePage(
+                themePreference: widget.settingsController?.themePreference ??
+                    AppThemePreference.system,
+                onThemePreferenceChanged: (value) =>
+                    widget.settingsController?.setThemePreference(value),
+                settingsController: widget.settingsController,
+                appLogController: widget.appLogController,
+                aiSettingsCoordinator: widget.aiSettingsCoordinator,
+                dataStorageCoordinator: widget.dataStorageCoordinator,
+                notificationPermissionState:
+                    widget.notificationCoordinator?.permissionState ??
+                        NotificationPermissionState.unknown,
+                notificationCapabilities:
+                    widget.notificationCoordinator?.capabilities ??
+                        const NotificationPlatformCapabilities(),
+                notificationPushToken:
+                    widget.notificationCoordinator?.pushToken,
+                onRequestNotificationPermission:
+                    widget.notificationCoordinator == null
+                        ? null
+                        : () async {
+                            await widget.notificationCoordinator!
+                                .requestPermission();
+                          },
+                onOpenNotificationSettings:
+                    widget.notificationCoordinator == null
+                        ? null
+                        : () async {
+                            await widget.notificationCoordinator!
+                                .openNotificationSettings();
+                          },
+              ),
+            ),
+        },
+      ),
     );
+  }
+}
+
+class _StoreDrivenPageHost extends StatefulWidget {
+  const _StoreDrivenPageHost({
+    required this.store,
+    required this.isActive,
+    required this.builder,
+  });
+
+  final PetNoteStore store;
+  final bool isActive;
+  final WidgetBuilder builder;
+
+  @override
+  State<_StoreDrivenPageHost> createState() => _StoreDrivenPageHostState();
+}
+
+class _StoreDrivenPageHostState extends State<_StoreDrivenPageHost> {
+  @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_handleStoreChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _StoreDrivenPageHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.store, widget.store)) {
+      oldWidget.store.removeListener(_handleStoreChanged);
+      widget.store.addListener(_handleStoreChanged);
+    }
+    if (!oldWidget.isActive && widget.isActive) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_handleStoreChanged);
+    super.dispose();
+  }
+
+  void _handleStoreChanged() {
+    if (!widget.isActive || !mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(context);
   }
 }
 

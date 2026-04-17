@@ -340,7 +340,7 @@ class AppLogController extends ChangeNotifier {
     _preferences?.setString(_sessionLastHeartbeatAtKey, now);
     _preferences?.setString(
       _sessionStartedAtKey,
-      _preferences?.getString(_sessionStartedAtKey) ?? now,
+      _preferences.getString(_sessionStartedAtKey) ?? now,
     );
     if (reason == 'resumed' || reason == 'inactive' || reason == 'paused') {
       _preferences?.remove(_sessionEndedAtKey);

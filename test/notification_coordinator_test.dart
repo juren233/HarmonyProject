@@ -261,6 +261,11 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   Future<NotificationLaunchIntent?> getInitialLaunchIntent() async => null;
 
   @override
+  Future<NotificationPlatformCapabilities> getCapabilities() async {
+    return const NotificationPlatformCapabilities();
+  }
+
+  @override
   Future<NotificationSettingsOpenResult> openNotificationSettings() async {
     return openSettingsResult;
   }

@@ -6,6 +6,10 @@ void main() {
   final rootSource = File('lib/app/petnote_root.dart').readAsStringSync();
   final widgetsSource = File('lib/app/common_widgets.dart').readAsStringSync();
   final pagesSource = File('lib/app/petnote_pages.dart').readAsStringSync();
+  final overviewPageSource =
+      File('lib/app/petnote_pages_overview.dart').readAsStringSync();
+  final petsPageSource =
+      File('lib/app/petnote_pages_pets.dart').readAsStringSync();
   final frostedPanelSection = widgetsSource.substring(
     widgetsSource.indexOf('class FrostedPanel'),
     widgetsSource.indexOf('class HeroPanel'),
@@ -14,9 +18,8 @@ void main() {
     widgetsSource.indexOf('class HyperSegmentedControl'),
     widgetsSource.indexOf('class SectionCard'),
   );
-  final petsPageSelectionSection = pagesSource.substring(
-    pagesSource.indexOf('class PetsPage'),
-    pagesSource.indexOf('class MePage'),
+  final petsPageSelectionSection = petsPageSource.substring(
+    petsPageSource.indexOf('class PetsPage'),
   );
 
   test('isolates page content and bottom navigation behind repaint boundaries',
@@ -42,6 +45,12 @@ void main() {
     );
   });
 
+  test('keeps heavy tab pages mounted behind a persistent stack host', () {
+    expect(rootSource, contains('IndexedStack('));
+    expect(rootSource, contains('TickerMode('));
+    expect(rootSource, contains('_visitedTabs.add(activeTab);'));
+  });
+
   test('wraps frosted panels in repaint boundaries for scroll reuse', () {
     expect(frostedPanelSection, contains('return RepaintBoundary('));
   });
@@ -54,5 +63,18 @@ void main() {
     expect(segmentedControlSection,
         isNot(contains('boxShadow: selectedKey == item.key')));
     expect(petsPageSelectionSection, isNot(contains('boxShadow: selected')));
+  });
+
+  test('extracts shared page state presentation widgets', () {
+    expect(widgetsSource, contains('class PageEmptyStateBlock'));
+    expect(widgetsSource, contains('class InlineLoadingMessage'));
+    expect(widgetsSource, contains('class TitledBulletGroup'));
+    expect(widgetsSource, contains('class StatusListRow'));
+    expect(pagesSource, contains('PageEmptyStateBlock('));
+    expect(overviewPageSource, contains('PageEmptyStateBlock('));
+    expect(petsPageSource, contains('InlineLoadingMessage('));
+    expect(petsPageSource, contains('StatusListRow('));
+    expect(File('lib/app/petnote_pages_ai.dart').readAsStringSync(),
+        contains('TitledBulletGroup('));
   });
 }
