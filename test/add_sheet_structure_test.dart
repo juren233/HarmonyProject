@@ -47,5 +47,7 @@ void main() {
     expect(sheetSource, isNot(contains('add_sheet_actions_header_reveal')));
     expect(sheetSource, isNot(contains('add_sheet_push_back_layer')));
     expect(sheetSource, isNot(contains('add_sheet_foreground_scale')));
+    expect(sheetSource, contains('_petOnboardingTopPadding'));
+    expect(sheetSource, contains('_sheetTopPadding'));
   });
 }

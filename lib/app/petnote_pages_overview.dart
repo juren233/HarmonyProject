@@ -7,12 +7,16 @@ class OverviewPage extends StatefulWidget {
     required this.onAddFirstPet,
     this.aiInsightsService,
     this.onOpenAiSettings,
+    this.nativeOptionPicker,
+    this.iosRangeButtonBuilder,
   });
 
   final PetNoteStore store;
   final VoidCallback onAddFirstPet;
   final AiInsightsService? aiInsightsService;
   final FutureOr<void> Function()? onOpenAiSettings;
+  final NativeOptionPicker? nativeOptionPicker;
+  final IosOverviewRangeButtonBuilder? iosRangeButtonBuilder;
 
   @override
   State<OverviewPage> createState() => _OverviewPageState();
@@ -79,12 +83,17 @@ class _OverviewPageState extends State<OverviewPage> {
         final showGeneratingExperience = reportState.isLoading &&
             _hasActiveProvider &&
             widget.store.overviewAnalysisConfig.selectedPetIds.isNotEmpty;
-        final dockLayout =
-            dockLayoutForInsets(MediaQuery.viewPaddingOf(context));
-        final floatingButtonBottom = MediaQuery.viewPaddingOf(context).bottom +
-            dockLayout.shellHeight +
-            dockLayout.outerMargin.bottom -
-            4;
+        final viewPadding = MediaQuery.viewPaddingOf(context);
+        final dockLayout = dockLayoutForInsets(viewPadding);
+        final floatingButtonBottom =
+            Theme.of(context).platform == TargetPlatform.iOS
+                ? viewPadding.bottom +
+                    iosNativeDockHostHeight +
+                    overviewFloatingButtonDockClearance
+                : viewPadding.bottom +
+                    dockLayout.shellHeight +
+                    dockLayout.outerMargin.bottom -
+                    4;
         final listBottomPadding = showGenerationSetup ? 116.0 : 0.0;
         final selectedPetIds =
             widget.store.overviewAnalysisConfig.selectedPetIds.isEmpty
@@ -114,8 +123,10 @@ class _OverviewPageState extends State<OverviewPage> {
                       ? '你的AI关怀助理'
                       : _overviewTitle(snapshot.range),
                   trailing: showGenerationSetup
-                      ? _OverviewRangeMenuButton(
+                      ? _OverviewRangeActionButton(
                           config: widget.store.overviewAnalysisConfig,
+                          nativeOptionPicker: widget.nativeOptionPicker,
+                          iosRangeButtonBuilder: widget.iosRangeButtonBuilder,
                           onSelectRange: _selectOverviewRangeFromSetup,
                         )
                       : reportState.isLoading
@@ -140,24 +151,21 @@ class _OverviewPageState extends State<OverviewPage> {
                 left: 22,
                 right: 22,
                 bottom: floatingButtonBottom,
-                child: SafeArea(
-                  top: false,
-                  child: FilledButton.icon(
-                    key: const ValueKey('overview-floating-generate-button'),
-                    onPressed: _hasActiveProvider
-                        ? () => _generateCareReport(forceRefresh: false)
-                        : null,
-                    style: FilledButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor:
-                          tabAccentFor(context, AppTab.overview).label,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFB8BCC6),
-                      disabledForegroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                    label: const Text('生成总览'),
+                child: FilledButton.icon(
+                  key: const ValueKey('overview-floating-generate-button'),
+                  onPressed: _hasActiveProvider
+                      ? () => _generateCareReport(forceRefresh: false)
+                      : null,
+                  style: FilledButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor:
+                        tabAccentFor(context, AppTab.overview).label,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFFB8BCC6),
+                    disabledForegroundColor: Colors.white,
                   ),
+                  icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                  label: const Text('生成总览'),
                 ),
               ),
           ],

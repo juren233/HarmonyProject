@@ -40,6 +40,8 @@ class _AddSheetState extends State<AddActionSheet>
   static const _actionsContentTopInset = 74.0;
   static const _actionsHorizontalInset = 18.0;
   static const _expandedContentTopInset = 112.0;
+  static const _defaultSheetTopPadding = 4.0;
+  static const _petOnboardingTopPadding = 0.0;
 
   late final AnimationController _transitionController;
   AddAction _action = AddAction.none;
@@ -67,6 +69,9 @@ class _AddSheetState extends State<AddActionSheet>
   }
 
   bool get _shouldRevealActions => _actionsRevealOpacity > 0;
+  double get _sheetTopPadding => _stage == _AddSheetStage.petOnboarding
+      ? _petOnboardingTopPadding
+      : _defaultSheetTopPadding;
   _AddSheetStage get _stage {
     if (_isPetOnboarding) {
       return _AddSheetStage.petOnboarding;
@@ -141,7 +146,7 @@ class _AddSheetState extends State<AddActionSheet>
                     right: _stage == _AddSheetStage.petOnboarding
                         ? 0
                         : _actionsHorizontalInset,
-                    top: 4,
+                    top: _sheetTopPadding,
                     bottom: mediaQuery.viewInsets.bottom + 18,
                   ),
                   child: _buildSheetContent(context),

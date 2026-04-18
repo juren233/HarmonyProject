@@ -1,6 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_client_factory.dart';
 import 'package:petnote/ai/ai_connection_tester.dart';
@@ -11,8 +11,12 @@ import 'package:petnote/ai/ai_settings_coordinator.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/app/ai_settings_page.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/ios_native_overview_range_button.dart';
+import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/app/native_option_picker.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/app/petnote_pages.dart';
+import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -220,6 +224,109 @@ void main() {
     expect(statusTopRightAlign, findsOneWidget);
     expect(scoreStack, findsWidgets);
     expect(statusStack, findsWidgets);
+  });
+
+  testWidgets(
+      'overview floating generate button stays above the real iOS dock host with a fixed clearance',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+    tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewPadding);
+    addTearDown(tester.view.resetPadding);
+
+    final store = PetNoteStore.seeded()..setActiveTab(AppTab.overview);
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light)
+            .copyWith(platform: TargetPlatform.iOS),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          aiInsightsService: service,
+          iosDockBuilder: (context, selectedTab, onTabSelected, onAddTap) {
+            return const SizedBox(
+              key: ValueKey('fake_ios_native_dock_for_overview_button'),
+              height: iosNativeDockHostHeight,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final floatingButtonRect = tester.getRect(
+      find.byKey(const ValueKey('overview-floating-generate-button')),
+    );
+    final dockRect = tester.getRect(
+      find.byKey(const ValueKey('fake_ios_native_dock_for_overview_button')),
+    );
+    final clearance = dockRect.top - floatingButtonRect.bottom;
+
+    expect(clearance, closeTo(overviewFloatingButtonDockClearance, 0.1));
+    expect(
+      floatingButtonRect.bottom,
+      lessThanOrEqualTo(
+        dockRect.top - overviewFloatingButtonDockClearance + 0.1,
+      ),
+    );
+  });
+
+  testWidgets(
+      'overview floating generate button keeps the same clearance above the iOS dock host on taller devices',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+    tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewPadding);
+    addTearDown(tester.view.resetPadding);
+
+    final store = PetNoteStore.seeded()..setActiveTab(AppTab.overview);
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light)
+            .copyWith(platform: TargetPlatform.iOS),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          aiInsightsService: service,
+          iosDockBuilder: (context, selectedTab, onTabSelected, onAddTap) {
+            return const SizedBox(
+              key: ValueKey('fake_ios_native_dock_for_overview_button_tall'),
+              height: iosNativeDockHostHeight,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final floatingButtonRect = tester.getRect(
+      find.byKey(const ValueKey('overview-floating-generate-button')),
+    );
+    final dockRect = tester.getRect(
+      find.byKey(
+          const ValueKey('fake_ios_native_dock_for_overview_button_tall')),
+    );
+    final clearance = dockRect.top - floatingButtonRect.bottom;
+
+    expect(clearance, closeTo(overviewFloatingButtonDockClearance, 0.1));
   });
 
   testWidgets('overview page shows generation setup without AI service',
@@ -559,6 +666,167 @@ void main() {
           .inDays,
       30,
     );
+  });
+
+  testWidgets('overview page uses native iOS range button host on iOS',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [
+          Locale('zh', 'CN'),
+          Locale('en', 'US'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: OverviewPage(
+            store: store,
+            onAddFirstPet: () {},
+            aiInsightsService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('overview-range-menu-button')), findsNothing);
+    expect(find.byKey(const ValueKey('ios-overview-range-button-host')),
+        findsOneWidget);
+
+    final platformView = tester.widget<UiKitView>(find.byType(UiKitView));
+    final creationParams =
+        platformView.creationParams! as Map<Object?, Object?>;
+    expect(creationParams['label'], '7天');
+    expect(creationParams['brightness'], 'light');
+  });
+
+  testWidgets('overview page updates range through native host callback on iOS',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(
+        oneLineSummary: 'iOS 原生按钮选择后的总览已生成。',
+      ),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [
+          Locale('zh', 'CN'),
+          Locale('en', 'US'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: OverviewPage(
+            store: store,
+            onAddFirstPet: () {},
+            aiInsightsService: service,
+            nativeOptionPicker: _FakeNativeOptionPicker(
+              result: const NativeOptionPickerResult.success(
+                selectedValue: 'oneMonth',
+              ),
+            ),
+            iosRangeButtonBuilder: _buildFakeIosOverviewRangeMenu,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_overview_range_button')));
+    await tester.pumpAndSettle();
+
+    expect(store.overviewAnalysisConfig.range, OverviewRange.oneMonth);
+
+    await tester
+        .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
+    await tester.pumpAndSettle();
+
+    expect(service.lastCareContext, isNotNull);
+    expect(
+      service.lastCareContext!.rangeEnd
+          .difference(service.lastCareContext!.rangeStart)
+          .inDays,
+      30,
+    );
+  });
+
+  testWidgets(
+      'overview page opens existing custom range flow through native host callback on iOS',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [
+          Locale('zh', 'CN'),
+          Locale('en', 'US'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(
+          body: OverviewPage(
+            store: store,
+            onAddFirstPet: () {},
+            aiInsightsService: _FakeAiInsightsService(
+              careReport: _buildDetailedCareReport(),
+              isConfigured: true,
+            ),
+            nativeOptionPicker: _FakeNativeOptionPicker(
+              result: const NativeOptionPickerResult.success(
+                selectedValue: 'custom',
+              ),
+            ),
+            iosRangeButtonBuilder: _buildFakeIosOverviewCustomButton,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('fake_ios_overview_custom_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.runtimeType.toString().contains('DateRangePickerDialog'),
+      ),
+      findsOneWidget,
+    );
+    expect(store.overviewAnalysisConfig.range, OverviewRange.sevenDays);
   });
 
   testWidgets(
@@ -1249,5 +1517,46 @@ class _UnexpectedNetworkTransport implements AiHttpTransport {
   Future<AiHttpResponse> send(AiHttpRequest request) {
     fail(
         'overview should not hit the remote AI provider before user requests it');
+  }
+}
+
+Widget _buildFakeIosOverviewRangeMenu(
+  BuildContext context,
+  String label,
+  Future<void> Function() onPressed,
+) {
+  return TextButton(
+    key: const ValueKey('fake_ios_overview_range_button'),
+    onPressed: () {
+      unawaited(onPressed());
+    },
+    child: Text(label),
+  );
+}
+
+Widget _buildFakeIosOverviewCustomButton(
+  BuildContext context,
+  String label,
+  Future<void> Function() onPressed,
+) {
+  return TextButton(
+    key: const ValueKey('fake_ios_overview_custom_button'),
+    onPressed: () {
+      unawaited(onPressed());
+    },
+    child: Text(label),
+  );
+}
+
+class _FakeNativeOptionPicker implements NativeOptionPicker {
+  const _FakeNativeOptionPicker({required this.result});
+
+  final NativeOptionPickerResult result;
+
+  @override
+  Future<NativeOptionPickerResult> pickSingleOption(
+    NativeOptionPickerRequest request,
+  ) async {
+    return result;
   }
 }

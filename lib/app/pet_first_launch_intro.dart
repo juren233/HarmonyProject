@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/layout_metrics.dart';
 
 class PetFirstLaunchIntro extends StatefulWidget {
@@ -15,6 +17,7 @@ class PetFirstLaunchIntro extends StatefulWidget {
     this.onFirstPageAnimationsCompleted,
     this.fillParent = true,
     this.onboardingExitProgress = 0,
+    this.introHapticsDriver,
   });
 
   final Future<void> Function() onStartOnboarding;
@@ -23,6 +26,7 @@ class PetFirstLaunchIntro extends StatefulWidget {
   final VoidCallback? onFirstPageAnimationsCompleted;
   final bool fillParent;
   final double onboardingExitProgress;
+  final IntroHapticsDriver? introHapticsDriver;
 
   @override
   State<PetFirstLaunchIntro> createState() => _PetFirstLaunchIntroState();
@@ -35,6 +39,10 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _launchPawStartColor = Color(0xFFB8BEC8);
   static const _launchPawStartSize = 208.0;
   static const _launchPawEndSize = 112.0;
+  static const _launchHapticStartProgress = 0.42;
+  static const _launchHapticStopProgress = 0.80;
+  static const _onboardingHapticStartProgress = 0.22;
+  static const _onboardingHapticStopProgress = 0.68;
   static const _sharedIndicatorColor = Color(0xFFF2A65A);
   static const _pageHorizontalPadding = onboardingPageHorizontalPadding;
   static const _pageContentRevealDuration = Duration(milliseconds: 680);
@@ -61,6 +69,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   late final AnimationController _launchController;
   late final AnimationController _firstPageFooterController;
   late final AnimationController _finalPageFooterController;
+  late final IntroHapticsDriver _introHapticsDriver;
 
   int _pageIndex = 0;
   bool _showLaunchPaw = true;
@@ -68,6 +77,9 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   bool _isSecondaryNavigating = false;
   bool _hasReportedFirstPageAnimationsCompleted = false;
   bool _hasStartedLaunchAnimation = false;
+  bool _supportsIntroHaptics = false;
+  bool _isLaunchHapticActive = false;
+  bool _isOnboardingHapticActive = false;
   final Set<int> _revealedPages = <int>{};
 
   static const _pages = [
@@ -137,14 +149,19 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   @override
   void initState() {
     super.initState();
+    _introHapticsDriver =
+        widget.introHapticsDriver ?? MethodChannelIntroHaptics();
     _pageController = PageController();
     _launchController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 980),
-    )..addStatusListener((status) {
+    )
+      ..addListener(_handleLaunchAnimationTick)
+      ..addStatusListener((status) {
         if (status != AnimationStatus.completed || !mounted) {
           return;
         }
+        unawaited(_stopLaunchHaptics());
         setState(() {
           _showLaunchPaw = false;
           _revealedPages.add(0);
@@ -176,10 +193,39 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
         widget.shouldStartLaunchAnimation) {
       _maybeStartLaunchAnimation();
     }
+    if (oldWidget.shouldStartLaunchAnimation &&
+        !widget.shouldStartLaunchAnimation) {
+      unawaited(_stopLaunchHaptics());
+    }
+    if (oldWidget.onboardingExitProgress != widget.onboardingExitProgress) {
+      _syncOnboardingTransitionHaptics(widget.onboardingExitProgress);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final platform = Theme.of(context).platform;
+    final supportsIntroHaptics =
+        platform == TargetPlatform.iOS || platform == TargetPlatform.android;
+    if (_supportsIntroHaptics == supportsIntroHaptics) {
+      return;
+    }
+    _supportsIntroHaptics = supportsIntroHaptics;
+    if (!_supportsIntroHaptics) {
+      unawaited(_stopLaunchHaptics());
+      unawaited(_stopOnboardingTransitionHaptics());
+      return;
+    }
+    _syncLaunchHapticsForProgress(_launchController.value);
+    _syncOnboardingTransitionHaptics(widget.onboardingExitProgress);
   }
 
   @override
   void dispose() {
+    _launchController.removeListener(_handleLaunchAnimationTick);
+    unawaited(_stopLaunchHaptics());
+    unawaited(_stopOnboardingTransitionHaptics());
     _pageController.dispose();
     _launchController.dispose();
     _firstPageFooterController.dispose();
@@ -474,7 +520,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
         ),
         onPressed: isFinalPage
             ? (_isPrimaryNavigating ? null : _handleStartOnboarding)
-            : _goNext,
+            : _handlePrimaryContinue,
         child: Text(isFinalPage ? '那我们开始吧' : '继续'),
       ),
     );
@@ -495,6 +541,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     if (_isPrimaryNavigating) {
       return;
     }
+    _playPrimaryButtonTapHaptics();
     setState(() => _isPrimaryNavigating = true);
     try {
       await widget.onStartOnboarding();
@@ -519,6 +566,11 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     }
   }
 
+  void _handlePrimaryContinue() {
+    _playPrimaryButtonTapHaptics();
+    _goNext();
+  }
+
   void _startFirstPageFooterReveal() {
     if (_firstPageFooterController.isAnimating ||
         _firstPageFooterController.isCompleted) {
@@ -537,6 +589,74 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
     }
     _hasStartedLaunchAnimation = true;
     _launchController.forward();
+  }
+
+  void _handleLaunchAnimationTick() {
+    _syncLaunchHapticsForProgress(_launchController.value);
+  }
+
+  void _syncLaunchHapticsForProgress(double progress) {
+    if (!_supportsIntroHaptics ||
+        !widget.shouldStartLaunchAnimation ||
+        !_showLaunchPaw) {
+      unawaited(_stopLaunchHaptics());
+      return;
+    }
+    final inHapticWindow = progress >= _launchHapticStartProgress &&
+        progress < _launchHapticStopProgress;
+    if (inHapticWindow) {
+      if (!_isLaunchHapticActive) {
+        unawaited(_stopOnboardingTransitionHaptics());
+        _isLaunchHapticActive = true;
+        unawaited(_introHapticsDriver.playIntroLaunchContinuous());
+      }
+      return;
+    }
+    if (_isLaunchHapticActive && progress >= _launchHapticStopProgress) {
+      unawaited(_stopLaunchHaptics());
+    }
+  }
+
+  Future<void> _stopLaunchHaptics() async {
+    if (!_isLaunchHapticActive) {
+      return;
+    }
+    _isLaunchHapticActive = false;
+    await _introHapticsDriver.stopIntroLaunchContinuous();
+  }
+
+  void _playPrimaryButtonTapHaptics() {
+    if (!_supportsIntroHaptics) {
+      return;
+    }
+    unawaited(_introHapticsDriver.playIntroPrimaryButtonTap());
+  }
+
+  void _syncOnboardingTransitionHaptics(double progress) {
+    final shouldPlay = _supportsIntroHaptics &&
+        !_showLaunchPaw &&
+        _pageIndex == _pages.length - 1 &&
+        progress >= _onboardingHapticStartProgress &&
+        progress < _onboardingHapticStopProgress;
+    if (shouldPlay) {
+      if (!_isOnboardingHapticActive) {
+        unawaited(_stopLaunchHaptics());
+        _isOnboardingHapticActive = true;
+        unawaited(_introHapticsDriver.playIntroToOnboardingContinuous());
+      }
+      return;
+    }
+    if (_isOnboardingHapticActive) {
+      unawaited(_stopOnboardingTransitionHaptics());
+    }
+  }
+
+  Future<void> _stopOnboardingTransitionHaptics() async {
+    if (!_isOnboardingHapticActive) {
+      return;
+    }
+    _isOnboardingHapticActive = false;
+    await _introHapticsDriver.stopIntroToOnboardingContinuous();
   }
 
   void _notifyFirstPageAnimationsCompleted() {
@@ -1455,4 +1575,3 @@ class _IntroValueData {
 enum _IntroListStyle { checks, cards }
 
 enum _IntroValueLeadingStyle { check, animatedPrivacyLock }
-

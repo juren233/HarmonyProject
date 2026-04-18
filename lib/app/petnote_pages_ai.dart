@@ -316,6 +316,73 @@ class _OverviewHeaderActions extends StatelessWidget {
   }
 }
 
+class _OverviewRangeActionButton extends StatelessWidget {
+  const _OverviewRangeActionButton({
+    required this.config,
+    this.nativeOptionPicker,
+    this.iosRangeButtonBuilder,
+    required this.onSelectRange,
+  });
+
+  final OverviewAnalysisConfig config;
+  final NativeOptionPicker? nativeOptionPicker;
+  final IosOverviewRangeButtonBuilder? iosRangeButtonBuilder;
+  final Future<void> Function(OverviewRange range) onSelectRange;
+
+  @override
+  Widget build(BuildContext context) {
+    if (supportsIosNativeOverviewRangeButton(Theme.of(context).platform)) {
+      final label = _overviewRangeButtonLabel(config);
+      final builder = iosRangeButtonBuilder;
+      if (builder != null) {
+        return builder(context, label, () => _openIosRangePicker(context));
+      }
+      return IosNativeOverviewRangeButtonHost(
+        label: label,
+        onPressed: () => _openIosRangePicker(context),
+      );
+    }
+    return _OverviewRangeMenuButton(
+      config: config,
+      onSelectRange: onSelectRange,
+    );
+  }
+
+  Future<void> _openIosRangePicker(BuildContext context) async {
+    final picker = nativeOptionPicker ?? MethodChannelNativeOptionPicker();
+    final result = await picker.pickSingleOption(
+      NativeOptionPickerRequest(
+        title: '选择总览时间范围',
+        selectedValue: config.range.name,
+        options: [
+          for (final option in const [
+            OverviewRange.sevenDays,
+            OverviewRange.oneMonth,
+            OverviewRange.threeMonths,
+            OverviewRange.sixMonths,
+            OverviewRange.oneYear,
+            OverviewRange.custom,
+          ])
+            NativeOptionItem(
+              value: option.name,
+              label: _overviewRangeChipLabel(option),
+            ),
+        ],
+      ),
+    );
+    if (!result.isSuccess || result.selectedValue == null) {
+      return;
+    }
+    final selectedValue = result.selectedValue!;
+    final matches =
+        OverviewRange.values.where((item) => item.name == selectedValue);
+    if (matches.isEmpty) {
+      return;
+    }
+    await onSelectRange(matches.first);
+  }
+}
+
 class _OverviewRangeMenuButton extends StatelessWidget {
   const _OverviewRangeMenuButton({
     required this.config,
@@ -323,7 +390,7 @@ class _OverviewRangeMenuButton extends StatelessWidget {
   });
 
   final OverviewAnalysisConfig config;
-  final ValueChanged<OverviewRange> onSelectRange;
+  final Future<void> Function(OverviewRange range) onSelectRange;
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +399,9 @@ class _OverviewRangeMenuButton extends StatelessWidget {
     final menuBackground = tokens.panelBackground.withAlpha(255);
     return PopupMenuButton<OverviewRange>(
       key: const ValueKey('overview-range-menu-button'),
-      onSelected: onSelectRange,
+      onSelected: (value) {
+        unawaited(onSelectRange(value));
+      },
       offset: const Offset(0, 10),
       color: menuBackground,
       surfaceTintColor: Colors.transparent,

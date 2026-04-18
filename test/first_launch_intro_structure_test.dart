@@ -77,5 +77,9 @@ void main() {
     expect(source.contains('intro_onboarding_exit_hero_scale'), isTrue);
     expect(source.contains('_onboardingHeroScale'), isTrue);
     expect(source.contains('_onboardingHeroOpacity'), isFalse);
+    expect(source.contains('_launchHapticStartProgress'), isTrue);
+    expect(source.contains('_launchHapticStopProgress'), isTrue);
+    expect(source.contains('_syncLaunchHapticsForProgress'), isTrue);
+    expect(source.contains('introHapticsDriver'), isTrue);
   });
 }

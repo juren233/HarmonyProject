@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/me_page.dart' as settings_page;
 import 'package:petnote/app/pet_first_launch_intro.dart';
@@ -47,7 +48,8 @@ void main() {
     );
   });
 
-  testWidgets('intro waits for prewarm completion before starting launch animation',
+  testWidgets(
+      'intro waits for prewarm completion before starting launch animation',
       (tester) async {
     var shouldStartLaunchAnimation = false;
     late StateSetter updateIntro;
@@ -82,6 +84,427 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsOneWidget);
+  });
+
+  testWidgets(
+      'intro triggers a single soft haptic window during launch paw motion',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        home: Scaffold(
+          body: PetFirstLaunchIntro(
+            fillParent: false,
+            introHapticsDriver: driver,
+            onStartOnboarding: () async {},
+            onExploreFirst: () async {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(driver.events, isEmpty);
+
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(driver.events, <String>['start']);
+
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['start', 'stop']);
+  });
+
+  testWidgets(
+      'intro triggers a single soft haptic window during launch paw motion on Android',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: PetFirstLaunchIntro(
+            fillParent: false,
+            introHapticsDriver: driver,
+            onStartOnboarding: () async {},
+            onExploreFirst: () async {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(driver.events, isEmpty);
+
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(driver.events, <String>['start']);
+
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['start', 'stop']);
+  });
+
+  testWidgets('intro stops active haptics if removed before launch paw settles',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var visible = true;
+    late StateSetter setVisible;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              setVisible = setState;
+              if (!visible) {
+                return const SizedBox.shrink();
+              }
+              return PetFirstLaunchIntro(
+                fillParent: false,
+                introHapticsDriver: driver,
+                onStartOnboarding: () async {},
+                onExploreFirst: () async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 520));
+    expect(driver.events, <String>['start']);
+
+    setVisible(() => visible = false);
+    await tester.pump();
+
+    expect(driver.events, <String>['start', 'stop']);
+  });
+
+  testWidgets(
+      'intro onboarding transition triggers a single haptic window during hero shrink',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var onboardingExitProgress = 0.0;
+    late StateSetter updateIntro;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateIntro = setState;
+              return PetFirstLaunchIntro(
+                fillParent: false,
+                onboardingExitProgress: onboardingExitProgress,
+                introHapticsDriver: driver,
+                onStartOnboarding: () async {},
+                onExploreFirst: () async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await _advanceIntroToFinalPage(tester);
+    driver.events.clear();
+
+    updateIntro(() => onboardingExitProgress = 0.21);
+    await tester.pump();
+    expect(driver.events, isEmpty);
+
+    updateIntro(() => onboardingExitProgress = 0.23);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => onboardingExitProgress = 0.50);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => onboardingExitProgress = 0.70);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start', 'onboarding-stop']);
+  });
+
+  testWidgets(
+      'intro onboarding transition stops active haptics when progress resets or widget is removed',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var onboardingExitProgress = 0.0;
+    var visible = true;
+    late StateSetter updateIntro;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.iOS,
+        ),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateIntro = setState;
+              if (!visible) {
+                return const SizedBox.shrink();
+              }
+              return PetFirstLaunchIntro(
+                fillParent: false,
+                onboardingExitProgress: onboardingExitProgress,
+                introHapticsDriver: driver,
+                onStartOnboarding: () async {},
+                onExploreFirst: () async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await _advanceIntroToFinalPage(tester);
+    driver.events.clear();
+
+    updateIntro(() => onboardingExitProgress = 0.24);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => onboardingExitProgress = 0.0);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start', 'onboarding-stop']);
+
+    driver.events.clear();
+    updateIntro(() => onboardingExitProgress = 0.30);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => visible = false);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start', 'onboarding-stop']);
+  });
+
+  testWidgets(
+      'intro onboarding transition uses the same haptic window on Android',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var onboardingExitProgress = 0.0;
+    var visible = true;
+    late StateSetter updateIntro;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateIntro = setState;
+              if (!visible) {
+                return const SizedBox.shrink();
+              }
+              return PetFirstLaunchIntro(
+                fillParent: false,
+                onboardingExitProgress: onboardingExitProgress,
+                introHapticsDriver: driver,
+                onStartOnboarding: () async {},
+                onExploreFirst: () async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    await _advanceIntroToFinalPage(tester);
+    driver.events.clear();
+
+    updateIntro(() => onboardingExitProgress = 0.21);
+    await tester.pump();
+    expect(driver.events, isEmpty);
+
+    updateIntro(() => onboardingExitProgress = 0.23);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => onboardingExitProgress = 0.70);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start', 'onboarding-stop']);
+
+    driver.events.clear();
+    updateIntro(() => onboardingExitProgress = 0.30);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start']);
+
+    updateIntro(() => visible = false);
+    await tester.pump();
+    expect(driver.events, <String>['onboarding-start', 'onboarding-stop']);
+  });
+
+  testWidgets('intro primary buttons trigger a button-tap haptic',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var startedOnboarding = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: PetFirstLaunchIntro(
+            fillParent: false,
+            introHapticsDriver: driver,
+            onStartOnboarding: () async {
+              startedOnboarding += 1;
+            },
+            onExploreFirst: () async {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    driver.events.clear();
+
+    await tester.tap(
+      find.byKey(const ValueKey('first_launch_intro_continue_button')),
+    );
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['button-tap']);
+
+    driver.events.clear();
+    await tester.tap(
+      find.byKey(const ValueKey('first_launch_intro_continue_button')),
+    );
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['button-tap']);
+
+    driver.events.clear();
+    await tester.tap(
+      find.byKey(const ValueKey('first_launch_intro_primary_button')),
+    );
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['button-tap']);
+    expect(startedOnboarding, 1);
+  });
+
+  testWidgets('onboarding primary buttons trigger button-tap haptics',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    var saved = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            introHapticsDriver: driver,
+            onSubmit: (_) async {
+              saved += 1;
+            },
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_name_field')),
+      'Nori',
+    );
+    await _tapVisibleText(tester, '猫');
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['button-tap']);
+
+    driver.events.clear();
+    await _tapVisibleText(tester, '英短');
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await _tapVisibleText(tester, '母');
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_weight_field')),
+      '4.2',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('onboarding_skip_button')));
+    await tester.pumpAndSettle();
+
+    driver.events.clear();
+    await tester.tap(find.byKey(const ValueKey('onboarding_save_button')));
+    await tester.pumpAndSettle();
+
+    expect(driver.events, <String>['button-tap']);
+    expect(saved, 1);
+  });
+
+  testWidgets(
+      'embedded onboarding primary buttons do not trigger button haptics',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            embedded: true,
+            introHapticsDriver: driver,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_name_field')),
+      'Nori',
+    );
+    await _tapVisibleText(tester, '猫');
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    expect(driver.events, isEmpty);
   });
 
   testWidgets(
@@ -2072,6 +2495,32 @@ void main() {
     expect(pageRect.left - shellRect.left, closeTo(20, 0.5));
   });
 
+  testWidgets(
+      'embedded add-pet onboarding tightens top spacing under drag handle',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const PetNoteApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增爱宠'));
+    await tester.pumpAndSettle();
+
+    final shellRect =
+        tester.getRect(find.byKey(const ValueKey('add_sheet_shell')));
+    final topBarRect =
+        tester.getRect(find.byKey(const ValueKey('onboarding_top_bar_reveal')));
+    final pageRect =
+        tester.getRect(find.byKey(const ValueKey('onboarding_step_page_0')));
+
+    expect(topBarRect.top - shellRect.top, closeTo(10, 1.0));
+    expect(pageRect.top - topBarRect.bottom, closeTo(10, 1.0));
+  });
+
   testWidgets('uses an enlarged dock with unified 17px outer margins',
       (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
@@ -2269,6 +2718,9 @@ void main() {
 
   testWidgets('shows theme settings on the me page and switches to dark mode',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     var themePreference = AppThemePreference.system;
     await tester.pumpWidget(
       StatefulBuilder(
@@ -2313,23 +2765,72 @@ void main() {
     expect(find.byKey(const ValueKey('theme_option_light')), findsOneWidget);
     expect(find.byKey(const ValueKey('theme_option_dark')), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('theme_option_dark')),
-      120,
-    );
-    final darkThemeTile = find.byWidgetPredicate(
-      (widget) =>
-          widget is RadioListTile<AppThemePreference> &&
-          widget.value == AppThemePreference.dark,
-      description: '深色模式主题选项',
-    );
-    expect(darkThemeTile, findsOneWidget);
-    await tester.ensureVisible(darkThemeTile.first);
-    await tester.tap(darkThemeTile.first);
+    final darkThemeOption = find.byKey(const ValueKey('theme_option_dark'));
+    await tester.scrollUntilVisible(darkThemeOption, 140);
+    await tester.ensureVisible(darkThemeOption);
+    await tester.tap(darkThemeOption);
     await tester.pumpAndSettle();
 
     final scaffoldContext = tester.element(find.byType(Scaffold).first);
     expect(Theme.of(scaffoldContext).brightness, Brightness.dark);
+  });
+
+  testWidgets(
+      'theme mode options keep standard card spacing and tighter height',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: settings_page.MePage(
+            themePreference: AppThemePreference.system,
+            onThemePreferenceChanged: (_) {},
+            notificationPermissionState:
+                NotificationPermissionState.unsupported,
+            notificationPushToken: null,
+            onRequestNotificationPermission: null,
+            onOpenNotificationSettings: null,
+            settingsController: null,
+            aiSettingsCoordinator: null,
+            dataStorageCoordinator: null,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final systemRect =
+        tester.getRect(find.byKey(const ValueKey('theme_option_system')));
+    final lightRect =
+        tester.getRect(find.byKey(const ValueKey('theme_option_light')));
+    final darkRect =
+        tester.getRect(find.byKey(const ValueKey('theme_option_dark')));
+    final currentThemeRowRect =
+        tester.getRect(find.byKey(const ValueKey('theme_current_row')));
+    final systemIndicatorRect = tester.getRect(
+      find.byKey(const ValueKey('theme_option_system_indicator')),
+    );
+    final lightIndicatorRect = tester.getRect(
+      find.byKey(const ValueKey('theme_option_light_indicator')),
+    );
+    final darkIndicatorRect = tester.getRect(
+      find.byKey(const ValueKey('theme_option_dark_indicator')),
+    );
+
+    expect(lightRect.top - systemRect.bottom, closeTo(12, 0.5));
+    expect(darkRect.top - lightRect.bottom, closeTo(12, 0.5));
+    expect(systemRect.height, lessThan(currentThemeRowRect.height));
+    expect(lightRect.height, lessThan(currentThemeRowRect.height));
+    expect(darkRect.height, lessThan(currentThemeRowRect.height));
+    expect(systemRect.height, greaterThan(currentThemeRowRect.height - 16));
+    expect(lightRect.height, greaterThan(currentThemeRowRect.height - 16));
+    expect(darkRect.height, greaterThan(currentThemeRowRect.height - 16));
+    expect(systemRect.height, lessThan(currentThemeRowRect.height - 8));
+    expect(lightRect.height, lessThan(currentThemeRowRect.height - 8));
+    expect(darkRect.height, lessThan(currentThemeRowRect.height - 8));
+    expect(systemIndicatorRect.size, const Size(20, 20));
+    expect(lightIndicatorRect.size, const Size(20, 20));
+    expect(darkIndicatorRect.size, const Size(20, 20));
   });
 
   testWidgets('uses amoled-friendly dark theme when persisted in dark mode',
@@ -2831,6 +3332,35 @@ Finder _introHeroIconFinder() {
         (widget.key as ValueKey<String>).value.startsWith('intro_page_') &&
         (widget.key as ValueKey<String>).value.endsWith('_hero_icon'),
   );
+}
+
+class _FakeIntroHapticsDriver implements IntroHapticsDriver {
+  final List<String> events = <String>[];
+
+  @override
+  Future<void> playIntroLaunchContinuous() async {
+    events.add('start');
+  }
+
+  @override
+  Future<void> stopIntroLaunchContinuous() async {
+    events.add('stop');
+  }
+
+  @override
+  Future<void> playIntroToOnboardingContinuous() async {
+    events.add('onboarding-start');
+  }
+
+  @override
+  Future<void> stopIntroToOnboardingContinuous() async {
+    events.add('onboarding-stop');
+  }
+
+  @override
+  Future<void> playIntroPrimaryButtonTap() async {
+    events.add('button-tap');
+  }
 }
 
 double _fixedHeroScale(WidgetTester tester) {

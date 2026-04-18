@@ -12,6 +12,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var notificationBridge: PetNoteNotificationBridge? = null
     private var aiSecretStoreBridge: PetNoteAiSecretStoreBridge? = null
     private var dataPackageFileAccessBridge: PetNoteDataPackageFileAccessBridge? = null
+    private var introHapticsBridge: PetNoteIntroHapticsBridge? = null
     private var nativeOptionPickerBridge: PetNoteNativeOptionPickerBridge? = null
     private var nativePetPhotoPickerBridge: PetNoteNativePetPhotoPickerBridge? = null
 
@@ -39,6 +40,10 @@ class MainActivity : FlutterFragmentActivity() {
         )
         dataPackageFileAccessBridge = PetNoteDataPackageFileAccessBridge(
             activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
+        introHapticsBridge = PetNoteIntroHapticsBridge(
+            context = applicationContext,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
         nativeOptionPickerBridge = PetNoteNativeOptionPickerBridge(

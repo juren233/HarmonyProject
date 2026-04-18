@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 typedef IosDockBuilder = Widget Function(
@@ -54,7 +55,7 @@ class _IosNativeDockHostState extends State<IosNativeDockHost> {
   Widget build(BuildContext context) {
     return SizedBox(
       key: const ValueKey('ios_native_dock_host'),
-      height: 140,
+      height: iosNativeDockHostHeight,
       child: UiKitView(
         viewType: _iosNativeDockViewType,
         creationParams: {

@@ -5,6 +5,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
@@ -125,6 +126,7 @@ class PetOnboardingFlow extends StatefulWidget {
     this.embedded = false,
     this.onReturnToActions,
     this.onReturnToIntro,
+    this.introHapticsDriver,
   });
 
   final Future<void> Function(PetOnboardingResult result) onSubmit;
@@ -135,6 +137,7 @@ class PetOnboardingFlow extends StatefulWidget {
   final bool embedded;
   final VoidCallback? onReturnToActions;
   final VoidCallback? onReturnToIntro;
+  final IntroHapticsDriver? introHapticsDriver;
 
   @override
   State<PetOnboardingFlow> createState() => _PetOnboardingFlowState();
@@ -142,6 +145,11 @@ class PetOnboardingFlow extends StatefulWidget {
 
 class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     with TickerProviderStateMixin {
+  static const _embeddedTopInset = 10.0;
+  static const _embeddedBottomInset = 8.0;
+  static const _defaultHeaderSpacing = 18.0;
+  static const _embeddedHeaderSpacing = 10.0;
+
   final _name = TextEditingController();
   final _customBreed = TextEditingController();
   final _feeding = TextEditingController();
@@ -150,6 +158,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   final _weight = TextEditingController();
   late final PageController _stepPageController;
   late final AnimationController _entryController;
+  late final IntroHapticsDriver _introHapticsDriver;
   late final NativePetPhotoPicker _nativePetPhotoPicker =
       widget.nativePetPhotoPicker ?? MethodChannelNativePetPhotoPicker();
 
@@ -163,6 +172,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   bool _isSubmitting = false;
   bool _isPickingPhoto = false;
   bool _hasSubmitted = false;
+  bool _supportsPrimaryButtonHaptics = false;
 
   static const List<_StepCopy> _steps = [
     _StepCopy('先认识一下', '先给爱宠起个名字，并告诉我它是什么类型。'),
@@ -179,6 +189,8 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   @override
   void initState() {
     super.initState();
+    _introHapticsDriver =
+        widget.introHapticsDriver ?? MethodChannelIntroHaptics();
     _stepPageController = PageController();
     _entryController = AnimationController(
       vsync: this,
@@ -198,6 +210,14 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     ]) {
       controller.addListener(_onFieldChanged);
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final platform = Theme.of(context).platform;
+    _supportsPrimaryButtonHaptics = !widget.embedded &&
+        (platform == TargetPlatform.iOS || platform == TargetPlatform.android);
   }
 
   @override
@@ -264,8 +284,11 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewPaddingOf(context);
-    final topInset = widget.embedded ? 20.0 : insets.top + 12;
-    final bottomInset = widget.embedded ? 8.0 : insets.bottom + 20;
+    final topInset = widget.embedded ? _embeddedTopInset : insets.top + 12;
+    final bottomInset =
+        widget.embedded ? _embeddedBottomInset : insets.bottom + 20;
+    final headerSpacing =
+        widget.embedded ? _embeddedHeaderSpacing : _defaultHeaderSpacing;
 
     final externalRevealProgress = _externalRevealProgress();
 
@@ -300,7 +323,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
                     child: _buildTopBar(context),
                   ),
                 ),
-                const SizedBox(height: 18),
+                SizedBox(height: headerSpacing),
                 Expanded(
                   child: PageView.builder(
                     key: const ValueKey('onboarding_step_page_view'),
@@ -568,8 +591,8 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
                     onPressed: !isCurrentStep || _isSubmitting
                         ? null
                         : index == _steps.length - 1
-                            ? _save
-                            : (_canContinue ? _goNext : null),
+                            ? _handlePrimarySave
+                            : (_canContinue ? _handlePrimaryContinue : null),
                     child: Text(index == _steps.length - 1 ? '保存爱宠' : '继续'),
                   ),
                 ),
@@ -752,6 +775,11 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     _animateToStep(nextStep);
   }
 
+  void _handlePrimaryContinue() {
+    _playPrimaryButtonTapHaptics();
+    _goNext();
+  }
+
   void _skipCurrentStep() {
     if (_stepIndex == _steps.length - 1) {
       _save();
@@ -789,6 +817,18 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  Future<void> _handlePrimarySave() async {
+    _playPrimaryButtonTapHaptics();
+    await _save();
+  }
+
+  void _playPrimaryButtonTapHaptics() {
+    if (!_supportsPrimaryButtonHaptics) {
+      return;
+    }
+    unawaited(_introHapticsDriver.playIntroPrimaryButtonTap());
   }
 
   Future<void> _pickPetPhoto() async {

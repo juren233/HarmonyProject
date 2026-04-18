@@ -13,6 +13,10 @@ import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/app/theme_settings_copy.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 
+const double _themePreferenceTileSpacing = 12;
+const EdgeInsets _themePreferenceTilePadding =
+    EdgeInsets.symmetric(horizontal: 14, vertical: 9);
+
 class MePage extends StatelessWidget {
   const MePage({
     super.key,
@@ -61,10 +65,12 @@ class MePage extends StatelessWidget {
           title: themeSectionTitle,
           children: [
             ListRow(
+              key: const ValueKey('theme_current_row'),
               title: currentThemeTitle,
               subtitle: themePreferenceLabel(themePreference),
             ),
             const ListRow(
+              key: ValueKey('theme_mode_description_row'),
               title: themeModeSectionTitle,
               subtitle: themeModeSectionSubtitle,
             ),
@@ -79,24 +85,37 @@ class MePage extends StatelessWidget {
                 children: [
                   _ThemePreferenceTile(
                     key: const ValueKey('theme_option_system'),
+                    indicatorKey:
+                        const ValueKey('theme_option_system_indicator'),
                     title: followSystemTitle,
                     subtitle: followSystemSubtitle,
                     value: AppThemePreference.system,
                     selected: themePreference == AppThemePreference.system,
+                    onTap: () =>
+                        onThemePreferenceChanged(AppThemePreference.system),
                   ),
+                  const SizedBox(height: _themePreferenceTileSpacing),
                   _ThemePreferenceTile(
                     key: const ValueKey('theme_option_light'),
+                    indicatorKey:
+                        const ValueKey('theme_option_light_indicator'),
                     title: lightModeTitle,
                     subtitle: lightModeSubtitle,
                     value: AppThemePreference.light,
                     selected: themePreference == AppThemePreference.light,
+                    onTap: () =>
+                        onThemePreferenceChanged(AppThemePreference.light),
                   ),
+                  const SizedBox(height: _themePreferenceTileSpacing),
                   _ThemePreferenceTile(
                     key: const ValueKey('theme_option_dark'),
+                    indicatorKey: const ValueKey('theme_option_dark_indicator'),
                     title: darkModeTitle,
                     subtitle: darkModeSubtitle,
                     value: AppThemePreference.dark,
                     selected: themePreference == AppThemePreference.dark,
+                    onTap: () =>
+                        onThemePreferenceChanged(AppThemePreference.dark),
                   ),
                 ],
               ),
@@ -391,40 +410,114 @@ class _NotificationPermissionGrantedCopy {
 class _ThemePreferenceTile extends StatelessWidget {
   const _ThemePreferenceTile({
     super.key,
+    required this.indicatorKey,
     required this.title,
     required this.subtitle,
     required this.value,
     required this.selected,
+    required this.onTap,
   });
 
+  final Key indicatorKey;
   final String title;
   final String subtitle;
   final AppThemePreference value;
   final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final tokens = context.petNoteTokens;
-    return Container(
-      decoration: BoxDecoration(
-        color: tokens.listRowBackground,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: RadioListTile<AppThemePreference>(
-        value: value,
-        selected: selected,
-        title: Text(title),
-        subtitle: Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: tokens.secondaryText,
-                height: 1.45,
+    return MergeSemantics(
+      child: Semantics(
+        checked: selected,
+        inMutuallyExclusiveGroup: true,
+        child: Material(
+          color: tokens.listRowBackground,
+          borderRadius: BorderRadius.circular(22),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(22),
+            child: Padding(
+              padding: _themePreferenceTilePadding,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _ThemePreferenceIndicator(
+                    key: indicatorKey,
+                    selected: selected,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: selected
+                                ? theme.colorScheme.primary
+                                : tokens.primaryText,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: tokens.secondaryText,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
         ),
-        activeColor: Theme.of(context).colorScheme.primary,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-        dense: true,
-        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+}
+
+class _ThemePreferenceIndicator extends StatelessWidget {
+  const _ThemePreferenceIndicator({
+    super.key,
+    required this.selected,
+  });
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    final borderColor =
+        selected ? theme.colorScheme.primary : tokens.secondaryText;
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: borderColor, width: 2),
+        color: tokens.listRowBackground,
+      ),
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          width: selected ? 8 : 0,
+          height: selected ? 8 : 0,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: theme.colorScheme.primary,
+          ),
+        ),
       ),
     );
   }

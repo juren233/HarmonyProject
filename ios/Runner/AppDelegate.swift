@@ -1,3 +1,4 @@
+import CoreHaptics
 import Flutter
 import PhotosUI
 import Security
@@ -30,6 +31,12 @@ import UserNotifications
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteIntroHapticsPlugin") {
+      PetNoteIntroHapticsPlugin.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "IosNativeOverviewRangeButtonPlugin") {
+      IosNativeOverviewRangeButtonPlugin.register(with: registrar)
     }
     if #available(iOS 14.0, *),
       let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativePetPhotoPickerPlugin")
@@ -523,6 +530,398 @@ final class PetNoteNativeOptionPickerPlugin: NSObject, FlutterPlugin, UIAdaptive
       "errorCode": code,
       "errorMessage": message,
     ]
+  }
+}
+
+final class PetNoteIntroHapticsPlugin: NSObject, FlutterPlugin {
+  static let channelName = "petnote/intro_haptics"
+
+  private var engine: CHHapticEngine?
+  private var activePlayer: CHHapticAdvancedPatternPlayer?
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteIntroHapticsPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "playIntroLaunchContinuous":
+      playIntroLaunchContinuous(result: result)
+    case "stopIntroLaunchContinuous":
+      stopIntroLaunchContinuous(result: result)
+    case "playIntroToOnboardingContinuous":
+      playIntroToOnboardingContinuous(result: result)
+    case "stopIntroToOnboardingContinuous":
+      stopIntroToOnboardingContinuous(result: result)
+    case "playIntroPrimaryButtonTap":
+      playIntroPrimaryButtonTap(result: result)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func playIntroLaunchContinuous(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *), supportsHaptics else {
+      result(nil)
+      return
+    }
+
+    do {
+      let engine = try prepareEngine()
+      try stopActivePlayerIfNeeded()
+      let pattern = try makeIntroLaunchPattern()
+      let player = try engine.makeAdvancedPlayer(with: pattern)
+      activePlayer = player
+      try player.start(atTime: CHHapticTimeImmediate)
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "platformError",
+          message: "Failed to play intro launch haptics.",
+          details: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private func stopIntroLaunchContinuous(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *) else {
+      result(nil)
+      return
+    }
+
+    do {
+      try stopActivePlayerIfNeeded()
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "platformError",
+          message: "Failed to stop intro launch haptics.",
+          details: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private func playIntroToOnboardingContinuous(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *), supportsHaptics else {
+      result(nil)
+      return
+    }
+
+    do {
+      let engine = try prepareEngine()
+      try stopActivePlayerIfNeeded()
+      let pattern = try makeIntroToOnboardingPattern()
+      let player = try engine.makeAdvancedPlayer(with: pattern)
+      activePlayer = player
+      try player.start(atTime: CHHapticTimeImmediate)
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "platformError",
+          message: "Failed to play intro onboarding haptics.",
+          details: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private func stopIntroToOnboardingContinuous(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *) else {
+      result(nil)
+      return
+    }
+
+    do {
+      try stopActivePlayerIfNeeded()
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "platformError",
+          message: "Failed to stop intro onboarding haptics.",
+          details: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private func playIntroPrimaryButtonTap(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *), supportsHaptics else {
+      result(nil)
+      return
+    }
+
+    do {
+      let engine = try prepareEngine()
+      let pattern = try makeIntroPrimaryButtonTapPattern()
+      let player = try engine.makePlayer(with: pattern)
+      try player.start(atTime: CHHapticTimeImmediate)
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "platformError",
+          message: "Failed to play intro primary button tap haptics.",
+          details: error.localizedDescription
+        )
+      )
+    }
+  }
+
+  private var supportsHaptics: Bool {
+    guard #available(iOS 13.0, *) else {
+      return false
+    }
+    return CHHapticEngine.capabilitiesForHardware().supportsHaptics
+  }
+
+  @available(iOS 13.0, *)
+  private func prepareEngine() throws -> CHHapticEngine {
+    if let engine {
+      try engine.start()
+      return engine
+    }
+
+    let engine = try CHHapticEngine()
+    engine.isAutoShutdownEnabled = true
+    engine.stoppedHandler = { [weak self] _ in
+      self?.activePlayer = nil
+    }
+    engine.resetHandler = { [weak self] in
+      self?.activePlayer = nil
+      self?.engine = nil
+    }
+    try engine.start()
+    self.engine = engine
+    return engine
+  }
+
+  @available(iOS 13.0, *)
+  private func stopActivePlayerIfNeeded() throws {
+    guard let activePlayer else {
+      return
+    }
+    try activePlayer.stop(atTime: CHHapticTimeImmediate)
+    self.activePlayer = nil
+  }
+
+  @available(iOS 13.0, *)
+  private func makeIntroLaunchPattern() throws -> CHHapticPattern {
+    let event = CHHapticEvent(
+      eventType: .hapticContinuous,
+      parameters: [
+        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.24),
+        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.15),
+      ],
+      relativeTime: 0,
+      duration: 0.40
+    )
+    let intensityCurve = CHHapticParameterCurve(
+      parameterID: .hapticIntensityControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.00),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.06, value: 0.78),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.18, value: 1.00),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.30, value: 0.76),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.40, value: 0.00),
+      ],
+      relativeTime: 0
+    )
+    let sharpnessCurve = CHHapticParameterCurve(
+      parameterID: .hapticSharpnessControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.10),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.20, value: 0.18),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.40, value: 0.08),
+      ],
+      relativeTime: 0
+    )
+    return try CHHapticPattern(
+      events: [event],
+      parameterCurves: [intensityCurve, sharpnessCurve]
+    )
+  }
+
+  @available(iOS 13.0, *)
+  private func makeIntroToOnboardingPattern() throws -> CHHapticPattern {
+    let event = CHHapticEvent(
+      eventType: .hapticContinuous,
+      parameters: [
+        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.28),
+        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.18),
+      ],
+      relativeTime: 0,
+      duration: 0.48
+    )
+    let intensityCurve = CHHapticParameterCurve(
+      parameterID: .hapticIntensityControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.00),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.05, value: 0.62),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.16, value: 1.00),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.30, value: 0.82),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.40, value: 0.46),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.48, value: 0.00),
+      ],
+      relativeTime: 0
+    )
+    let sharpnessCurve = CHHapticParameterCurve(
+      parameterID: .hapticSharpnessControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.10),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.18, value: 0.22),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.34, value: 0.18),
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.48, value: 0.08),
+      ],
+      relativeTime: 0
+    )
+    return try CHHapticPattern(
+      events: [event],
+      parameterCurves: [intensityCurve, sharpnessCurve]
+    )
+  }
+
+  @available(iOS 13.0, *)
+  private func makeIntroPrimaryButtonTapPattern() throws -> CHHapticPattern {
+    let event = CHHapticEvent(
+      eventType: .hapticTransient,
+      parameters: [
+        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.20),
+        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.16),
+      ],
+      relativeTime: 0
+    )
+    return try CHHapticPattern(events: [event], parameters: [])
+  }
+}
+
+final class IosNativeOverviewRangeButtonPlugin: NSObject, FlutterPlugin {
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let factory = IosNativeOverviewRangeButtonViewFactory(messenger: registrar.messenger())
+    registrar.register(factory, withId: "petnote/ios_overview_range_button")
+  }
+}
+
+final class IosNativeOverviewRangeButtonViewFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    IosNativeOverviewRangeButtonPlatformView(
+      frame: frame,
+      viewId: viewId,
+      args: args as? [String: Any],
+      messenger: messenger
+    )
+  }
+}
+
+final class IosNativeOverviewRangeButtonPlatformView: NSObject, FlutterPlatformView {
+  private let containerView = UIView()
+  private let button = UIButton(type: .system)
+  private let channel: FlutterMethodChannel
+
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    args: [String: Any]?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    channel = FlutterMethodChannel(
+      name: "petnote/ios_overview_range_button_\(viewId)",
+      binaryMessenger: messenger
+    )
+    super.init()
+    configureButton()
+    configureChannel()
+    updateState(with: args)
+  }
+
+  func view() -> UIView {
+    containerView
+  }
+
+  private func configureButton() {
+    containerView.backgroundColor = .clear
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.addTarget(self, action: #selector(handlePress), for: .touchUpInside)
+    button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+    button.layer.cornerRadius = 20
+    button.layer.masksToBounds = true
+    button.tintColor = .white
+    containerView.addSubview(button)
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+      button.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+      button.topAnchor.constraint(equalTo: containerView.topAnchor),
+      button.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+      button.heightAnchor.constraint(equalToConstant: 40)
+    ])
+  }
+
+  private func configureChannel() {
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(nil)
+        return
+      }
+      switch call.method {
+      case "updateState":
+        self.updateState(with: call.arguments as? [String: Any])
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func updateState(with args: [String: Any]?) {
+    let label = (args?["label"] as? String) ?? "7天"
+    let brightness = (args?["brightness"] as? String) ?? "light"
+    let accent = UIColor(red: 0.62, green: 0.52, blue: 0.93, alpha: 1)
+    button.backgroundColor = accent
+    let title = NSAttributedString(
+      string: label,
+      attributes: [
+        .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
+        .foregroundColor: UIColor.white
+      ]
+    )
+    button.setAttributedTitle(title, for: .normal)
+    let imageConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+    let image = UIImage(systemName: "chevron.down", withConfiguration: imageConfig)?
+      .withTintColor(.white, renderingMode: .alwaysOriginal)
+    button.setImage(image, for: .normal)
+    button.semanticContentAttribute = .forceRightToLeft
+    button.tintColor = .white
+    button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: -8)
+    containerView.overrideUserInterfaceStyle = brightness == "dark" ? .dark : .light
+  }
+
+  @objc private func handlePress() {
+    channel.invokeMethod("pressed", arguments: nil)
   }
 }
 

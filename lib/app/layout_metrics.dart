@@ -8,6 +8,8 @@ const double _dockShellBaseHeight = 78;
 const double _dockPanelBaseHeight = 78;
 const double _dockBottomSpacing = 17;
 const double dockBlurSigma = 6;
+const double iosNativeDockHostHeight = 140;
+const double overviewFloatingButtonDockClearance = 6;
 
 EdgeInsets pageContentPaddingForInsets(EdgeInsets insets) {
   return EdgeInsets.fromLTRB(
