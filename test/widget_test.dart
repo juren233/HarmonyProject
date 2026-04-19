@@ -8,10 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/add_sheet.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/me_page.dart' as settings_page;
+import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_first_launch_intro.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_app.dart';
@@ -26,6 +28,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _petsStorageKey = 'pets_v1';
 const _todosStorageKey = 'todos_v1';
+const _recordsStorageKey = 'records_v1';
 const _firstLaunchIntroAutoEnabledKey = 'first_launch_intro_auto_enabled_v1';
 
 void main() {
@@ -556,6 +559,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(driver.events, isEmpty);
+  });
+
+  testWidgets(
+      'dock embedded onboarding primary buttons trigger button haptics when enabled',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: PetOnboardingFlow(
+            embedded: true,
+            enableEmbeddedPrimaryButtonHaptics: true,
+            introHapticsDriver: driver,
+            onSubmit: (_) async {},
+            onDefer: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_name_field')),
+      'Nori',
+    );
+    await _tapVisibleText(tester, '猫');
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    expect(driver.events, <String>['button-tap']);
   });
 
   testWidgets(
@@ -2138,6 +2175,37 @@ void main() {
     }
   });
 
+  testWidgets('dock add-pet prerequisite primary button triggers haptics',
+      (tester) async {
+    final driver = _FakeIntroHapticsDriver();
+    SharedPreferences.setMockInitialValues({
+      _firstLaunchIntroAutoEnabledKey: false,
+    });
+    final store = await PetNoteStore.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light).copyWith(
+          platform: TargetPlatform.android,
+        ),
+        home: Scaffold(
+          body: AddActionSheet(
+            store: store,
+            introHapticsDriver: driver,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始添加宠物'));
+    await tester.pumpAndSettle();
+
+    expect(driver.events, <String>['button-tap']);
+  });
+
   testWidgets('expanded todo form back returns to action grid', (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
     await tester.pumpWidget(const PetNoteApp());
@@ -2270,6 +2338,330 @@ void main() {
     final todosJson = prefs.getString(_todosStorageKey);
     expect(todosJson, isNotNull);
     expect(todosJson, contains('补货主粮'));
+  });
+
+  testWidgets(
+      'record form keeps remaining photos stable during animated removal',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final picker = _FakeNativePetPhotoPicker([
+      ['/tmp/petnote-record-1.png', '/tmp/petnote-record-2.png'],
+      ['/tmp/petnote-record-3.png'],
+    ]);
+    debugHasPetPhotoOverride =
+        (path) => path != null && path.startsWith('/tmp/petnote-record-');
+    debugPetPhotoImageBuilder = ({
+      required String photoPath,
+      required Widget fallback,
+      BoxFit fit = BoxFit.cover,
+    }) {
+      return SizedBox(
+        key: ValueKey('debug-record-photo-$photoPath'),
+      );
+    };
+
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(PetNoteApp(nativePetPhotoPicker: picker));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('健康'), findsOneWidget);
+    expect(find.text('生活'), findsOneWidget);
+    expect(find.text('消费'), findsOneWidget);
+    expect(find.text('图片'), findsNothing);
+    expect(find.text('补充说明'), findsNothing);
+    expect(find.text('正文'), findsNothing);
+    expect(find.byKey(const ValueKey('record_note_field')), findsNothing);
+    expect(find.text('可一次选择多张照片'), findsNothing);
+    expect(find.text('事实正文'), findsNothing);
+    expect(find.byKey(const ValueKey('record_summary_field')), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_photo_button')),
+    );
+    final addPhotoButtonSize = tester.getSize(
+      find.byKey(const ValueKey('record_add_photo_hero_card')),
+    );
+    expect(addPhotoButtonSize.height, greaterThanOrEqualTo(100));
+    expect(addPhotoButtonSize.width, closeTo(addPhotoButtonSize.height, 0.1));
+    expect(find.byKey(const ValueKey('record_photo_strip')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('record_add_photo_tail_card')), findsNothing);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_photo_button')),
+    );
+    await tester.tap(find.byKey(const ValueKey('record_add_photo_button')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('record_photo_strip')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('debug-record-photo-/tmp/petnote-record-1.png'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('debug-record-photo-/tmp/petnote-record-2.png'),
+      ),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsNothing,
+    );
+
+    final previewSize = tester.getSize(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-1.png')),
+    );
+    expect(
+      addPhotoButtonSize.width,
+      closeTo(previewSize.width, 0.1),
+    );
+    expect(
+      addPhotoButtonSize.height,
+      closeTo(previewSize.height, 0.1),
+    );
+    final removeButtonSize = tester.getSize(
+      find.byKey(_recordRemovePhotoButtonKey('/tmp/petnote-record-1.png')),
+    );
+    expect(previewSize.width, greaterThanOrEqualTo(120));
+    expect(previewSize.height, greaterThanOrEqualTo(120));
+    expect(removeButtonSize.width, lessThanOrEqualTo(32));
+    expect(removeButtonSize.height, lessThanOrEqualTo(32));
+    expect(find.byKey(const ValueKey('record_add_photo_tail_card')),
+        findsOneWidget);
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('record_add_photo_tail_card')))
+          .dx,
+      greaterThan(
+        tester
+            .getTopLeft(
+              find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-2.png')),
+            )
+            .dx,
+      ),
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_photo_button')),
+    );
+    await tester.tap(find.byKey(const ValueKey('record_add_photo_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey('debug-record-photo-/tmp/petnote-record-3.png'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-3.png')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('record_add_photo_tail_card')))
+          .dx,
+      greaterThan(
+        tester
+            .getTopLeft(
+              find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-3.png')),
+            )
+            .dx,
+      ),
+    );
+
+    const recordSummary = '吃药后状态稳定，精神恢复正常';
+    await tester.enterText(
+      find.byKey(const ValueKey('record_summary_field')),
+      recordSummary,
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(_recordRemovePhotoButtonKey('/tmp/petnote-record-1.png')),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-1.png')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-2.png')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-3.png')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-1.png')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-2.png')),
+      findsOneWidget,
+    );
+    await tester.pumpAndSettle();
+    expect(picker.deletedPaths, contains('/tmp/petnote-record-1.png'));
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-1.png')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-2.png')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-3.png')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('record_add_photo_tail_card')))
+          .dx,
+      greaterThan(
+        tester
+            .getTopLeft(
+              find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-3.png')),
+            )
+            .dx,
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(FilledButton, '保存记录'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final recordsJson = prefs.getString(_recordsStorageKey);
+    expect(recordsJson, isNotNull);
+    final decodedRecords = (jsonDecode(recordsJson!) as List)
+        .map((item) => Map<String, Object?>.from(item as Map))
+        .toList(growable: false);
+    expect(decodedRecords.first['purpose'], 'health');
+    expect(decodedRecords.first['summary'], recordSummary);
+    expect(decodedRecords.first['note'], '');
+    expect(decodedRecords.first['photoPaths'], [
+      '/tmp/petnote-record-2.png',
+      '/tmp/petnote-record-3.png',
+    ]);
+  });
+
+  testWidgets(
+      'record form reuses a stable empty-state add card after removing all photos',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final picker = _FakeNativePetPhotoPicker([
+      ['/tmp/petnote-record-readd-1.png'],
+      ['/tmp/petnote-record-readd-2.png'],
+    ]);
+    debugHasPetPhotoOverride =
+        (path) => path != null && path.startsWith('/tmp/petnote-record-readd-');
+    debugPetPhotoImageBuilder = ({
+      required String photoPath,
+      required Widget fallback,
+      BoxFit fit = BoxFit.cover,
+    }) {
+      return SizedBox(
+        key: ValueKey('debug-record-photo-$photoPath'),
+      );
+    };
+
+    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
+    await tester.pumpWidget(PetNoteApp(nativePetPhotoPicker: picker));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增记录'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_photo_hero_card')),
+    );
+    await tester.tap(find.byKey(const ValueKey('record_add_photo_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+          _recordRemovePhotoButtonKey('/tmp/petnote-record-readd-1.png')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('record_photo_strip')), findsNothing);
+    expect(find.byKey(const ValueKey('record_add_photo_hero_card')),
+        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsNothing,
+    );
+
+    final heroCardLeft = tester
+        .getTopLeft(find.byKey(const ValueKey('record_add_photo_hero_card')))
+        .dx;
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('record_add_photo_hero_card')),
+    );
+    await tester.tap(find.byKey(const ValueKey('record_add_photo_button')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('record_photo_strip')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsOneWidget,
+    );
+
+    final transitionStartLeft = tester
+        .getTopLeft(
+            find.byKey(const ValueKey('record_add_photo_transition_card')))
+        .dx;
+    expect((transitionStartLeft - heroCardLeft).abs(), lessThanOrEqualTo(1));
+
+    final midFlightLeftBefore = tester
+        .getTopLeft(
+            find.byKey(const ValueKey('record_add_photo_transition_card')))
+        .dx;
+    await tester.pump(const Duration(milliseconds: 160));
+    final midFlightLeftAfter = tester
+        .getTopLeft(
+            find.byKey(const ValueKey('record_add_photo_transition_card')))
+        .dx;
+    expect(midFlightLeftAfter, greaterThanOrEqualTo(midFlightLeftBefore));
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(_recordPhotoPreviewKey('/tmp/petnote-record-readd-2.png')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('record_add_photo_transition_card')),
+      findsNothing,
+    );
   });
 
   testWidgets(
@@ -3506,6 +3898,50 @@ class _FakeIntroHapticsDriver implements IntroHapticsDriver {
   Future<void> playIntroPrimaryButtonTap() async {
     events.add('button-tap');
   }
+}
+
+class _FakeNativePetPhotoPicker implements NativePetPhotoPicker {
+  _FakeNativePetPhotoPicker(this.batches);
+
+  final List<List<String>> batches;
+  final List<String> deletedPaths = <String>[];
+  int _nextIndex = 0;
+
+  @override
+  Future<NativePetPhotoPickerResult> pickPetPhoto() async {
+    if (_nextIndex >= batches.length || batches[_nextIndex].isEmpty) {
+      return const NativePetPhotoPickerResult.cancelled();
+    }
+    final path = batches[_nextIndex].first;
+    _nextIndex += 1;
+    return NativePetPhotoPickerResult.success(localPath: path);
+  }
+
+  @override
+  Future<NativePetPhotoPickerBatchResult> pickPetPhotos() async {
+    if (_nextIndex >= batches.length) {
+      return const NativePetPhotoPickerBatchResult.cancelled();
+    }
+    final selectedPaths = batches[_nextIndex];
+    _nextIndex += 1;
+    if (selectedPaths.isEmpty) {
+      return const NativePetPhotoPickerBatchResult.cancelled();
+    }
+    return NativePetPhotoPickerBatchResult.success(localPaths: selectedPaths);
+  }
+
+  @override
+  Future<void> deletePetPhoto(String path) async {
+    deletedPaths.add(path);
+  }
+}
+
+ValueKey<String> _recordPhotoPreviewKey(String path) {
+  return ValueKey<String>('record_photo_preview_$path');
+}
+
+ValueKey<String> _recordRemovePhotoButtonKey(String path) {
+  return ValueKey<String>('record_remove_photo_${path}_button');
 }
 
 double _fixedHeroScale(WidgetTester tester) {

@@ -17,6 +17,7 @@ import 'package:petnote/state/petnote_store.dart';
 
 part 'petnote_pages_overview.dart';
 part 'petnote_pages_pets.dart';
+part 'petnote_pages_pets_details.dart';
 part 'petnote_pages_me.dart';
 part 'petnote_pages_ai.dart';
 

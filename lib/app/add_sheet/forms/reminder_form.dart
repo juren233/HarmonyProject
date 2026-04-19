@@ -5,7 +5,6 @@ import 'package:petnote/state/petnote_store.dart';
 import '../form_controls/adaptive_date_time_field.dart';
 import '../form_controls/choice_wrap.dart';
 import '../form_controls/form_scaffold.dart';
-import '../form_controls/measurement_editor_section.dart';
 import '../form_controls/pet_selector.dart';
 import '../pickers/date_time_pickers.dart';
 import 'semantic_form_support.dart';
@@ -23,7 +22,6 @@ class _ReminderFormState extends State<ReminderForm> {
   final _title = TextEditingController();
   final _note = TextEditingController();
   final _recurrence = TextEditingController(text: '单次');
-  final List<MeasurementDraft> _measurementDrafts = <MeasurementDraft>[];
   late String _petId;
   late DateTime _scheduledAt;
   NotificationLeadTime _notificationLeadTime = NotificationLeadTime.none;
@@ -37,7 +35,6 @@ class _ReminderFormState extends State<ReminderForm> {
     _petId = widget.store.pets.first.id;
     _scheduledAt = defaultFutureDateTime();
     _followUpAt = _scheduledAt;
-    _measurementDrafts.add(MeasurementDraft());
   }
 
   @override
@@ -45,9 +42,6 @@ class _ReminderFormState extends State<ReminderForm> {
     _title.dispose();
     _note.dispose();
     _recurrence.dispose();
-    for (final draft in _measurementDrafts) {
-      draft.dispose();
-    }
     super.dispose();
   }
 
@@ -75,7 +69,7 @@ class _ReminderFormState extends State<ReminderForm> {
             ),
             actionSummary: intentActionSummary(_intent, _scheduledAt),
             followUpAt: _followUpAt ?? _scheduledAt,
-            measurements: _buildMeasurements(),
+            measurements: const <SemanticMeasurement>[],
             intent: _intent,
             source: null,
           ),
@@ -147,17 +141,6 @@ class _ReminderFormState extends State<ReminderForm> {
             clearButtonKey: const ValueKey('reminder_clear_follow_up_button'),
             onClear: () => setState(() => _followUpAt = null),
           ),
-          const SectionLabel(text: '关键指标（可选）'),
-          MeasurementEditorSection(
-            prefix: 'reminder',
-            drafts: _measurementDrafts,
-            onAdd: () =>
-                setState(() => _measurementDrafts.add(MeasurementDraft())),
-            onRemove: (index) => setState(() {
-              final draft = _measurementDrafts.removeAt(index);
-              draft.dispose();
-            }),
-          ),
           const SectionLabel(text: '重复规则'),
           HyperTextField(controller: _recurrence),
           const SectionLabel(text: '补充说明'),
@@ -222,12 +205,5 @@ class _ReminderFormState extends State<ReminderForm> {
         nextDateTime.minute,
       );
     });
-  }
-
-  List<SemanticMeasurement> _buildMeasurements() {
-    return _measurementDrafts
-        .map((draft) => draft.toMeasurement())
-        .whereType<SemanticMeasurement>()
-        .toList(growable: false);
   }
 }

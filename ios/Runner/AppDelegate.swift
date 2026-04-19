@@ -1047,7 +1047,18 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
 
   private static let photoDirectoryName = "pet_photos"
 
+  private enum PendingPhotoMode {
+    case single
+    case multiple
+  }
+
+  private enum PhotoLoadPayload {
+    case success(String)
+    case failure([String: Any?])
+  }
+
   private var pendingResult: FlutterResult?
+  private var pendingPhotoMode: PendingPhotoMode = .single
   private var presentedController: UIViewController?
 
   static func register(with registrar: FlutterPluginRegistrar) {
@@ -1066,7 +1077,13 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
         result(Self.errorPayload(code: "invalidResponse", message: "Another native pet photo request is already running."))
         return
       }
-      presentPicker(result: result)
+      presentPicker(selectionLimit: 1, mode: .single, result: result)
+    case "pickPetPhotos":
+      guard pendingResult == nil else {
+        result(Self.errorPayload(code: "invalidResponse", message: "Another native pet photo request is already running."))
+        return
+      }
+      presentPicker(selectionLimit: 0, mode: .multiple, result: result)
     case "deletePetPhoto":
       let arguments = call.arguments as? [String: Any]
       deletePetPhoto(at: arguments?["path"] as? String)
@@ -1089,30 +1106,28 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
       return
     }
 
+    if pendingPhotoMode == .multiple {
+      loadMultiplePhotos(results)
+      return
+    }
+
     let typeIdentifier = UTType.image.identifier
-    item.itemProvider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] data, error in
+    loadPhoto(item, typeIdentifier: typeIdentifier) { [weak self] payload in
       guard let self else { return }
-      if let error {
-        self.finish(with: Self.errorPayload(code: "platformError", message: error.localizedDescription))
-        return
-      }
-      guard let data else {
-        self.finish(with: Self.errorPayload(code: "invalidResponse", message: "System photo picker did not return image data."))
-        return
-      }
-      do {
-        let localPath = try self.writePhotoToSandbox(
-          data: data,
-          typeIdentifier: item.itemProvider.registeredTypeIdentifiers.first,
-        )
+      switch payload {
+      case .success(let localPath):
         self.finish(with: Self.successPayload(localPath: localPath))
-      } catch {
-        self.finish(with: Self.errorPayload(code: "platformError", message: error.localizedDescription))
+      case .failure(let errorPayload):
+        self.finish(with: errorPayload)
       }
     }
   }
 
-  private func presentPicker(result: @escaping FlutterResult) {
+  private func presentPicker(
+    selectionLimit: Int,
+    mode: PendingPhotoMode,
+    result: @escaping FlutterResult
+  ) {
     guard #available(iOS 14, *) else {
       result(Self.errorPayload(code: "unavailable", message: "PHPickerViewController requires iOS 14 or later."))
       return
@@ -1124,14 +1139,81 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
 
     var configuration = PHPickerConfiguration(photoLibrary: .shared())
     configuration.filter = .images
-    configuration.selectionLimit = 1
+    configuration.selectionLimit = selectionLimit
 
     let picker = PHPickerViewController(configuration: configuration)
     picker.delegate = self
     picker.presentationController?.delegate = self
     pendingResult = result
+    pendingPhotoMode = mode
     presentedController = picker
     presenter.present(picker, animated: true)
+  }
+
+  private func loadMultiplePhotos(_ results: [PHPickerResult]) {
+    let typeIdentifier = UTType.image.identifier
+    let group = DispatchGroup()
+    let lock = NSLock()
+    var localPaths = Array<String?>(repeating: nil, count: results.count)
+    var firstErrorPayload: [String: Any?]?
+
+    for (index, item) in results.enumerated() {
+      group.enter()
+      loadPhoto(item, typeIdentifier: typeIdentifier) { payload in
+        lock.lock()
+        switch payload {
+        case .success(let localPath):
+          localPaths[index] = localPath
+        case .failure(let errorPayload):
+          if firstErrorPayload == nil {
+            firstErrorPayload = errorPayload
+          }
+        }
+        lock.unlock()
+        group.leave()
+      }
+    }
+
+    group.notify(queue: .main) { [weak self] in
+      guard let self else { return }
+      if let firstErrorPayload {
+        self.finish(with: firstErrorPayload)
+        return
+      }
+      let parsedPaths = localPaths.compactMap { $0 }
+      if parsedPaths.isEmpty {
+        self.finish(with: Self.cancelledPayload())
+        return
+      }
+      self.finish(with: Self.successPayload(localPaths: parsedPaths))
+    }
+  }
+
+  private func loadPhoto(
+    _ item: PHPickerResult,
+    typeIdentifier: String,
+    completion: @escaping (PhotoLoadPayload) -> Void
+  ) {
+    item.itemProvider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] data, error in
+      guard let self else { return }
+      if let error {
+        completion(.failure(Self.errorPayload(code: "platformError", message: error.localizedDescription)))
+        return
+      }
+      guard let data else {
+        completion(.failure(Self.errorPayload(code: "invalidResponse", message: "System photo picker did not return image data.")))
+        return
+      }
+      do {
+        let localPath = try self.writePhotoToSandbox(
+          data: data,
+          typeIdentifier: item.itemProvider.registeredTypeIdentifiers.first,
+        )
+        completion(.success(localPath))
+      } catch {
+        completion(.failure(Self.errorPayload(code: "platformError", message: error.localizedDescription)))
+      }
+    }
   }
 
   private func writePhotoToSandbox(
@@ -1183,6 +1265,7 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
   private func finish(with payload: [String: Any?]) {
     let callback = pendingResult
     pendingResult = nil
+    pendingPhotoMode = .single
     presentedController = nil
     DispatchQueue.main.async {
       callback?(payload)
@@ -1232,6 +1315,13 @@ final class PetNoteNativePetPhotoPickerPlugin: NSObject, FlutterPlugin, PHPicker
     return [
       "status": "success",
       "localPath": localPath,
+    ]
+  }
+
+  private static func successPayload(localPaths: [String]) -> [String: Any?] {
+    return [
+      "status": "success",
+      "localPaths": localPaths,
     ]
   }
 

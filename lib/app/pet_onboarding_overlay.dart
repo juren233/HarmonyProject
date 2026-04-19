@@ -124,6 +124,7 @@ class PetOnboardingFlow extends StatefulWidget {
     this.animateInitialEntry = true,
     this.externalRevealProgress,
     this.embedded = false,
+    this.enableEmbeddedPrimaryButtonHaptics = false,
     this.onReturnToActions,
     this.onReturnToIntro,
     this.introHapticsDriver,
@@ -135,6 +136,7 @@ class PetOnboardingFlow extends StatefulWidget {
   final bool animateInitialEntry;
   final double? externalRevealProgress;
   final bool embedded;
+  final bool enableEmbeddedPrimaryButtonHaptics;
   final VoidCallback? onReturnToActions;
   final VoidCallback? onReturnToIntro;
   final IntroHapticsDriver? introHapticsDriver;
@@ -216,7 +218,8 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final platform = Theme.of(context).platform;
-    _supportsPrimaryButtonHaptics = !widget.embedded &&
+    _supportsPrimaryButtonHaptics = (!widget.embedded ||
+            widget.enableEmbeddedPrimaryButtonHaptics) &&
         (platform == TargetPlatform.iOS || platform == TargetPlatform.android);
   }
 

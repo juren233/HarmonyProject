@@ -771,6 +771,46 @@ void main() {
   });
 
   testWidgets(
+      'pets page restores metric cards that drill into dedicated detail pages',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 2200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetsPage(
+            store: store,
+            onAddFirstPet: () {},
+            onEditPet: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('近期提醒').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('近期提醒'), findsWidgets);
+    expect(find.text('Luna'), findsWidgets);
+    expect(find.text('三联疫苗加强'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('资料记录').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('资料记录'), findsWidgets);
+    expect(find.text('耳道清洁复诊'), findsOneWidget);
+  });
+
+  testWidgets(
       'overview setup controls selected pets and range before generation',
       (tester) async {
     final store = PetNoteStore.seeded();

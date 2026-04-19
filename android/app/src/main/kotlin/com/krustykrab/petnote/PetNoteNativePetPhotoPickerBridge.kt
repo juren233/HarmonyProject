@@ -30,6 +30,12 @@ class PetNoteNativePetPhotoPickerBridge(
         ) { uri ->
             handlePickedUri(uri)
         }
+    private val multiplePickerLauncher =
+        (activity as androidx.activity.ComponentActivity).registerForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(),
+        ) { uris ->
+            handlePickedUris(uris)
+        }
 
     init {
         channel.setMethodCallHandler(this)
@@ -49,6 +55,22 @@ class PetNoteNativePetPhotoPickerBridge(
                 }
                 pendingResult = result
                 pickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }
+
+            "pickPetPhotos" -> {
+                if (pendingResult != null) {
+                    result.success(
+                        errorPayload(
+                            errorCode = "invalidResponse",
+                            message = "Another native pet photo request is already running.",
+                        ),
+                    )
+                    return
+                }
+                pendingResult = result
+                multiplePickerLauncher.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
             }
@@ -80,6 +102,27 @@ class PetNoteNativePetPhotoPickerBridge(
                 errorPayload(
                     errorCode = "platformError",
                     message = error.message ?: "Failed to import the selected photo.",
+                ),
+            )
+        }
+    }
+
+    private fun handlePickedUris(uris: List<Uri>) {
+        val result = pendingResult ?: return
+        pendingResult = null
+        if (uris.isEmpty()) {
+            result.success(cancelledPayload())
+            return
+        }
+
+        try {
+            val localPaths = uris.map { uri -> copyToSandbox(uri) }
+            result.success(successPayload(localPaths))
+        } catch (error: Exception) {
+            result.success(
+                errorPayload(
+                    errorCode = "platformError",
+                    message = error.message ?: "Failed to import the selected photos.",
                 ),
             )
         }
@@ -164,6 +207,13 @@ class PetNoteNativePetPhotoPickerBridge(
         return mapOf(
             "status" to "success",
             "localPath" to localPath,
+        )
+    }
+
+    private fun successPayload(localPaths: List<String>): Map<String, Any?> {
+        return mapOf(
+            "status" to "success",
+            "localPaths" to localPaths,
         )
     }
 

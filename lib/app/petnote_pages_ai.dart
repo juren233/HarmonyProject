@@ -39,6 +39,17 @@ String _recordTypeLabel(PetRecordType type) => switch (type) {
       PetRecordType.other => '其他',
     };
 
+String _recordSubtitle(PetRecord item) {
+  final summary = item.summary.trim();
+  final photoCount = item.photoPaths.length;
+  final photoLabel = photoCount == 0 ? null : '$photoCount 张图片';
+  return [
+    formatDate(item.recordDate, withTime: false),
+    if (summary.isNotEmpty) summary,
+    if (photoLabel != null) photoLabel,
+  ].join(' · ');
+}
+
 enum _VisitSummaryRange { thirtyDays, ninetyDays, custom }
 
 class _AiCareReportOverview extends StatelessWidget {
@@ -544,9 +555,8 @@ class _OverviewBodyDirectionalTransition extends StatelessWidget {
             ? Curves.easeInCubic.transform(normalizedPhase)
             : Curves.easeOutCubic.transform(normalizedPhase);
         final clampedPhaseProgress = phaseProgress.clamp(0.0, 1.0);
-        final opacity = isOutgoing
-            ? 1 - clampedPhaseProgress
-            : clampedPhaseProgress;
+        final opacity =
+            isOutgoing ? 1 - clampedPhaseProgress : clampedPhaseProgress;
         final offsetY = isOutgoing
             ? 0.12 * clampedPhaseProgress
             : -0.12 * (1 - clampedPhaseProgress);
@@ -560,7 +570,6 @@ class _OverviewBodyDirectionalTransition extends StatelessWidget {
       },
     );
   }
-
 }
 
 class _OverviewBodySection extends StatelessWidget {
@@ -1430,14 +1439,14 @@ class _OverviewPetSelectionTile extends StatelessWidget {
                       backgroundColor: Colors.transparent,
                       foregroundColor:
                           selected ? accent.label : tokens.primaryText,
-                      fallbackTextStyle:
-                          Theme.of(context).textTheme.titleLarge?.copyWith(
-                                color: selected
-                                    ? accent.label
-                                    : tokens.primaryText,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.3,
-                              ),
+                      fallbackTextStyle: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                            color: selected ? accent.label : tokens.primaryText,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.3,
+                          ),
                     ),
                   ),
                   if (selected)

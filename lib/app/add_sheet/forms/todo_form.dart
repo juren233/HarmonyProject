@@ -5,7 +5,6 @@ import 'package:petnote/state/petnote_store.dart';
 import '../form_controls/adaptive_date_time_field.dart';
 import '../form_controls/choice_wrap.dart';
 import '../form_controls/form_scaffold.dart';
-import '../form_controls/measurement_editor_section.dart';
 import '../form_controls/pet_selector.dart';
 import '../pickers/date_time_pickers.dart';
 import 'semantic_form_support.dart';
@@ -22,7 +21,6 @@ class TodoForm extends StatefulWidget {
 class _TodoFormState extends State<TodoForm> {
   final _title = TextEditingController();
   final _note = TextEditingController();
-  final List<MeasurementDraft> _measurementDrafts = <MeasurementDraft>[];
   late String _petId;
   late DateTime _dueAt;
   NotificationLeadTime _notificationLeadTime = NotificationLeadTime.none;
@@ -36,16 +34,12 @@ class _TodoFormState extends State<TodoForm> {
     _petId = widget.store.pets.first.id;
     _dueAt = defaultFutureDateTime();
     _followUpAt = _dueAt;
-    _measurementDrafts.add(MeasurementDraft());
   }
 
   @override
   void dispose() {
     _title.dispose();
     _note.dispose();
-    for (final draft in _measurementDrafts) {
-      draft.dispose();
-    }
     super.dispose();
   }
 
@@ -71,7 +65,7 @@ class _TodoFormState extends State<TodoForm> {
             ),
             actionSummary: intentActionSummary(_intent, _dueAt),
             followUpAt: _followUpAt ?? _dueAt,
-            measurements: _buildMeasurements(),
+            measurements: const <SemanticMeasurement>[],
             intent: _intent,
             source: null,
           ),
@@ -143,17 +137,6 @@ class _TodoFormState extends State<TodoForm> {
             clearButtonKey: const ValueKey('todo_clear_follow_up_button'),
             onClear: () => setState(() => _followUpAt = null),
           ),
-          const SectionLabel(text: '关键指标（可选）'),
-          MeasurementEditorSection(
-            prefix: 'todo',
-            drafts: _measurementDrafts,
-            onAdd: () =>
-                setState(() => _measurementDrafts.add(MeasurementDraft())),
-            onRemove: (index) => setState(() {
-              final draft = _measurementDrafts.removeAt(index);
-              draft.dispose();
-            }),
-          ),
           const SectionLabel(text: '补充说明'),
           HyperTextField(
             controller: _note,
@@ -216,12 +199,5 @@ class _TodoFormState extends State<TodoForm> {
         nextDateTime.minute,
       );
     });
-  }
-
-  List<SemanticMeasurement> _buildMeasurements() {
-    return _measurementDrafts
-        .map((draft) => draft.toMeasurement())
-        .whereType<SemanticMeasurement>()
-        .toList(growable: false);
   }
 }

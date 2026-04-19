@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -21,10 +23,12 @@ class AddActionSheet extends StatefulWidget {
     super.key,
     required this.store,
     this.nativePetPhotoPicker,
+    this.introHapticsDriver,
   });
 
   final PetNoteStore store;
   final NativePetPhotoPicker? nativePetPhotoPicker;
+  final IntroHapticsDriver? introHapticsDriver;
 
   @override
   State<AddActionSheet> createState() => _AddSheetState();
@@ -44,6 +48,8 @@ class _AddSheetState extends State<AddActionSheet>
   static const _petOnboardingTopPadding = 0.0;
 
   late final AnimationController _transitionController;
+  late final IntroHapticsDriver _introHapticsDriver =
+      widget.introHapticsDriver ?? MethodChannelIntroHaptics();
   AddAction _action = AddAction.none;
   bool _isCollapsing = false;
 
@@ -225,6 +231,8 @@ class _AddSheetState extends State<AddActionSheet>
         child: PetOnboardingFlow(
           embedded: true,
           nativePetPhotoPicker: widget.nativePetPhotoPicker,
+          enableEmbeddedPrimaryButtonHaptics: true,
+          introHapticsDriver: _introHapticsDriver,
           onSubmit: _submitPetOnboarding,
           onDefer: _closePetOnboarding,
           onReturnToActions: _beginCollapseToActions,
@@ -361,7 +369,10 @@ class _AddSheetState extends State<AddActionSheet>
     if (widget.store.pets.isEmpty) {
       return MissingPetPrerequisite(
         action: action,
-        onAddPet: _openPetOnboarding,
+        onAddPet: () {
+          _playPrimaryButtonTapHaptics();
+          _openPetOnboarding();
+        },
       );
     }
 
@@ -370,8 +381,11 @@ class _AddSheetState extends State<AddActionSheet>
         TodoForm(key: const ValueKey('todo'), store: widget.store),
       AddAction.reminder =>
         ReminderForm(key: const ValueKey('reminder'), store: widget.store),
-      AddAction.record =>
-        RecordForm(key: const ValueKey('record'), store: widget.store),
+      AddAction.record => RecordForm(
+          key: const ValueKey('record'),
+          store: widget.store,
+          nativePetPhotoPicker: widget.nativePetPhotoPicker,
+        ),
       AddAction.pet => const SizedBox.shrink(),
       AddAction.none => const SizedBox.shrink(),
     };
@@ -498,6 +512,10 @@ class _AddSheetState extends State<AddActionSheet>
       _isCollapsing = false;
       _action = AddAction.pet;
     });
+  }
+
+  void _playPrimaryButtonTapHaptics() {
+    unawaited(_introHapticsDriver.playIntroPrimaryButtonTap());
   }
 }
 

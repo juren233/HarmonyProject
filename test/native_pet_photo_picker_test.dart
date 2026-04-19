@@ -29,6 +29,45 @@ void main() {
     expect(result.localPath, '/tmp/pet-photo.png');
   });
 
+  test('pickPetPhotos decodes successful native response', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'pickPetPhotos');
+      return <String, Object?>{
+        'status': 'success',
+        'localPaths': <String>[
+          '/tmp/pet-photo-1.png',
+          '/tmp/pet-photo-2.png',
+        ],
+      };
+    });
+
+    final picker = MethodChannelNativePetPhotoPicker(channel: channel);
+    final result = await picker.pickPetPhotos();
+
+    expect(result.status, NativePetPhotoPickerStatus.success);
+    expect(result.localPaths, <String>[
+      '/tmp/pet-photo-1.png',
+      '/tmp/pet-photo-2.png',
+    ]);
+  });
+
+  test('pickPetPhotos maps malformed paths to invalid response', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      return <String, Object?>{
+        'status': 'success',
+        'localPaths': <Object?>['/tmp/pet-photo-1.png', ''],
+      };
+    });
+
+    final picker = MethodChannelNativePetPhotoPicker(channel: channel);
+    final result = await picker.pickPetPhotos();
+
+    expect(result.status, NativePetPhotoPickerStatus.error);
+    expect(result.errorCode, NativePetPhotoPickerErrorCode.invalidResponse);
+  });
+
   test('pickPetPhoto returns cancelled when user dismisses picker', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {

@@ -22,6 +22,8 @@ enum NotificationLeadTime {
 
 enum PetRecordType { medical, receipt, image, testResult, other }
 
+enum RecordPurpose { health, life, expense }
+
 enum OverviewRange {
   sevenDays,
   oneMonth,
@@ -382,6 +384,8 @@ class PetRecord {
     required this.recordDate,
     required this.summary,
     required this.note,
+    this.purpose,
+    this.photoPaths = const <String>[],
     this.semantic,
   });
 
@@ -392,6 +396,8 @@ class PetRecord {
   final DateTime recordDate;
   final String summary;
   final String note;
+  final RecordPurpose? purpose;
+  final List<String> photoPaths;
   final SemanticEventDetails? semantic;
 
   Map<String, dynamic> toJson() {
@@ -403,6 +409,8 @@ class PetRecord {
       'recordDate': recordDate.toIso8601String(),
       'summary': summary,
       'note': note,
+      'purpose': purpose?.name,
+      'photoPaths': photoPaths,
       'semantic': semantic?.toJson(),
     };
   }
@@ -416,6 +424,13 @@ class PetRecord {
       recordDate: DateTime.parse(json['recordDate'] as String),
       summary: json['summary'] as String? ?? '',
       note: json['note'] as String? ?? '',
+      purpose: _recordPurposeFromName(json['purpose'] as String?),
+      photoPaths: (json['photoPaths'] as List?)
+              ?.whereType<String>()
+              .map((item) => item.trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false) ??
+          const <String>[],
       semantic: json['semantic'] is Map
           ? SemanticEventDetails.fromJson(
               Map<String, dynamic>.from(json['semantic'] as Map),
@@ -1388,31 +1403,47 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> addRecord({
     required String petId,
-    required PetRecordType type,
+    PetRecordType? type,
+    RecordPurpose? purpose,
     required String title,
     required DateTime recordDate,
     required String summary,
     required String note,
+    List<String> photoPaths = const <String>[],
     SemanticEventDetails? semantic,
   }) async {
     final normalizedTitle = title.trim();
     final normalizedSummary = summary.trim();
     final normalizedNote = note.trim();
+    final normalizedPhotoPaths = photoPaths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .toList(growable: false);
+    final resolvedType =
+        type ?? _recordTypeForPurpose(purpose ?? RecordPurpose.health);
+    final resolvedPurpose = purpose ?? _recordPurposeForType(resolvedType);
     _records.insert(
       0,
       PetRecord(
         id: 'record-${_records.length + 1}',
         petId: petId,
-        type: type,
+        type: resolvedType,
+        purpose: resolvedPurpose,
         title: normalizedTitle.isEmpty
-            ? _defaultRecordTitle(type, semantic)
+            ? _defaultRecordTitle(
+                resolvedType,
+                semantic,
+                purpose: resolvedPurpose,
+              )
             : normalizedTitle,
         recordDate: recordDate,
         summary: normalizedSummary,
         note: normalizedNote,
+        photoPaths: normalizedPhotoPaths,
         semantic: semantic ??
             _inferRecordSemantic(
-              type: type,
+              type: resolvedType,
+              purpose: resolvedPurpose,
               title: normalizedTitle,
               summary: normalizedSummary,
               note: normalizedNote,
@@ -2348,6 +2379,13 @@ PetRecordType _petRecordTypeFromName(String? value) => switch (value) {
       _ => PetRecordType.other,
     };
 
+RecordPurpose? _recordPurposeFromName(String? value) => switch (value) {
+      'health' => RecordPurpose.health,
+      'life' => RecordPurpose.life,
+      'expense' => RecordPurpose.expense,
+      _ => null,
+    };
+
 SemanticTopicKey _semanticTopicKeyFromName(String? value) => switch (value) {
       'hydration' => SemanticTopicKey.hydration,
       'diet' => SemanticTopicKey.diet,
@@ -2433,10 +2471,18 @@ String _defaultReminderTitle(
 
 String _defaultRecordTitle(
   PetRecordType type,
-  SemanticEventDetails? semantic,
-) {
+  SemanticEventDetails? semantic, {
+  RecordPurpose? purpose,
+}) {
   if (semantic != null && semantic.evidenceSummary.isNotEmpty) {
     return _truncateSemanticText(semantic.evidenceSummary, 18);
+  }
+  if (purpose != null) {
+    return switch (purpose) {
+      RecordPurpose.health => '健康记录',
+      RecordPurpose.life => '生活记录',
+      RecordPurpose.expense => '消费记录',
+    };
   }
   return switch (type) {
     PetRecordType.medical => '就诊记录',
@@ -2490,12 +2536,13 @@ SemanticEventDetails _inferReminderSemantic({
 
 SemanticEventDetails _inferRecordSemantic({
   required PetRecordType type,
+  RecordPurpose? purpose,
   required String title,
   required String summary,
   required String note,
   required DateTime recordDate,
 }) {
-  final topic = _inferTopicFromText('$title $summary $note');
+  final topic = _topicForRecordPurpose(purpose, '$title $summary $note');
   return SemanticEventDetails(
     topicKey: topic,
     signal: _semanticSignalForRecordText('$title $summary $note'),
@@ -2505,8 +2552,42 @@ SemanticEventDetails _inferRecordSemantic({
     followUpAt: _extractFollowUpDate('$title $summary $note'),
     measurements: _extractMeasurementsFromText('$title $summary $note'),
     intent: SemanticActionIntent.record,
-    source: _sourceForRecordType(type),
+    source: _sourceForRecordPurpose(purpose) ?? _sourceForRecordType(type),
   );
+}
+
+PetRecordType _recordTypeForPurpose(RecordPurpose purpose) {
+  return switch (purpose) {
+    RecordPurpose.health => PetRecordType.medical,
+    RecordPurpose.life => PetRecordType.other,
+    RecordPurpose.expense => PetRecordType.receipt,
+  };
+}
+
+RecordPurpose _recordPurposeForType(PetRecordType type) {
+  return switch (type) {
+    PetRecordType.medical || PetRecordType.testResult => RecordPurpose.health,
+    PetRecordType.receipt => RecordPurpose.expense,
+    PetRecordType.image || PetRecordType.other => RecordPurpose.life,
+  };
+}
+
+SemanticTopicKey _topicForRecordPurpose(RecordPurpose? purpose, String text) {
+  return switch (purpose) {
+    RecordPurpose.health => _inferTopicFromText(text),
+    RecordPurpose.life => SemanticTopicKey.other,
+    RecordPurpose.expense => SemanticTopicKey.purchase,
+    null => _inferTopicFromText(text),
+  };
+}
+
+SemanticEvidenceSource? _sourceForRecordPurpose(RecordPurpose? purpose) {
+  return switch (purpose) {
+    RecordPurpose.health => SemanticEvidenceSource.home,
+    RecordPurpose.life => SemanticEvidenceSource.home,
+    RecordPurpose.expense => SemanticEvidenceSource.receipt,
+    null => null,
+  };
 }
 
 SemanticTopicKey _topicForReminderKind(
