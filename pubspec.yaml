@@ -63,6 +63,7 @@ flutter:
 
   assets:
     - assets/images/intro/first_page_hero.svg
+    - assets/images/records-folder.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -89,5 +90,4 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
-
 

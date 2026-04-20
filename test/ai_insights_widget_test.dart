@@ -774,7 +774,7 @@ void main() {
   });
 
   testWidgets(
-      'pets page restores metric cards that drill into dedicated detail pages',
+      'pets page keeps only the records entry and supports record detail editing',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 2200);
     tester.view.devicePixelRatio = 1.0;
@@ -796,27 +796,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('近期提醒').first);
-    await tester.pumpAndSettle();
-
-    expect(find.text('近期提醒'), findsWidgets);
-    expect(find.text('Luna'), findsWidgets);
-    expect(find.text('三联疫苗加强'), findsOneWidget);
-    expect(find.byKey(const ValueKey('pet-reminder-row-reminder-1')),
-        findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('pet-reminder-row-reminder-1')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('pet-reminder-detail-page-reminder-1')),
-        findsOneWidget);
-    expect(find.text('提前准备免疫本。'), findsOneWidget);
-    expect(find.text('提前1天'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    await tester.pumpAndSettle();
+    expect(find.text('近期提醒'), findsNothing);
 
     await tester.tap(find.text('资料记录').first);
     await tester.pumpAndSettle();
@@ -832,6 +812,37 @@ void main() {
         findsOneWidget);
     expect(find.text('医生建议一周后继续观察，没有感染迹象。'), findsOneWidget);
     expect(find.text('继续减少洗澡频率。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('pet-record-detail-summary-field')),
+      '这次修改先取消',
+    );
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-cancel-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('这次修改先取消'), findsNothing);
+    expect(find.text('医生建议一周后继续观察，没有感染迹象。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('pet-record-detail-summary-field')),
+      '医生建议继续观察两周，并记录耳道清洁后的反应。',
+    );
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      store.recordById('record-1')?.summary,
+      '医生建议继续观察两周，并记录耳道清洁后的反应。',
+    );
+    expect(find.text('医生建议继续观察两周，并记录耳道清洁后的反应。'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('医生建议继续观察两周'), findsOneWidget);
   });
 
   testWidgets(

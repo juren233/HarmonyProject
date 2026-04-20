@@ -22,7 +22,6 @@ class _PetsPageState extends State<PetsPage> {
   @override
   Widget build(BuildContext context) {
     final pet = widget.store.selectedPet;
-    final remindersForSelectedPet = widget.store.remindersForSelectedPet;
     final recordsForSelectedPet = widget.store.recordsForSelectedPet;
     final pagePadding =
         pageContentPaddingForInsets(MediaQuery.viewPaddingOf(context));
@@ -137,36 +136,28 @@ class _PetsPageState extends State<PetsPage> {
                           child: MetricOverview(
                             metrics: [
                               MetricItem(
-                                label: '近期提醒',
-                                value: '${remindersForSelectedPet.length}',
-                                background: const Color(0xFFEAF0FF),
-                                foreground: const Color(0xFF335FCA),
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (context) => PetDetailsPage(
-                                        pet: pet,
-                                        reminders: remindersForSelectedPet,
-                                        records: recordsForSelectedPet,
-                                        detailType: PetDetailType.reminders,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                              MetricItem(
                                 label: '资料记录',
                                 value: '${recordsForSelectedPet.length}',
                                 background: const Color(0xFFF5F0FF),
                                 foreground: const Color(0xFF6B51C9),
+                                trailing: const _RecordsFolderMetricIcon(),
+                                contentPadding:
+                                    const EdgeInsets.only(left: 18),
+                                valueTextStyle: const TextStyle(
+                                  fontSize: 60,
+                                  height: 0.88,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -2.2,
+                                ),
+                                labelPadding:
+                                    const EdgeInsets.only(left: 12, top: 1),
+                                valueLabelSpacing: 2,
                                 onTap: () {
                                   Navigator.of(context).push(
                                     MaterialPageRoute<void>(
                                       builder: (context) => PetDetailsPage(
+                                        store: widget.store,
                                         pet: pet,
-                                        reminders: remindersForSelectedPet,
-                                        records: recordsForSelectedPet,
-                                        detailType: PetDetailType.records,
                                       ),
                                     ),
                                   );
@@ -204,6 +195,23 @@ class _PetsPageState extends State<PetsPage> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _RecordsFolderMetricIcon extends StatelessWidget {
+  const _RecordsFolderMetricIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 138,
+      height: 104,
+      child: Image.asset(
+        'assets/images/records-folder.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
     );
   }
 }

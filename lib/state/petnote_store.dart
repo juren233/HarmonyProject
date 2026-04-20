@@ -862,6 +862,33 @@ class PetNoteStore extends ChangeNotifier {
     return null;
   }
 
+  TodoItem? todoById(String todoId) {
+    for (final item in _todos) {
+      if (item.id == todoId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  ReminderItem? reminderById(String reminderId) {
+    for (final item in _reminders) {
+      if (item.id == reminderId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  PetRecord? recordById(String recordId) {
+    for (final item in _records) {
+      if (item.id == recordId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
   List<ReminderItem> get remindersForSelectedPet {
     final cached = _remindersForSelectedPetCache;
     if (cached != null &&
@@ -1466,6 +1493,161 @@ class PetNoteStore extends ChangeNotifier {
               note: normalizedNote,
               recordDate: recordDate,
             ),
+      ),
+    );
+    _selectedPetId = petId;
+    _activeTab = AppTab.pets;
+    _invalidateOverviewDerivedData();
+    _invalidateSelectedPetDerivedData();
+    notifyListeners();
+    await _saveState();
+  }
+
+  Future<void> updateTodo({
+    required String todoId,
+    required String petId,
+    required String title,
+    required DateTime dueAt,
+    required NotificationLeadTime notificationLeadTime,
+    required String note,
+  }) async {
+    final index = _todos.indexWhere((item) => item.id == todoId);
+    if (index == -1 || _findPet(petId) == null) {
+      return;
+    }
+
+    final current = _todos[index];
+    final normalizedTitle = title.trim();
+    final normalizedNote = note.trim();
+    _todos[index] = TodoItem(
+      id: current.id,
+      petId: petId,
+      title: normalizedTitle.isEmpty
+          ? _defaultTodoTitle(current.semantic, normalizedNote)
+          : normalizedTitle,
+      dueAt: dueAt,
+      notificationLeadTime: notificationLeadTime,
+      status: current.status,
+      note: normalizedNote,
+      semantic: _inferTodoSemantic(
+        title: normalizedTitle,
+        note: normalizedNote,
+        dueAt: dueAt,
+        status: current.status,
+      ),
+    );
+    _selectedPetId = petId;
+    _activeTab = AppTab.checklist;
+    _invalidateChecklistDerivedData();
+    _invalidateOverviewDerivedData();
+    _bumpNotificationSyncVersion();
+    notifyListeners();
+    await _saveState();
+  }
+
+  Future<void> updateReminder({
+    required String reminderId,
+    required String petId,
+    required ReminderKind kind,
+    required String title,
+    required DateTime scheduledAt,
+    required NotificationLeadTime notificationLeadTime,
+    required String note,
+  }) async {
+    final index = _reminders.indexWhere((item) => item.id == reminderId);
+    if (index == -1 || _findPet(petId) == null) {
+      return;
+    }
+
+    final current = _reminders[index];
+    final normalizedTitle = title.trim();
+    final normalizedNote = note.trim();
+    _reminders[index] = ReminderItem(
+      id: current.id,
+      petId: petId,
+      kind: kind,
+      title: normalizedTitle.isEmpty
+          ? _defaultReminderTitle(kind, current.semantic)
+          : normalizedTitle,
+      scheduledAt: scheduledAt,
+      notificationLeadTime: notificationLeadTime,
+      recurrence: current.recurrence,
+      status: current.status,
+      note: normalizedNote,
+      semantic: _inferReminderSemantic(
+        kind: kind,
+        title: normalizedTitle,
+        note: normalizedNote,
+        scheduledAt: scheduledAt,
+        status: current.status,
+      ),
+    );
+    _selectedPetId = petId;
+    _activeTab = AppTab.checklist;
+    _invalidateChecklistDerivedData();
+    _invalidateOverviewDerivedData();
+    _invalidateSelectedPetReminders();
+    _bumpNotificationSyncVersion();
+    notifyListeners();
+    await _saveState();
+  }
+
+  Future<void> updateRecord({
+    required String recordId,
+    required String petId,
+    required DateTime recordDate,
+    required RecordPurpose? purpose,
+    String? customPurposeLabel,
+    required String title,
+    required String summary,
+    required String note,
+    List<String> photoPaths = const <String>[],
+  }) async {
+    final index = _records.indexWhere((item) => item.id == recordId);
+    if (index == -1 || _findPet(petId) == null) {
+      return;
+    }
+
+    final current = _records[index];
+    final normalizedTitle = title.trim();
+    final normalizedSummary = summary.trim();
+    final normalizedNote = note.trim();
+    final normalizedCustomPurpose = customPurposeLabel?.trim().isEmpty ?? true
+        ? null
+        : customPurposeLabel!.trim();
+    final normalizedPhotoPaths = photoPaths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .toList(growable: false);
+    final resolvedPurpose = purpose ?? current.purpose ?? RecordPurpose.health;
+    final resolvedType = _recordTypeForPurpose(resolvedPurpose);
+    _records[index] = PetRecord(
+      id: current.id,
+      petId: petId,
+      type: resolvedType,
+      title: normalizedTitle.isEmpty
+          ? _defaultRecordTitle(
+              resolvedType,
+              current.semantic,
+              purpose: resolvedPurpose,
+              customPurposeLabel: normalizedCustomPurpose,
+            )
+          : normalizedTitle,
+      recordDate: recordDate,
+      summary: normalizedSummary,
+      note: normalizedNote,
+      purpose: resolvedPurpose,
+      customPurposeLabel: resolvedPurpose == RecordPurpose.other
+          ? normalizedCustomPurpose
+          : null,
+      photoPaths: normalizedPhotoPaths,
+      semantic: _inferRecordSemantic(
+        type: resolvedType,
+        purpose: resolvedPurpose,
+        title: normalizedTitle,
+        summary: normalizedSummary,
+        note: normalizedNote,
+        recordDate: recordDate,
       ),
     );
     _selectedPetId = petId;

@@ -232,32 +232,57 @@ class MetricOverview extends StatelessWidget {
                           color: item.background,
                           borderRadius: BorderRadius.circular(24),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Text(
-                              item.value,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(
-                                    color: item.foreground,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.8,
-                                  ),
+                            Expanded(
+                              child: Padding(
+                                padding: item.contentPadding ?? EdgeInsets.zero,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.value,
+                                      style: (Theme.of(context)
+                                                  .textTheme
+                                                  .headlineSmall
+                                                  ?.copyWith(
+                                                    color: item.foreground,
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: -0.8,
+                                                  ) ??
+                                                  const TextStyle())
+                                          .merge(item.valueTextStyle),
+                                    ),
+                                    SizedBox(height: item.valueLabelSpacing),
+                                    Padding(
+                                      padding:
+                                          item.labelPadding ?? EdgeInsets.zero,
+                                      child: Text(
+                                        item.label,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: item.foreground
+                                                  .withValues(alpha: 0.74),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              item.label,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color:
-                                        item.foreground.withValues(alpha: 0.74),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
+                            if (item.trailing != null) ...[
+                              const SizedBox(width: 10),
+                              Align(
+                                alignment: Alignment.center,
+                                child: item.trailing!,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -280,6 +305,11 @@ class MetricItem {
     required this.foreground,
     this.onTap,
     this.semanticLabel,
+    this.trailing,
+    this.contentPadding,
+    this.valueTextStyle,
+    this.labelPadding,
+    this.valueLabelSpacing = 8,
   });
 
   final String label;
@@ -288,6 +318,11 @@ class MetricItem {
   final Color foreground;
   final VoidCallback? onTap;
   final String? semanticLabel;
+  final Widget? trailing;
+  final EdgeInsetsGeometry? contentPadding;
+  final TextStyle? valueTextStyle;
+  final EdgeInsetsGeometry? labelPadding;
+  final double valueLabelSpacing;
 }
 
 class HyperSegmentedControl extends StatelessWidget {
@@ -917,6 +952,7 @@ class ChecklistCard extends StatelessWidget {
     super.key,
     required this.item,
     this.highlighted = false,
+    this.onTap,
     required this.onComplete,
     required this.onPostpone,
     required this.onSkip,
@@ -924,6 +960,7 @@ class ChecklistCard extends StatelessWidget {
 
   final ChecklistItemViewModel item;
   final bool highlighted;
+  final VoidCallback? onTap;
   final VoidCallback onComplete;
   final VoidCallback onPostpone;
   final VoidCallback onSkip;
@@ -945,66 +982,82 @@ class ChecklistCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              PetPhotoAvatar(
-                photoPath: item.petAvatarPhotoPath,
-                fallbackText: item.petAvatarText,
-                radius: 23,
-                backgroundColor: accent.background,
-                foregroundColor: tokens.primaryText,
-                fallbackTextStyle:
-                    Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: tokens.primaryText,
-                          fontWeight: FontWeight.w800,
-                        ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: ValueKey('checklist_card_body_${item.sourceType}-${item.id}'),
+              borderRadius: BorderRadius.circular(22),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item.title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: tokens.primaryText,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                          ),
+                    PetPhotoAvatar(
+                      photoPath: item.petAvatarPhotoPath,
+                      fallbackText: item.petAvatarText,
+                      radius: 23,
+                      backgroundColor: accent.background,
+                      foregroundColor: tokens.primaryText,
+                      fallbackTextStyle:
+                          Theme.of(context).textTheme.labelLarge?.copyWith(
+                                color: tokens.primaryText,
+                                fontWeight: FontWeight.w800,
+                              ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${item.petName} · ${item.kindLabel} · ${item.dueLabel}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: tokens.secondaryText,
-                            fontWeight: FontWeight.w500,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.title,
+                            style:
+                                Theme.of(context).textTheme.titleMedium?.copyWith(
+                                      color: tokens.primaryText,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.3,
+                                    ),
                           ),
-                    ),
-                    if (item.note.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        item.note,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: tokens.secondaryText,
-                              height: 1.45,
+                          const SizedBox(height: 6),
+                          Text(
+                            '${item.petName} · ${item.kindLabel} · ${item.dueLabel}',
+                            style:
+                                Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: tokens.secondaryText,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                          ),
+                          if (item.note.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              item.note,
+                              style:
+                                  Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: tokens.secondaryText,
+                                        height: 1.45,
+                                      ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                          ],
+                        ],
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 10),
+                    HyperBadge(
+                      text: item.statusLabel,
+                      foreground: overdue
+                          ? tokens.badgeRedForeground
+                          : accent.foreground,
+                      background: overdue
+                          ? tokens.badgeRedBackground
+                          : accent.background,
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              HyperBadge(
-                text: item.statusLabel,
-                foreground:
-                    overdue ? tokens.badgeRedForeground : accent.foreground,
-                background:
-                    overdue ? tokens.badgeRedBackground : accent.background,
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 16),
           Row(

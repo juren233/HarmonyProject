@@ -9,16 +9,21 @@ import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/ios_native_overview_range_button.dart';
 import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/native_option_picker.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/app/overview_bottom_cta.dart';
+import 'package:petnote/app/add_sheet/form_controls/adaptive_date_time_field.dart';
+import 'package:petnote/app/add_sheet/form_controls/choice_wrap.dart';
+import 'package:petnote/app/add_sheet/form_controls/pet_selector.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 part 'petnote_pages_overview.dart';
 part 'petnote_pages_pets.dart';
 part 'petnote_pages_pets_details.dart';
+part 'petnote_pages_checklist_details.dart';
 part 'petnote_pages_me.dart';
 part 'petnote_pages_ai.dart';
 
@@ -130,6 +135,23 @@ class ChecklistPage extends StatelessWidget {
               item: item,
               highlighted: highlightedChecklistItemKey ==
                   '${item.sourceType}:${item.id}',
+              onTap: () {
+                final route = switch (item.sourceType) {
+                  'reminder' => MaterialPageRoute<void>(
+                      builder: (context) => ReminderDetailPage(
+                        store: store,
+                        reminderId: item.id,
+                      ),
+                    ),
+                  _ => MaterialPageRoute<void>(
+                      builder: (context) => TodoDetailPage(
+                        store: store,
+                        todoId: item.id,
+                      ),
+                    ),
+                };
+                Navigator.of(context).push(route);
+              },
               onComplete: () =>
                   store.markChecklistDone(item.sourceType, item.id),
               onPostpone: () =>

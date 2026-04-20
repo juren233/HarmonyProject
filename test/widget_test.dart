@@ -730,6 +730,184 @@ void main() {
     expect(find.textContaining('已跳过'), findsOneWidget);
   });
 
+  testWidgets('checklist todo card opens detail page and saves edits',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: ChecklistPage(
+            store: store,
+            activeSectionKey: 'today',
+            highlightedChecklistItemKey: null,
+            onSectionChanged: (_) {},
+            onAddFirstPet: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('checklist_card_body_todo-todo-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('todo-detail-page-todo-1')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('todo-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('todo-detail-title-field')),
+      '补货湿粮',
+    );
+    await tester.tap(find.byKey(const ValueKey('todo-detail-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(store.todoById('todo-1')?.title, '补货湿粮');
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('checklist_card_todo-todo-1')), findsOneWidget);
+  });
+
+  testWidgets('checklist reminder card opens detail page and saves edits',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = PetNoteStore.seeded();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: ChecklistPage(
+            store: store,
+            activeSectionKey: 'today',
+            highlightedChecklistItemKey: null,
+            onSectionChanged: (_) {},
+            onAddFirstPet: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('checklist_card_body_reminder-reminder-2')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('checklist_card_body_reminder-reminder-2')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('reminder-detail-page-reminder-2')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('reminder-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('reminder-detail-title-field')),
+      '体内驱虫复查',
+    );
+    await tester.tap(find.byKey(const ValueKey('reminder-detail-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(store.reminderById('reminder-2')?.title, '体内驱虫复查');
+
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('checklist_card_reminder-reminder-2')),
+        findsOneWidget);
+  });
+
+  testWidgets('record detail supports image add remove save and cancel',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final existingPhotoPath =
+        '${Directory.systemTemp.path}${Platform.pathSeparator}petnote-record-edit-${DateTime.now().microsecondsSinceEpoch}.bin';
+    final addedPhotoPath =
+        '${Directory.systemTemp.path}${Platform.pathSeparator}petnote-record-edit-${DateTime.now().microsecondsSinceEpoch + 1}.bin';
+    debugHasPetPhotoOverride =
+        (path) => path == existingPhotoPath || path == addedPhotoPath;
+    debugPetPhotoImageBuilder = ({
+      required String photoPath,
+      required BoxFit fit,
+      required Widget fallback,
+    }) {
+      return SizedBox.expand(
+        key: ValueKey('debug-record-edit-photo-$photoPath'),
+      );
+    };
+
+    final picker = _FakeNativePetPhotoPicker([
+      [addedPhotoPath],
+    ]);
+    final store = PetNoteStore.seeded();
+    await store.addRecord(
+      petId: 'pet-1',
+      type: PetRecordType.image,
+      title: '术后恢复',
+      recordDate: DateTime.parse('2026-03-26T11:00:00+08:00'),
+      summary: '观察恢复情况。',
+      note: '保持安静休息。',
+      photoPaths: [existingPhotoPath],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RecordDetailPage(
+          store: store,
+          recordId: 'record-4',
+          nativePetPhotoPicker: picker,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('pet-record-detail-add-photo-button')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-add-photo-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(ValueKey('pet-record-detail-photo-tile-$addedPhotoPath')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
+    await tester.pumpAndSettle();
+    expect(store.recordById('record-4')?.photoPaths,
+        [existingPhotoPath, addedPhotoPath]);
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-cancel-button')));
+    await tester.pumpAndSettle();
+    expect(store.recordById('record-4')?.photoPaths,
+        [existingPhotoPath, addedPhotoPath]);
+
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
+    await tester.pumpAndSettle();
+    expect(store.recordById('record-4')?.photoPaths, [existingPhotoPath]);
+  });
+
   testWidgets(
       'first launch onboarding flow does not show the return-to-actions button',
       (tester) async {
