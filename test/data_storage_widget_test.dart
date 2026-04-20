@@ -48,8 +48,8 @@ void main() {
       ),
     );
 
-    await tester.scrollUntilVisible(find.text('打开数据与存储'), 200);
-    expect(find.text('打开数据与存储'), findsOneWidget);
+    expect(find.byKey(const ValueKey('me_data_backup_entry')), findsOneWidget);
+    expect(find.text('数据备份'), findsOneWidget);
   });
 
   testWidgets('data storage page exports backup through file manager',
@@ -283,8 +283,7 @@ void main() {
       find.byKey(const ValueKey('data_package_execute_restore_button')),
     );
     await tester.pumpAndSettle();
-    await tester
-        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(store.pets, hasLength(1));
@@ -378,8 +377,7 @@ void main() {
 
     expect(find.textContaining('当前本地业务数据和普通设置都会被备份内容覆盖'), findsOneWidget);
 
-    await tester
-        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(settingsController.themePreference, AppThemePreference.light);
@@ -585,8 +583,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('data_storage_clear_button')));
     await tester.pumpAndSettle();
-    await tester
-        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(store.pets, isEmpty);

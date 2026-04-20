@@ -77,12 +77,9 @@ void main() {
       ),
     );
 
-    await tester.scrollUntilVisible(find.text('AI 功能'), 200);
-    expect(find.text('AI 功能'), findsOneWidget);
-    expect(find.text('管理 AI 配置'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('日志中心'), 200);
-    expect(find.text('日志中心'), findsOneWidget);
-    expect(find.text('打开日志中心'), findsOneWidget);
+    expect(find.byKey(const ValueKey('me_ai_config_entry')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me_notification_entry')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me_data_backup_entry')), findsOneWidget);
   });
 
   testWidgets('me page entry buttons keep unified sizing', (tester) async {
@@ -133,43 +130,22 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final manageAiButton = find.byKey(const ValueKey('me_manage_ai_button'));
-    await tester.scrollUntilVisible(manageAiButton, 160);
-    await tester.pumpAndSettle();
-    final baselineHeight = tester.getSize(manageAiButton).height;
+    final aiEntry = find.byKey(const ValueKey('me_ai_config_entry'));
+    final notificationEntry = find.byKey(const ValueKey('me_notification_entry'));
+    final dataBackupEntry = find.byKey(const ValueKey('me_data_backup_entry'));
 
-    final requestNotificationButton =
-        find.byKey(const ValueKey('me_request_notification_button'));
-    final openSettingsButton =
-        find.byKey(const ValueKey('me_open_notification_settings_button'));
-    final openDataStorageButton =
-        find.byKey(const ValueKey('me_open_data_storage_button'));
-    final openLogCenterButton =
-        find.byKey(const ValueKey('me_open_log_center_button'));
+    expect(aiEntry, findsOneWidget);
+    expect(notificationEntry, findsOneWidget);
+    expect(dataBackupEntry, findsOneWidget);
 
-    await tester.scrollUntilVisible(requestNotificationButton, 160);
-    await tester.pumpAndSettle();
+    final baselineHeight = tester.getSize(aiEntry).height;
     expect(
       baselineHeight,
-      closeTo(tester.getSize(requestNotificationButton).height, 0.1),
+      closeTo(tester.getSize(notificationEntry).height, 0.1),
     );
     expect(
       baselineHeight,
-      closeTo(tester.getSize(openSettingsButton).height, 0.1),
-    );
-
-    await tester.scrollUntilVisible(openDataStorageButton, 160);
-    await tester.pumpAndSettle();
-    expect(
-      baselineHeight,
-      closeTo(tester.getSize(openDataStorageButton).height, 0.1),
-    );
-
-    await tester.scrollUntilVisible(openLogCenterButton, 160);
-    await tester.pumpAndSettle();
-    expect(
-      baselineHeight,
-      closeTo(tester.getSize(openLogCenterButton).height, 0.1),
+      closeTo(tester.getSize(dataBackupEntry).height, 0.1),
     );
   });
 
@@ -203,6 +179,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -258,6 +237,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('notification_settings_section')),
       160,
@@ -307,6 +289,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('notification_settings_section')),
       160,
@@ -352,6 +337,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -404,6 +392,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('notification_settings_section')),
       160,
@@ -444,6 +435,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(

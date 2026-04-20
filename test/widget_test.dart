@@ -2746,8 +2746,7 @@ void main() {
     ]);
   });
 
-  testWidgets(
-      'record form persists custom purpose labels when selecting other',
+  testWidgets('record form persists custom purpose labels when selecting other',
       (tester) async {
     SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
     await tester.pumpWidget(const PetNoteApp());
@@ -3588,18 +3587,26 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(themeSectionTitle), findsOneWidget);
-    expect(find.text(followSystemTitle), findsWidgets);
-    expect(find.text(lightModeTitle), findsWidgets);
-    expect(find.text(darkModeTitle), findsWidgets);
+    expect(find.text('主题外观'), findsOneWidget);
+    expect(find.text('设备'), findsOneWidget);
+    expect(find.text('浅色'), findsOneWidget);
+    expect(find.text('深色'), findsOneWidget);
+    expect(find.byKey(const ValueKey('me_theme_slider')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('me_theme_slider_control')), findsOneWidget);
+    expect(find.byKey(const ValueKey('theme_slider_thumb_icon')), findsNothing);
+    expect(find.byKey(const ValueKey('theme_slider_selected_system')),
+        findsOneWidget);
     expect(find.byKey(const ValueKey('theme_option_system')), findsOneWidget);
     expect(find.byKey(const ValueKey('theme_option_light')), findsOneWidget);
     expect(find.byKey(const ValueKey('theme_option_dark')), findsOneWidget);
+    expect(find.text(themeModeSectionSubtitle), findsNothing);
+    expect(find.byKey(const ValueKey('theme_current_row')), findsNothing);
 
-    final darkThemeOption = find.byKey(const ValueKey('theme_option_dark'));
-    await tester.scrollUntilVisible(darkThemeOption, 140);
-    await tester.ensureVisible(darkThemeOption);
-    await tester.tap(darkThemeOption);
+    await tester.drag(
+      find.byKey(const ValueKey('me_theme_slider_control')),
+      const Offset(420, 0),
+    );
     await tester.pumpAndSettle();
 
     final scaffoldContext = tester.element(find.byType(Scaffold).first);
@@ -3630,40 +3637,71 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final sliderRect =
+        tester.getRect(find.byKey(const ValueKey('me_theme_slider')));
     final systemRect =
         tester.getRect(find.byKey(const ValueKey('theme_option_system')));
     final lightRect =
         tester.getRect(find.byKey(const ValueKey('theme_option_light')));
     final darkRect =
         tester.getRect(find.byKey(const ValueKey('theme_option_dark')));
-    final currentThemeRowRect =
-        tester.getRect(find.byKey(const ValueKey('theme_current_row')));
-    final systemIndicatorRect = tester.getRect(
-      find.byKey(const ValueKey('theme_option_system_indicator')),
-    );
-    final lightIndicatorRect = tester.getRect(
-      find.byKey(const ValueKey('theme_option_light_indicator')),
-    );
-    final darkIndicatorRect = tester.getRect(
-      find.byKey(const ValueKey('theme_option_dark_indicator')),
+    final selectedRect = tester.getRect(
+      find.byKey(const ValueKey('theme_slider_selected_system')),
     );
 
-    expect(lightRect.top - systemRect.bottom, closeTo(12, 0.5));
-    expect(darkRect.top - lightRect.bottom, closeTo(12, 0.5));
-    expect(systemRect.height, lessThan(currentThemeRowRect.height));
-    expect(lightRect.height, lessThan(currentThemeRowRect.height));
-    expect(darkRect.height, lessThan(currentThemeRowRect.height));
-    expect(systemRect.height, greaterThan(currentThemeRowRect.height - 16));
-    expect(lightRect.height, greaterThan(currentThemeRowRect.height - 16));
-    expect(darkRect.height, greaterThan(currentThemeRowRect.height - 16));
-    expect(systemRect.height, lessThan(currentThemeRowRect.height - 8));
-    expect(lightRect.height, lessThan(currentThemeRowRect.height - 8));
-    expect(darkRect.height, lessThan(currentThemeRowRect.height - 8));
-    expect(systemIndicatorRect.size, const Size(20, 20));
-    expect(lightIndicatorRect.size, const Size(20, 20));
-    expect(darkIndicatorRect.size, const Size(20, 20));
+    expect(systemRect.height, closeTo(lightRect.height, 0.5));
+    expect(lightRect.height, closeTo(darkRect.height, 0.5));
+    expect(find.byKey(const ValueKey('theme_current_row')), findsNothing);
+    expect(find.byKey(const ValueKey('theme_slider_thumb_icon')), findsNothing);
+    expect(selectedRect.height, greaterThan(42));
+    expect(selectedRect.height, lessThan(52));
+    expect(selectedRect.width, greaterThan(sliderRect.width / 3 - 32));
+    expect(selectedRect.width, lessThan(sliderRect.width / 3 + 4));
+    final expectedCenterX = sliderRect.left + 6 + selectedRect.width / 2;
+    expect(selectedRect.center.dx, closeTo(expectedCenterX, 1.5));
+    expect(selectedRect.top, closeTo(sliderRect.top + 6, 1.5));
+    expect(selectedRect.bottom, closeTo(sliderRect.bottom - 6, 1.5));
+    expect(sliderRect.height, lessThan(66));
   });
 
+  testWidgets('theme slider adapts its surface colors in dark mode',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        darkTheme: buildPetNoteTheme(Brightness.dark),
+        themeMode: ThemeMode.dark,
+        home: Scaffold(
+          body: settings_page.MePage(
+            themePreference: AppThemePreference.dark,
+            onThemePreferenceChanged: (_) {},
+            notificationPermissionState:
+                NotificationPermissionState.unsupported,
+            notificationPushToken: null,
+            onRequestNotificationPermission: null,
+            onOpenNotificationSettings: null,
+            settingsController: null,
+            aiSettingsCoordinator: null,
+            dataStorageCoordinator: null,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final sliderContainer = tester.widget<Container>(
+      find.byKey(const ValueKey('me_theme_slider')),
+    );
+    final sliderDecoration = sliderContainer.decoration! as BoxDecoration;
+    expect(sliderDecoration.color, isNot(const Color(0xFFFFFFFF)));
+
+    final selectedDecoration = tester
+        .widget<DecoratedBox>(
+          find.byKey(const ValueKey('theme_slider_selected_dark')),
+        )
+        .decoration as BoxDecoration;
+    expect(selectedDecoration.color, isNot(const Color(0xFF171717)));
+  });
   testWidgets('uses amoled-friendly dark theme when persisted in dark mode',
       (tester) async {
     SharedPreferences.setMockInitialValues({
