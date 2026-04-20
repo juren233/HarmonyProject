@@ -8,6 +8,11 @@ android:
     - armeabi-v7a
     - x86_64
 
+ios:
+  enabled: true
+  artifacts:
+    - unsigned-ipa
+
 # Release control file
 # 1. enabled 必须写成字面量 true；只有 enabled=true 时，push 后工作流才会尝试构建。
 # 2. main 分支 + enabled=true：创建正式 Release。
@@ -27,11 +32,13 @@ android:
 #    arm64-v8a = 大多数 64 位 Android 真机，推荐优先提供
 #    armeabi-v7a = 较老的 32 位 Android 设备
 #    x86_64 = Android 模拟器或少量 x86_64 设备
-# 10. 每个架构生成独立 APK，便于用户按设备选择安装。
-# 11. 如果同名 tag/release 已存在，工作流会跳过后续构建与发布，避免重复创建。
-# 12. 如果需要重新创建同名 release（例如内部 build number 变化，但外显版本号不变），
+# 10. ios.enabled=true 表示本次构建包含 iOS 未签名 IPA。
+# 11. iOS artifacts 当前支持 unsigned-ipa，产物需自行签名后才能安装到真机或分发。
+# 12. 每个 Android 架构生成独立 APK，便于用户按设备选择安装。
+# 13. 如果同名 tag/release 已存在，工作流会跳过后续构建与发布，避免重复创建。
+# 14. 如果需要重新创建同名 release（例如内部 build number 变化，但外显版本号不变），
 #     先手动删除 GitHub 上同名 release 和 tag，再重新 push 触发创建。
-# 13. Release / pre-release 说明内容使用中文版，并直接提取本次 push 携带的提交说明。
-# 14. beta 分支生成的 pre-release 顶部会自动加入 GitHub 原生 `IMPORTANT` 提示块，提醒用户这是测试版。
-# 15. 所有已发布版本的说明底部都会自动加入中文“版本选择”区块，
-#     并为每个 APK 提供可直接点击下载的蓝字链接。
+# 15. Release / pre-release 说明内容使用中文版，并直接提取本次 push 携带的提交说明。
+# 16. beta 分支生成的 pre-release 顶部会自动加入 GitHub 原生 `IMPORTANT` 提示块，提醒用户这是测试版。
+# 17. 所有已发布版本的说明底部都会自动加入中文“版本选择”区块，
+#     并为每个 APK / IPA 提供可直接点击下载的蓝字链接。

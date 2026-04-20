@@ -1,4 +1,4 @@
-name: Android Release
+name: PetNote Release
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
       version_build: ${{ steps.parse.outputs.version_build }}
       android_enabled: ${{ steps.parse.outputs.android_enabled }}
       android_matrix_json: ${{ steps.parse.outputs.android_matrix_json }}
+      ios_enabled: ${{ steps.parse.outputs.ios_enabled }}
       release_exists: ${{ steps.duplicate.outputs.exists || 'false' }}
     steps:
       - name: Check Out Repository
@@ -45,8 +46,11 @@ jobs:
           android_section_found = False
           android_enabled = None
           abis = []
-          in_android = False
-          in_android_artifacts = False
+          ios_section_found = False
+          ios_enabled = None
+          ios_artifacts = []
+          section = None
+          in_artifacts = False
 
           for raw_line in release_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.rstrip()
@@ -55,15 +59,18 @@ jobs:
             if not stripped or stripped.startswith("#"):
               continue
 
-            if not line.startswith(" ") and stripped == "android:":
-              android_section_found = True
-              in_android = True
-              in_android_artifacts = False
+            if not line.startswith(" ") and stripped in {"android:", "ios:"}:
+              section = stripped[:-1]
+              in_artifacts = False
+              if section == "android":
+                android_section_found = True
+              elif section == "ios":
+                ios_section_found = True
               continue
 
             if not line.startswith(" "):
-              in_android = False
-              in_android_artifacts = False
+              section = None
+              in_artifacts = False
               if stripped.startswith("enabled:"):
                 enabled = stripped.split(":", 1)[1].strip().lower() == "true"
               elif stripped.startswith("tag:"):
@@ -73,22 +80,38 @@ jobs:
                 tag = value
               continue
 
-            if in_android:
+            if section == "android":
               if stripped.startswith("enabled:"):
                 android_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
-                in_android_artifacts = False
+                in_artifacts = False
               elif stripped == "artifacts:":
-                in_android_artifacts = True
-              elif in_android_artifacts and stripped.startswith("- "):
+                in_artifacts = True
+              elif in_artifacts and stripped.startswith("- "):
                 abis.append(stripped[2:].strip())
               elif not line.startswith("    "):
-                in_android_artifacts = False
+                in_artifacts = False
+            elif section == "ios":
+              if stripped.startswith("enabled:"):
+                ios_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
+                in_artifacts = False
+              elif stripped == "artifacts:":
+                in_artifacts = True
+              elif in_artifacts and stripped.startswith("- "):
+                ios_artifacts.append(stripped[2:].strip())
+              elif not line.startswith("    "):
+                in_artifacts = False
 
           if not android_section_found:
             raise SystemExit("release.yml must contain an android section.")
 
           if android_enabled is None:
             raise SystemExit("release.yml must define android.enabled.")
+
+          if ios_section_found and ios_enabled is None:
+            raise SystemExit("release.yml must define ios.enabled when an ios section is present.")
+
+          if ios_enabled is None:
+            ios_enabled = False
 
           version_line = None
           for raw_line in Path("pubspec.yaml").read_text(encoding="utf-8").splitlines():
@@ -120,16 +143,32 @@ jobs:
           }
 
           if enabled:
+            if not android_enabled and not ios_enabled:
+              raise SystemExit("Release automation is enabled, but neither android.enabled nor ios.enabled is true.")
+
+            if android_enabled:
+              if not abis:
+                raise SystemExit("Android release automation is enabled, but no Android artifacts are configured.")
+
+              invalid_abis = [abi for abi in abis if abi not in abi_map]
+              if invalid_abis:
+                raise SystemExit(f"Unsupported Android artifact values: {', '.join(invalid_abis)}")
+
+            if ios_enabled:
+              if not ios_section_found:
+                raise SystemExit("iOS release automation is enabled, but release.yml does not contain an ios section.")
+              if not ios_artifacts:
+                raise SystemExit("iOS release automation is enabled, but no iOS artifacts are configured.")
+              invalid_ios_artifacts = [artifact for artifact in ios_artifacts if artifact != "unsigned-ipa"]
+              if invalid_ios_artifacts:
+                raise SystemExit(f"Unsupported iOS artifact values: {', '.join(invalid_ios_artifacts)}")
+
             if not android_enabled:
-              raise SystemExit("Android release automation is enabled, but android.enabled is not true.")
+              abis = []
             if not abis:
-              raise SystemExit("Android release automation is enabled, but no Android artifacts are configured.")
+              abis = []
 
-            invalid_abis = [abi for abi in abis if abi not in abi_map]
-            if invalid_abis:
-              raise SystemExit(f"Unsupported Android artifact values: {', '.join(invalid_abis)}")
-
-          should_build = enabled and android_enabled
+          should_build = enabled and (android_enabled or ios_enabled)
           should_publish_release = should_build and publish_mode in {"release", "pre-release"}
 
           if should_publish_release:
@@ -151,6 +190,7 @@ jobs:
             handle.write(f"version_core={version_core}\n")
             handle.write(f"version_build={version_build}\n")
             handle.write(f"android_enabled={'true' if android_enabled else 'false'}\n")
+            handle.write(f"ios_enabled={'true' if ios_enabled else 'false'}\n")
             handle.write(f"should_build={'true' if should_build else 'false'}\n")
             handle.write(f"should_publish_release={'true' if should_publish_release else 'false'}\n")
             handle.write(f"android_matrix_json={json.dumps(matrix, separators=(',', ':'))}\n")
@@ -218,7 +258,7 @@ jobs:
   build-android:
     name: Build Android APKs
     needs: resolve-release-plan
-    if: needs.resolve-release-plan.outputs.should_build == 'true'
+    if: needs.resolve-release-plan.outputs.should_build == 'true' && needs.resolve-release-plan.outputs.android_enabled == 'true'
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -333,15 +373,88 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-ios-unsigned:
+    name: Build Unsigned iOS IPA
+    needs: resolve-release-plan
+    if: needs.resolve-release-plan.outputs.should_build == 'true' && needs.resolve-release-plan.outputs.ios_enabled == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v5
+
+      - name: Set Up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter And CocoaPods Dependencies
+        shell: bash
+        run: |
+          flutter pub get
+          cd ios
+          pod install
+          cd ..
+
+      - name: Build iOS Without Codesign
+        shell: bash
+        run: flutter build ios --release --no-codesign
+
+      - name: Package Unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/ios/unsigned-ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/unsigned-ipa/Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios/unsigned-ipa/Payload build/ios/Runner-unsigned.ipa
+
+      - name: Rename Unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_mode="${{ needs.resolve-release-plan.outputs.publish_mode }}"
+          branch_name="${{ needs.resolve-release-plan.outputs.branch_name }}"
+          version_core="${{ needs.resolve-release-plan.outputs.version_core }}"
+          tag_name="${{ needs.resolve-release-plan.outputs.tag }}"
+          short_sha="${GITHUB_SHA::7}"
+          safe_branch="$(echo "${branch_name}" | sed 's/[^A-Za-z0-9._-]/-/g' | sed 's/^-*//;s/-*$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
+
+          if [[ "${publish_mode}" == "artifacts-only" ]]; then
+            file_name="pet-ios-unsigned-${safe_branch}-v${version_core}-${short_sha}.ipa"
+          else
+            file_name="pet-ios-unsigned-${tag_name}.ipa"
+          fi
+
+          mkdir -p release-assets
+          cp build/ios/Runner-unsigned.ipa "release-assets/${file_name}"
+
+      - name: Upload Unsigned IPA Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-unsigned-ipa
+          path: release-assets/*.ipa
+          if-no-files-found: error
+          retention-days: 1
+
   publish-release:
     name: Publish Release Artifacts
     needs:
       - resolve-release-plan
       - build-android
-    if: needs.resolve-release-plan.outputs.should_build == 'true'
+      - build-ios-unsigned
+    if: >
+      always() &&
+      needs.resolve-release-plan.outputs.should_build == 'true' &&
+      (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') &&
+      (needs.build-ios-unsigned.result == 'success' || needs.build-ios-unsigned.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - name: Download Built APKs
+      - name: Download Built Artifacts
         uses: actions/download-artifact@v8
         with:
           path: downloaded-artifacts
@@ -423,10 +536,10 @@ jobs:
           fi
 
           shopt -s globstar nullglob
-          apk_files=(downloaded-artifacts/**/*.apk)
+          artifact_files=(downloaded-artifacts/**/*.apk downloaded-artifacts/**/*.ipa)
 
-          if [[ ${#apk_files[@]} -eq 0 ]]; then
-            echo "No APK files found under downloaded-artifacts." >&2
+          if [[ ${#artifact_files[@]} -eq 0 ]]; then
+            echo "No release artifact files found under downloaded-artifacts." >&2
             exit 1
           fi
 
@@ -435,7 +548,7 @@ jobs:
             "${TAG_NAME}"
           )
 
-          cmd+=("${apk_files[@]}")
+          cmd+=("${artifact_files[@]}")
           cmd+=(
             --repo "${GH_REPO}"
             --target "${TARGET_BRANCH}"
@@ -478,18 +591,26 @@ jobs:
               return order.find((abi) => assetName.includes(abi));
             }
 
-            const assets = [...release.assets]
+            const androidAssets = [...release.assets]
               .filter((asset) => asset.name.endsWith('.apk'))
               .map((asset) => ({ ...asset, abi: detectAbi(asset.name) }))
               .sort((left, right) => order.indexOf(left.abi) - order.indexOf(right.abi));
 
+            const iosAssets = [...release.assets]
+              .filter((asset) => asset.name.endsWith('.ipa'))
+              .sort((left, right) => left.name.localeCompare(right.name));
+
             const lines = [initialBody, '', '## 版本选择', ''];
-            for (const asset of assets) {
+            for (const asset of androidAssets) {
               const label = asset.abi ? `Android ${asset.abi} 安装包` : asset.name;
               lines.push(`- [${label}](${asset.browser_download_url})`);
               if (asset.abi && descriptions[asset.abi]) {
                 lines.push(`  ${descriptions[asset.abi]}`);
               }
+            }
+            for (const asset of iosAssets) {
+              lines.push(`- [iOS 未签名 IPA](${asset.browser_download_url})`);
+              lines.push('  需自行签名后才能安装到真机或分发。');
             }
 
             await github.rest.repos.updateRelease({
@@ -508,13 +629,15 @@ jobs:
           if [[ -z "${safe_branch}" ]]; then
             safe_branch="branch"
           fi
-          echo "name=android-apks-${safe_branch}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          echo "name=release-artifacts-${safe_branch}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload Grouped Workflow Artifact
         if: needs.resolve-release-plan.outputs.publish_mode == 'artifacts-only'
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.artifact_name.outputs.name }}
-          path: downloaded-artifacts/**/*.apk
+          path: |
+            downloaded-artifacts/**/*.apk
+            downloaded-artifacts/**/*.ipa
           if-no-files-found: error
           retention-days: 7

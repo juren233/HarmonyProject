@@ -294,6 +294,13 @@ base64 < "$HOME/.petnote-signing/pet-release.jks" | tr -d '\n'
 
 当前仓库里的 [`.github/workflows/release.yml`](./.github/workflows/release.yml) 会直接调用同一个 [scripts/prepare-android-signing.ps1](./scripts/prepare-android-signing.ps1)，确保“本机、协作开发、GitHub Actions”三条链路最终落到同一份 `android/key.properties` 结构和同一个 keystore 相对路径上。
 
+GitHub Actions 的发布配置由根目录 [release.yml](./release.yml) 控制：
+
+- `android.enabled=true` 时会按 `android.artifacts` 声明的 ABI 构建 Android APK
+- `ios.enabled=true` 且 `ios.artifacts` 包含 `unsigned-ipa` 时，会在 macOS runner 上执行 `flutter build ios --release --no-codesign` 并打包未签名 IPA
+- 未签名 IPA 不需要 Apple 证书、provisioning profile 或 GitHub Secrets，但产物仍需自行签名后才能安装到真机或分发
+- main / beta 分支发布到 GitHub Release 时，APK 和 IPA 会一起出现在“版本选择”区块；其他分支只上传 Actions artifacts
+
 ### iOS
 
 Windows PowerShell：
