@@ -77,6 +77,9 @@ class _PetNoteRootState extends State<PetNoteRoot>
   late final OverviewBottomCtaController _overviewBottomCtaController;
   Timer? _timeRefreshTimer;
   int? _lastNotificationSyncVersion;
+  Future<void> _pendingNotificationSync = Future<void>.value();
+  Future<void>? _notificationInitializationTask;
+  bool _isNotificationSyncScheduled = false;
 
   @override
   void initState() {
@@ -119,6 +122,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
     final oldStore = _store;
     oldStore?.removeListener(_handleStoreChanged);
+    oldStore?.setNotificationSyncHandler(null);
     store.addListener(_handleStoreChanged);
     setState(() {
       _store = store;
@@ -139,9 +143,11 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _onboardingEntryPoint = _OnboardingEntryPoint.manual;
       _overlayTransition = _OverlayTransition.none;
     });
+    store.setNotificationSyncHandler(() => _flushNotificationSync(store));
     _overlayTransitionController.value = 0;
     _startTimeRefreshTicker();
-    unawaited(_initializeNotifications(store));
+    _notificationInitializationTask = _initializeNotifications(store);
+    unawaited(_notificationInitializationTask!);
   }
 
   Future<void> _initializeNotifications(PetNoteStore store) async {
@@ -153,7 +159,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
       appLogController: widget.appLogController,
     );
     await coordinator.init();
-    await coordinator.syncFromStore(store);
     final launchIntent = await coordinator.consumeLaunchIntent();
     if (!mounted || !identical(_store, store)) {
       coordinator.dispose();
@@ -161,8 +166,20 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
     setState(() {
       _notificationCoordinator = coordinator;
-      _lastNotificationSyncVersion = store.notificationSyncVersion;
     });
+    try {
+      await coordinator.syncFromStore(store);
+      if (mounted && identical(_store, store)) {
+        _lastNotificationSyncVersion = store.notificationSyncVersion;
+      }
+    } catch (error, stackTrace) {
+      widget.appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '通知初始化同步失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
     if (launchIntent != null) {
       _applyNotificationIntent(store, launchIntent);
     }
@@ -195,6 +212,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       appLogController?.updateCrashMonitoringHeartbeat(reason: 'paused');
+      final store = _store;
+      if (store != null) {
+        unawaited(_flushNotificationSync(store));
+      }
       return;
     }
     appLogController?.endCrashMonitoringSession(reason: 'detached');
@@ -516,13 +537,11 @@ class _PetNoteRootState extends State<PetNoteRoot>
 
   void _handleStoreChanged() {
     final store = _store;
-    final coordinator = _notificationCoordinator;
-    if (store == null || coordinator == null) {
+    if (store == null) {
       return;
     }
     if (_lastNotificationSyncVersion != store.notificationSyncVersion) {
-      _lastNotificationSyncVersion = store.notificationSyncVersion;
-      unawaited(coordinator.syncFromStore(store));
+      unawaited(_flushNotificationSync(store));
     }
     unawaited(_consumeForegroundNotificationTap(store));
   }
@@ -540,10 +559,59 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     if (stateChanged && coordinator.hasGrantedPermission) {
-      _lastNotificationSyncVersion = store.notificationSyncVersion;
-      await coordinator.syncFromStore(store);
+      await _flushNotificationSync(store);
     }
     await _consumeForegroundNotificationTap(store);
+  }
+
+  Future<void> _flushNotificationSync(PetNoteStore store) {
+    if (_isNotificationSyncScheduled) {
+      return _pendingNotificationSync;
+    }
+    _isNotificationSyncScheduled = true;
+    _pendingNotificationSync = _pendingNotificationSync
+        .catchError((Object _, StackTrace __) {})
+        .then((_) async {
+      final initializationTask = _notificationInitializationTask;
+      if (initializationTask != null) {
+        await initializationTask;
+      }
+      while (mounted) {
+        final currentStore = _store;
+        final coordinator = _notificationCoordinator;
+        if (!identical(currentStore, store) ||
+            currentStore == null ||
+            coordinator == null) {
+          return;
+        }
+        final targetVersion = currentStore.notificationSyncVersion;
+        await coordinator.syncFromStore(currentStore);
+        if (_lastNotificationSyncVersion == null ||
+            _lastNotificationSyncVersion! < targetVersion) {
+          _lastNotificationSyncVersion = targetVersion;
+        }
+        if (!mounted) {
+          return;
+        }
+        final latestStore = _store;
+        if (!identical(latestStore, store) || latestStore == null) {
+          return;
+        }
+        if (latestStore.notificationSyncVersion == targetVersion) {
+          return;
+        }
+      }
+    }).catchError((Object error, StackTrace stackTrace) {
+      widget.appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '通知同步失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }).whenComplete(() {
+      _isNotificationSyncScheduled = false;
+    });
+    return _pendingNotificationSync;
   }
 
   Future<void> _consumeForegroundNotificationTap(PetNoteStore store) async {
@@ -596,6 +664,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     widget.appLogController?.endCrashMonitoringSession(reason: 'dispose');
     _timeRefreshTimer?.cancel();
     _store?.removeListener(_handleStoreChanged);
+    _store?.setNotificationSyncHandler(null);
     _notificationCoordinator?.dispose();
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
@@ -959,6 +1028,12 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                             await widget.notificationCoordinator!
                                 .openNotificationSettings();
                           },
+                onOpenExactAlarmSettings: widget.notificationCoordinator == null
+                    ? null
+                    : () async {
+                        await widget.notificationCoordinator!
+                            .openExactAlarmSettings();
+                      },
               ),
             ),
         },
@@ -1267,3 +1342,5 @@ class _TabButton extends StatelessWidget {
     );
   }
 }
+
+

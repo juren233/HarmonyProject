@@ -2,11 +2,13 @@ package com.krustykrab.petnote
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
@@ -24,6 +26,7 @@ class PetNoteNotificationBridge(
         const val CHANNEL_NAME = "petnote/notifications"
         const val REQUEST_CODE_NOTIFICATIONS = 24037
         const val CHANNEL_ID = "petnote_care"
+        const val LEGACY_CHANNEL_ID = "petnote_care_alerts"
         const val EXTRA_NOTIFICATION_KEY = "petnote_notification_key"
         const val EXTRA_NOTIFICATION_TITLE = "petnote_notification_title"
         const val EXTRA_NOTIFICATION_BODY = "petnote_notification_body"
@@ -39,12 +42,14 @@ class PetNoteNotificationBridge(
     init {
         channel.setMethodCallHandler(this)
         createNotificationChannel()
+        deleteLegacyNotificationChannel()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "initialize" -> {
                 createNotificationChannel()
+                deleteLegacyNotificationChannel()
                 result.success(null)
             }
             "getPermissionState" -> result.success(permissionState())
@@ -67,8 +72,10 @@ class PetNoteNotificationBridge(
             }
             "registerPushToken" -> result.success(null)
             "openNotificationSettings" -> {
-                openNotificationSettings()
-                result.success(null)
+                result.success(openNotificationSettings())
+            }
+            "openExactAlarmSettings" -> {
+                result.success(openExactAlarmSettings())
             }
             "getCapabilities" -> {
                 result.success(
@@ -161,12 +168,32 @@ class PetNoteNotificationBridge(
         PetNoteNotificationScheduler.cancelNotification(context, key)
     }
 
-    private fun openNotificationSettings() {
+    private fun openNotificationSettings(): String {
         val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(intent)
+        return startSettingsActivity(intent)
+    }
+
+    private fun openExactAlarmSettings(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return "unsupported"
+        }
+        val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return startSettingsActivity(intent)
+    }
+
+    private fun startSettingsActivity(intent: Intent): String {
+        return try {
+            context.startActivity(intent)
+            "opened"
+        } catch (_: Throwable) {
+            "failed"
+        }
     }
 
     private fun createNotificationChannel() {
@@ -178,11 +205,22 @@ class PetNoteNotificationBridge(
         val channel = NotificationChannel(
             CHANNEL_ID,
             "宠记提醒",
-            NotificationManager.IMPORTANCE_DEFAULT,
+            NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "宠记待办和提醒通知"
+            enableVibration(true)
+            setShowBadge(true)
         }
         notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun deleteLegacyNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
     }
 
     private fun extractLaunchIntent(intent: Intent?): Map<String, Any?>? {

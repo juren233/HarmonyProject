@@ -1,6 +1,7 @@
 package com.krustykrab.petnote
 
 import android.app.AlarmManager
+import android.app.AlarmManager.AlarmClockInfo
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -23,11 +24,19 @@ object PetNoteNotificationScheduler {
     private const val SNAPSHOT_STORAGE_KEY = "flutter.notification_jobs_snapshot_v1"
 
     fun exactAlarmStatus(context: Context): String {
+        return if (canScheduleExactAlarms(context)) {
+            "available"
+        } else {
+            "unavailable"
+        }
+    }
+
+    fun canScheduleExactAlarms(context: Context): Boolean {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         return when {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> "available"
-            alarmManager.canScheduleExactAlarms() -> "available"
-            else -> "unavailable"
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> true
+            alarmManager.canScheduleExactAlarms() -> true
+            else -> false
         }
     }
 
@@ -49,29 +58,37 @@ object PetNoteNotificationScheduler {
         )
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val triggerAtMillis = maxOf(System.currentTimeMillis() + 1_000L, notification.scheduledAtEpochMs)
+        val delayMillis = triggerAtMillis - System.currentTimeMillis()
         when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                !alarmManager.canScheduleExactAlarms() -> {
-                Log.w(
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP -> {
+                val showIntent = context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                val showPendingIntent = if (showIntent == null) {
+                    pendingIntent
+                } else {
+                    PendingIntent.getActivity(
+                        context,
+                        notification.key.hashCode(),
+                        showIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    )
+                }
+                alarmManager.setAlarmClock(
+                    AlarmClockInfo(triggerAtMillis, showPendingIntent),
+                    pendingIntent,
+                )
+                Log.i(
                     LOG_TAG,
-                    "Exact alarm unavailable, falling back to inexact scheduling for ${notification.key}.",
-                )
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent,
-                )
-            }
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent,
+                    "Scheduled alarm-clock notification ${notification.key} at $triggerAtMillis, delay=${delayMillis}ms.",
                 )
             }
             else -> {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                Log.i(
+                    LOG_TAG,
+                    "Scheduled legacy notification ${notification.key} at $triggerAtMillis, delay=${delayMillis}ms.",
+                )
             }
         }
     }

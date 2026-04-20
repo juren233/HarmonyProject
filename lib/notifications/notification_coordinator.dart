@@ -121,6 +121,15 @@ class NotificationCoordinator extends ChangeNotifier {
     return _adapter.openNotificationSettings();
   }
 
+  Future<NotificationSettingsOpenResult> openExactAlarmSettings() {
+    appLogController?.info(
+      category: AppLogCategory.notifications,
+      title: '打开精确闹钟设置',
+      message: '准备打开系统精确闹钟设置。',
+    );
+    return _adapter.openExactAlarmSettings();
+  }
+
   Future<bool> refreshPlatformState() {
     return _refreshPlatformState(notify: true, includeCapabilities: true);
   }
@@ -162,8 +171,8 @@ class NotificationCoordinator extends ChangeNotifier {
         scheduledAt: triggerAt,
         sourceScheduledAt: todo.dueAt,
         leadTime: todo.notificationLeadTime,
-        title: '${pet?.name ?? '爱宠'}待办提醒',
-        body: todo.title,
+        title: _notificationTitle(todo.title, fallback: '待办提醒'),
+        body: _notificationBody(petName: pet?.name, note: todo.note),
       );
     }
 
@@ -194,8 +203,8 @@ class NotificationCoordinator extends ChangeNotifier {
         scheduledAt: triggerAt,
         sourceScheduledAt: reminder.scheduledAt,
         leadTime: reminder.notificationLeadTime,
-        title: '${pet?.name ?? '爱宠'}提醒',
-        body: reminder.title,
+        title: _notificationTitle(reminder.title, fallback: '提醒事项'),
+        body: _notificationBody(petName: pet?.name, note: reminder.note),
       );
     }
 
@@ -379,4 +388,23 @@ NotificationLeadTime _leadTimeFromName(String? value) {
     'sevenDays' => NotificationLeadTime.sevenDays,
     _ => NotificationLeadTime.none,
   };
+}
+
+String _notificationTitle(String value, {required String fallback}) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? fallback : trimmed;
+}
+
+String _notificationBody({required String? petName, required String note}) {
+  final normalizedPetName = _notificationTextPart(petName, fallback: '爱宠');
+  final normalizedNote = note.trim();
+  if (normalizedNote.isEmpty) {
+    return normalizedPetName;
+  }
+  return '$normalizedPetName · $normalizedNote';
+}
+
+String _notificationTextPart(String? value, {required String fallback}) {
+  final trimmed = value?.trim() ?? '';
+  return trimmed.isEmpty ? fallback : trimmed;
 }

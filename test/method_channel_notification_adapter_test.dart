@@ -27,6 +27,20 @@ void main() {
     expect(result, NotificationSettingsOpenResult.opened);
   });
 
+  test('open exact alarm settings maps native opened result', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'openExactAlarmSettings');
+      return 'opened';
+    });
+
+    final adapter = MethodChannelNotificationPlatformAdapter(channel: channel);
+
+    final result = await adapter.openExactAlarmSettings();
+
+    expect(result, NotificationSettingsOpenResult.opened);
+  });
+
   test('open notification settings maps native failed result', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -67,6 +81,20 @@ void main() {
     final adapter = MethodChannelNotificationPlatformAdapter(channel: channel);
 
     final result = await adapter.openNotificationSettings();
+
+    expect(result, NotificationSettingsOpenResult.unsupported);
+  });
+
+  test('open exact alarm settings returns unsupported when plugin is missing',
+      () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      throw MissingPluginException();
+    });
+
+    final adapter = MethodChannelNotificationPlatformAdapter(channel: channel);
+
+    final result = await adapter.openExactAlarmSettings();
 
     expect(result, NotificationSettingsOpenResult.unsupported);
   });

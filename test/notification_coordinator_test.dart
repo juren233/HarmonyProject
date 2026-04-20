@@ -46,6 +46,78 @@ void main() {
 
     expect(adapter.cancelled, contains('todo:todo-1'));
   });
+  test('syncFromStore uses item title and pet-note body for notifications',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter();
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+    );
+    final store = PetNoteStore.seeded();
+
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+
+    final todoJob = adapter.currentScheduled['todo:todo-1']!;
+    final reminderJob = adapter.currentScheduled['reminder:reminder-1']!;
+
+    expect(todoJob.title, '补充冻干库存');
+    expect(todoJob.body, 'Luna · 检查低敏口味。');
+    expect(reminderJob.title, '三联疫苗加强');
+    expect(reminderJob.body, 'Luna · 提前准备免疫本。');
+  });
+
+  test('syncFromStore uses only pet name when notification note is blank',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter();
+    final now = DateTime.parse('2026-03-27T10:00:00+08:00');
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => now,
+    );
+    final store = await PetNoteStore.load(nowProvider: () => now);
+
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+
+    await store.addTodo(
+      title: '补充主粮',
+      petId: store.pets.single.id,
+      dueAt: DateTime.parse('2026-03-27T18:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '   ',
+    );
+    await store.addReminder(
+      title: '耳道复查',
+      petId: store.pets.single.id,
+      scheduledAt: DateTime.parse('2026-03-27T20:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      kind: ReminderKind.review,
+      recurrence: '单次',
+      note: '   ',
+    );
+
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+
+    final todoJob = adapter.currentScheduled['todo:todo-1']!;
+    final reminderJob = adapter.currentScheduled['reminder:reminder-1']!;
+
+    expect(todoJob.title, '补充主粮');
+    expect(todoJob.body, 'Mochi');
+    expect(reminderJob.title, '耳道复查');
+    expect(reminderJob.body, 'Mochi');
+  });
 
   test(
       'notification lead time schedules five-minute-early triggers and skips overdue jobs',
@@ -203,6 +275,17 @@ void main() {
     expect(result, NotificationSettingsOpenResult.failed);
   });
 
+  test('open exact alarm settings forwards platform result', () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      openExactAlarmSettingsResult: NotificationSettingsOpenResult.failed,
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    final result = await coordinator.openExactAlarmSettings();
+
+    expect(result, NotificationSettingsOpenResult.failed);
+  });
+
   test('refreshPlatformState updates permission and exact alarm capability',
       () async {
     final adapter = _FakeNotificationPlatformAdapter(
@@ -230,6 +313,7 @@ void main() {
 class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   _FakeNotificationPlatformAdapter({
     this.openSettingsResult = NotificationSettingsOpenResult.opened,
+    this.openExactAlarmSettingsResult = NotificationSettingsOpenResult.opened,
     this.permissionState = NotificationPermissionState.denied,
   });
 
@@ -238,6 +322,7 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
       <String, NotificationJob>{};
   final List<String> cancelled = <String>[];
   final NotificationSettingsOpenResult openSettingsResult;
+  final NotificationSettingsOpenResult openExactAlarmSettingsResult;
   NotificationPermissionState permissionState;
   NotificationPlatformCapabilities capabilities =
       const NotificationPlatformCapabilities();
@@ -261,13 +346,13 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   Future<NotificationLaunchIntent?> getInitialLaunchIntent() async => null;
 
   @override
-  Future<NotificationPlatformCapabilities> getCapabilities() async {
-    return const NotificationPlatformCapabilities();
+  Future<NotificationSettingsOpenResult> openNotificationSettings() async {
+    return openSettingsResult;
   }
 
   @override
-  Future<NotificationSettingsOpenResult> openNotificationSettings() async {
-    return openSettingsResult;
+  Future<NotificationSettingsOpenResult> openExactAlarmSettings() async {
+    return openExactAlarmSettingsResult;
   }
 
   @override

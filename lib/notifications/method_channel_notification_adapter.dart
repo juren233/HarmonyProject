@@ -30,7 +30,6 @@ class MethodChannelNotificationPlatformAdapter
         title: '通知桥接缺失',
         message: '当前平台未接入通知 MethodChannel。',
       );
-      // Keep the adapter functional on unsupported platforms and tests.
     }
   }
 
@@ -68,7 +67,9 @@ class MethodChannelNotificationPlatformAdapter
   Future<void> scheduleLocalNotification(NotificationJob job) async {
     try {
       await _channel.invokeMethod<void>(
-          'scheduleLocalNotification', job.toMap());
+        'scheduleLocalNotification',
+        job.toMap(),
+      );
       appLogController?.info(
         category: AppLogCategory.nativeBridge,
         title: '调度本地通知',
@@ -148,6 +149,23 @@ class MethodChannelNotificationPlatformAdapter
         category: AppLogCategory.nativeBridge,
         title: '打开通知设置',
         message: '原生通知设置打开结果：$result',
+      );
+      return notificationSettingsOpenResultFromName(result);
+    } on MissingPluginException {
+      return NotificationSettingsOpenResult.unsupported;
+    }
+  }
+
+  @override
+  Future<NotificationSettingsOpenResult> openExactAlarmSettings() async {
+    try {
+      final result = await _channel.invokeMethod<String>(
+        'openExactAlarmSettings',
+      );
+      appLogController?.info(
+        category: AppLogCategory.nativeBridge,
+        title: '打开精确闹钟设置',
+        message: '原生精确闹钟设置打开结果：$result',
       );
       return notificationSettingsOpenResultFromName(result);
     } on MissingPluginException {

@@ -796,6 +796,7 @@ class PetNoteStore extends ChangeNotifier {
   final List<PetRecord> _records = [];
   final DateTime Function() _nowProvider;
   final SharedPreferences? _preferences;
+  Future<void> Function()? _notificationSyncHandler;
   List<ChecklistSection>? _checklistSectionsCache;
   int? _checklistSectionsCacheMinuteStamp;
   OverviewSnapshot? _overviewSnapshotCache;
@@ -852,6 +853,10 @@ class PetNoteStore extends ChangeNotifier {
   bool get shouldAutoShowFirstLaunchIntro => _shouldAutoShowFirstLaunchIntro;
   int get notificationSyncVersion => _notificationSyncVersion;
   DateTime get referenceNow => _referenceNow;
+
+  void setNotificationSyncHandler(Future<void> Function()? handler) {
+    _notificationSyncHandler = handler;
+  }
 
   Pet? get selectedPet {
     for (final pet in _pets) {
@@ -1307,8 +1312,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> postponeChecklist(String sourceType, String itemId) async {
@@ -1325,8 +1329,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> skipChecklist(String sourceType, String itemId) async {
@@ -1341,8 +1344,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> dismissFirstLaunchIntro() async {
@@ -1386,8 +1388,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> addReminder({
@@ -1433,8 +1434,7 @@ class PetNoteStore extends ChangeNotifier {
       _invalidateSelectedPetReminders();
     }
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> addRecord({
@@ -1541,8 +1541,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> updateReminder({
@@ -1588,8 +1587,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetReminders();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> updateRecord({
@@ -1754,14 +1752,16 @@ class PetNoteStore extends ChangeNotifier {
     );
     _selectedPetId = current.id;
     _activeTab = AppTab.pets;
-    await _saveState();
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     if (_todos.any((item) => item.petId == current.id) ||
         _reminders.any((item) => item.petId == current.id)) {
       _bumpNotificationSyncVersion();
+      await _finalizeNotificationMutation();
+      return;
     }
     notifyListeners();
+    await _saveState();
   }
 
   PetNoteDataState exportDataState() {
@@ -1795,8 +1795,7 @@ class PetNoteStore extends ChangeNotifier {
     _activeTab = _pets.isEmpty ? AppTab.checklist : AppTab.pets;
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> appendData(PetNoteDataState state) async {
@@ -1833,8 +1832,7 @@ class PetNoteStore extends ChangeNotifier {
     }
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
-    notifyListeners();
-    await _saveState();
+    await _finalizeNotificationMutation();
   }
 
   Future<void> clearAllData() async {
@@ -1847,8 +1845,16 @@ class PetNoteStore extends ChangeNotifier {
     _activeTab = AppTab.checklist;
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation();
+  }
+
+  Future<void> _finalizeNotificationMutation() async {
     notifyListeners();
     await _saveState();
+    final handler = _notificationSyncHandler;
+    if (handler != null) {
+      await handler();
+    }
   }
 
   void _bumpNotificationSyncVersion() {

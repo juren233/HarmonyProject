@@ -30,6 +30,7 @@ class MePage extends StatelessWidget {
     required this.notificationPushToken,
     required this.onRequestNotificationPermission,
     required this.onOpenNotificationSettings,
+    required this.onOpenExactAlarmSettings,
     required this.settingsController,
     required this.aiSettingsCoordinator,
     required this.dataStorageCoordinator,
@@ -44,6 +45,7 @@ class MePage extends StatelessWidget {
   final String? notificationPushToken;
   final Future<void> Function()? onRequestNotificationPermission;
   final Future<void> Function()? onOpenNotificationSettings;
+  final Future<void> Function()? onOpenExactAlarmSettings;
   final AppSettingsController? settingsController;
   final AppLogController? appLogController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
@@ -101,6 +103,7 @@ class MePage extends StatelessWidget {
                     onRequestNotificationPermission:
                         onRequestNotificationPermission,
                     onOpenNotificationSettings: onOpenNotificationSettings,
+                    onOpenExactAlarmSettings: onOpenExactAlarmSettings,
                   ),
                 ),
               ),
@@ -817,6 +820,7 @@ class _NotificationSettingsPage extends StatelessWidget {
     required this.notificationPushToken,
     required this.onRequestNotificationPermission,
     required this.onOpenNotificationSettings,
+    required this.onOpenExactAlarmSettings,
   });
 
   final NotificationPermissionState notificationPermissionState;
@@ -824,6 +828,7 @@ class _NotificationSettingsPage extends StatelessWidget {
   final String? notificationPushToken;
   final Future<void> Function()? onRequestNotificationPermission;
   final Future<void> Function()? onOpenNotificationSettings;
+  final Future<void> Function()? onOpenExactAlarmSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -882,6 +887,18 @@ class _NotificationSettingsPage extends StatelessWidget {
                         onPressed: onRequestNotificationPermission == null
                             ? null
                             : () => onRequestNotificationPermission!(),
+                      ),
+                    if (notificationCapabilities.supportsExactAlarms &&
+                        notificationCapabilities.exactAlarmStatus ==
+                            NotificationExactAlarmStatus.unavailable)
+                      SettingsActionButton(
+                        buttonKey: const ValueKey(
+                          'me_open_exact_alarm_settings_button',
+                        ),
+                        label: '开启准点提醒',
+                        onPressed: onOpenExactAlarmSettings == null
+                            ? null
+                            : () => onOpenExactAlarmSettings!(),
                       ),
                     SettingsActionButton(
                       buttonKey: const ValueKey(

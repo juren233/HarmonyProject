@@ -42,6 +42,7 @@ void main() {
                 notificationPushToken: null,
                 onRequestNotificationPermission: null,
                 onOpenNotificationSettings: null,
+                onOpenExactAlarmSettings: null,
                 settingsController: null,
                 aiSettingsCoordinator: null,
                 dataStorageCoordinator: null,

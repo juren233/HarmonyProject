@@ -19,5 +19,7 @@ abstract class NotificationPlatformAdapter {
 
   Future<NotificationSettingsOpenResult> openNotificationSettings();
 
+  Future<NotificationSettingsOpenResult> openExactAlarmSettings();
+
   Future<NotificationPlatformCapabilities> getCapabilities();
 }
