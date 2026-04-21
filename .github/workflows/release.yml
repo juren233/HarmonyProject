@@ -377,10 +377,19 @@ jobs:
     name: Build Unsigned iOS IPA
     needs: resolve-release-plan
     if: needs.resolve-release-plan.outputs.should_build == 'true' && needs.resolve-release-plan.outputs.ios_enabled == 'true'
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Check Out Repository
         uses: actions/checkout@v5
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Print Xcode Version
+        shell: bash
+        run: xcodebuild -version
 
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
