@@ -96,7 +96,7 @@ List<Widget> _buildCareReportCards(AiCareReport report, List<Pet> pets) {
     Padding(
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 4),
       child: Text(
-        '当前使用数据版：${report.promptPayloadVersionLabel}',
+        '读取数据量：${report.promptPayloadVersionLabel}',
         textAlign: TextAlign.center,
         style: const TextStyle(
           fontSize: 12,
@@ -320,39 +320,32 @@ class _OverviewHeaderActions extends StatelessWidget {
   const _OverviewHeaderActions({
     required this.isLoading,
     required this.canGenerate,
-    required this.onOpenConfig,
+    required this.hasReport,
+    required this.onOpenAiSettings,
     required this.onGenerate,
   });
 
   final bool isLoading;
   final bool canGenerate;
-  final VoidCallback onOpenConfig;
+  final bool hasReport;
+  final FutureOr<void> Function()? onOpenAiSettings;
   final VoidCallback onGenerate;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petNoteTokens;
     final accentColor = tabAccentFor(context, AppTab.overview).label;
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        IconButton(
-          tooltip: '配置',
-          onPressed: isLoading ? null : onOpenConfig,
-          style: IconButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(28, 28),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: accentColor,
-            disabledForegroundColor:
-                tokens.secondaryText.withValues(alpha: 0.45),
-          ),
-          icon: const Icon(Icons.settings_outlined, size: 20),
+        _OverviewAiSettingsHeaderButton(
+          onPressed: onOpenAiSettings,
         ),
         FilledButton.icon(
-          onPressed: isLoading || !canGenerate ? null : onGenerate,
+          onPressed: isLoading || (!canGenerate && !hasReport)
+              ? null
+              : onGenerate,
           style: FilledButton.styleFrom(
             elevation: 0,
             backgroundColor: accentColor,
@@ -365,33 +358,71 @@ class _OverviewHeaderActions extends StatelessWidget {
             ),
           ),
           icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-          label: const Text('生成总览'),
+          label: Text(hasReport ? '重新生成' : '生成总览'),
         ),
       ],
     );
   }
 }
 
-class _OverviewRangeActionButton extends StatelessWidget {
-  const _OverviewRangeActionButton({
+class _OverviewSetupHeaderActions extends StatelessWidget {
+  const _OverviewSetupHeaderActions({
     required this.config,
     required this.referenceDate,
+    required this.onOpenAiSettings,
     required this.onSelectRange,
     required this.onSelectCustomRange,
   });
 
   final OverviewAnalysisConfig config;
   final DateTime referenceDate;
+  final FutureOr<void> Function()? onOpenAiSettings;
   final Future<void> Function(OverviewRange range) onSelectRange;
   final Future<void> Function(DateTimeRange range) onSelectCustomRange;
 
   @override
   Widget build(BuildContext context) {
-    return _OverviewRangeMenuButton(
-      config: config,
-      referenceDate: referenceDate,
-      onSelectRange: onSelectRange,
-      onSelectCustomRange: onSelectCustomRange,
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _OverviewAiSettingsHeaderButton(
+          onPressed: onOpenAiSettings,
+        ),
+        _OverviewRangeMenuButton(
+          config: config,
+          referenceDate: referenceDate,
+          onSelectRange: onSelectRange,
+          onSelectCustomRange: onSelectCustomRange,
+        ),
+      ],
+    );
+  }
+}
+
+class _OverviewAiSettingsHeaderButton extends StatelessWidget {
+  const _OverviewAiSettingsHeaderButton({
+    required this.onPressed,
+  });
+
+  final FutureOr<void> Function()? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = tabAccentFor(context, AppTab.overview).label;
+    return IconButton.filledTonal(
+      key: const ValueKey('overview-header-ai-settings-button'),
+      tooltip: 'AI配置',
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        foregroundColor: accentColor,
+        backgroundColor: accentColor.withValues(alpha: 0.1),
+        disabledForegroundColor: const Color(0xFF9AA1AD),
+        disabledBackgroundColor: const Color(0xFFE7E9EF),
+        minimumSize: const Size(44, 44),
+      ),
+      icon: const Icon(Icons.settings_outlined, size: 20),
     );
   }
 }
@@ -1550,34 +1581,16 @@ class _SlidingGradientTransform extends GradientTransform {
 }
 
 class _OverviewGeneratingHeaderActions extends StatelessWidget {
-  const _OverviewGeneratingHeaderActions({
-    required this.onOpenConfig,
-  });
-
-  final VoidCallback onOpenConfig;
+  const _OverviewGeneratingHeaderActions();
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petNoteTokens;
     final accentColor = tabAccentFor(context, AppTab.overview).label;
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        IconButton(
-          tooltip: '配置',
-          onPressed: onOpenConfig,
-          style: IconButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(28, 28),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: accentColor,
-            disabledForegroundColor:
-                tokens.secondaryText.withValues(alpha: 0.45),
-          ),
-          icon: const Icon(Icons.settings_outlined, size: 20),
-        ),
         FilledButton.icon(
           key: const ValueKey('overview-generating-analyzing-button'),
           onPressed: null,

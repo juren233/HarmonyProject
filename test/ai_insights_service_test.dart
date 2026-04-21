@@ -1210,7 +1210,7 @@ void main() {
 
     expect(report.oneLineSummary, '同档位重试后补齐字段并生成成功。');
     expect(report.promptPayloadVersion, 'full');
-    expect(report.promptPayloadVersionLabel, '全量原始版（100%）');
+    expect(report.promptPayloadVersionLabel, '所有数据');
     expect(userPromptLengths, hasLength(2));
     expect(userPromptLengths.last, userPromptLengths.first);
   });
@@ -1835,7 +1835,7 @@ void main() {
     expect(report.perPetReports.single.followUpFocus, '下一个观察重点是耳道状态和进食表现。');
     expect(report.perPetReports.single.recentChanges, isEmpty);
     expect(report.promptPayloadVersion, 'full');
-    expect(report.promptPayloadVersionLabel, '全量原始版（100%）');
+    expect(report.promptPayloadVersionLabel, '所有数据');
   });
 
   test('generates visit summary from anthropic messages', () async {

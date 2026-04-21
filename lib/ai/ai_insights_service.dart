@@ -1553,19 +1553,19 @@ class _CarePromptPayloadConfig {
 
 enum _CarePromptDetailLevel {
   full(
-    '全量原始版',
+    '所有数据',
     _CarePromptPayloadConfig(
       itemKeepRatio: 1,
     ),
   ),
   balanced(
-    '均衡压缩版',
+    '一半数据',
     _CarePromptPayloadConfig(
       itemKeepRatio: 0.5,
     ),
   ),
   minimal(
-    '极限压缩版',
+    '轻量数据',
     _CarePromptPayloadConfig(
       itemKeepRatio: 0.25,
     ),
@@ -1577,9 +1577,9 @@ enum _CarePromptDetailLevel {
   final _CarePromptPayloadConfig config;
 
   String get displayLabel => switch (this) {
-        _CarePromptDetailLevel.full => '全量原始版（100%）',
-        _CarePromptDetailLevel.balanced => '均衡压缩版（约50%）',
-        _CarePromptDetailLevel.minimal => '极限压缩版（约25%）',
+        _CarePromptDetailLevel.full => '所有数据',
+        _CarePromptDetailLevel.balanced => '一半数据',
+        _CarePromptDetailLevel.minimal => '轻量数据',
       };
 }
 

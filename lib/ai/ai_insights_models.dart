@@ -1030,7 +1030,7 @@ class AiCareReport {
     required this.dataQualityNotes,
     required this.perPetReports,
     this.promptPayloadVersion = 'full',
-    this.promptPayloadVersionLabel = '全量原始版（100%）',
+    this.promptPayloadVersionLabel = '所有数据',
     this.statusLabel = '',
     this.oneLineSummary = '',
     this.recommendationRankings = const [],
@@ -1169,7 +1169,7 @@ class AiCareReport {
       promptPayloadVersion:
           _optionalString(json['promptPayloadVersion']) ?? 'full',
       promptPayloadVersionLabel:
-          _optionalString(json['promptPayloadVersionLabel']) ?? '全量原始版（100%）',
+          _optionalString(json['promptPayloadVersionLabel']) ?? '所有数据',
       statusLabel: statusLabel,
       oneLineSummary: oneLineSummary,
       recommendationRankings: recommendationRankings,
@@ -1210,7 +1210,7 @@ class AiCareReport {
       promptPayloadVersion:
           _optionalString(json['promptPayloadVersion']) ?? 'full',
       promptPayloadVersionLabel:
-          _optionalString(json['promptPayloadVersionLabel']) ?? '全量原始版（100%）',
+          _optionalString(json['promptPayloadVersionLabel']) ?? '所有数据',
       statusLabel: _optionalString(json['statusLabel']) ?? '',
       oneLineSummary: _optionalString(json['oneLineSummary']) ?? '',
       recommendationRankings: rawRecommendationRankings is List

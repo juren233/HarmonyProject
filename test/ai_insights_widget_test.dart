@@ -657,6 +657,55 @@ void main() {
     expect(find.text('AI 配置'), findsOneWidget);
   });
 
+  testWidgets('overview header config button opens AI settings before range',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final settingsController = await AppSettingsController.load();
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final coordinator = AiSettingsCoordinator(
+      settingsController: settingsController,
+      secretStore: InMemoryAiSecretStore(),
+      connectionTester: AiConnectionTester(
+        transport: _UnexpectedNetworkTransport(),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewPageHarness(
+          store: store,
+          onOpenAiSettings: () => navigatorKey.currentState!.push(
+            MaterialPageRoute<void>(
+              builder: (context) => AiSettingsPage(
+                settingsController: settingsController,
+                coordinator: coordinator,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final configButtonFinder =
+        find.byKey(const ValueKey('overview-header-ai-settings-button'));
+    final rangeButtonFinder =
+        find.byKey(const ValueKey('overview-range-menu-button'));
+
+    expect(configButtonFinder, findsOneWidget);
+    expect(rangeButtonFinder, findsOneWidget);
+    expect(tester.getRect(configButtonFinder).right,
+        lessThanOrEqualTo(tester.getRect(rangeButtonFinder).left));
+
+    await tester.tap(configButtonFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AiSettingsPage), findsOneWidget);
+    expect(find.text('AI 配置'), findsOneWidget);
+  });
+
   testWidgets(
       'overview page does not show an error card before the user asks to generate',
       (tester) async {
@@ -1622,7 +1671,7 @@ void main() {
   });
 
   testWidgets(
-      'overview header generate button stays disabled when report exists but no pets are selected',
+      'overview header regenerate button returns to setup after report generation',
       (tester) async {
     final store = PetNoteStore.seeded();
     final service = _FakeAiInsightsService(
@@ -1647,26 +1696,19 @@ void main() {
 
     expect(service.generateCareReportCalls, 1);
 
-    final currentConfig = store.overviewAnalysisConfig;
-    store.updateOverviewAnalysisConfig(
-      range: currentConfig.range,
-      selectedPetIds: const [],
-      customRangeStart: currentConfig.customRangeStart,
-      customRangeEnd: currentConfig.customRangeEnd,
-    );
-    await tester.pumpAndSettle();
-
     final headerGenerateButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '生成总览'),
+      find.widgetWithText(FilledButton, '重新生成'),
     );
-    expect(headerGenerateButton.onPressed, isNull);
+    expect(headerGenerateButton.onPressed, isNotNull);
 
     await tester.tap(
-      find.widgetWithText(FilledButton, '生成总览'),
+      find.widgetWithText(FilledButton, '重新生成'),
       warnIfMissed: false,
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('你的AI关怀助理'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
     expect(service.generateCareReportCalls, 1);
   });
 
@@ -1712,7 +1754,7 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('overview-generating-pet-strip')),
         findsNothing);
-    expect(find.byTooltip('配置'), findsOneWidget);
+    expect(find.byTooltip('配置'), findsNothing);
     final analyzingButton = tester.widget<FilledButton>(
       find.byKey(const ValueKey('overview-generating-analyzing-button')),
     );
@@ -1849,25 +1891,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, '生成总览'));
-    await tester.pump();
-
-    expect(find.text('正在分析'), findsOneWidget);
-    expect(find.text('AI 正在生成新的专业分析报告…'), findsNothing);
-    expect(find.byKey(const ValueKey('overview-generating-title-label')),
-        findsOneWidget);
-    expect(find.byKey(const ValueKey('overview-generating-pet-carousel')),
-        findsOneWidget);
-    final refreshAnalyzingButton = tester.widget<FilledButton>(
-      find.byKey(const ValueKey('overview-generating-analyzing-button')),
-    );
-    expect(refreshAnalyzingButton.onPressed, isNull);
-
-    refreshService.completeCareReport(_buildDetailedCareReport());
+    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
     await tester.pumpAndSettle();
-    expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsOneWidget);
+
+    expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsNothing);
+    expect(find.text('你的AI关怀助理'), findsOneWidget);
+    expect(find.byKey(const ValueKey('overview-floating-generate-button')),
+        findsOneWidget);
     expect(initialService.forceRefreshValues, <bool>[false]);
-    expect(refreshService.forceRefreshValues, <bool>[true]);
+    expect(refreshService.forceRefreshValues, isEmpty);
   });
 
   testWidgets(
@@ -1892,7 +1924,7 @@ void main() {
         .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('当前使用数据版：全量原始版（100%）'), findsOneWidget);
+    expect(find.text('读取数据量：所有数据'), findsOneWidget);
   });
 
   testWidgets('overview page restores generation setup after switching back',
@@ -1965,7 +1997,7 @@ void main() {
   });
 
   testWidgets(
-      'overview page uses overview tab accent for header actions after report generation',
+      'overview page uses overview tab accent for regenerate action after report generation',
       (tester) async {
     final store = PetNoteStore.seeded();
     final service = _FakeAiInsightsService(
@@ -1990,26 +2022,137 @@ void main() {
 
     final context = tester.element(find.byType(OverviewPage));
     final overviewAccent = tabAccentFor(context, AppTab.overview).label;
-    final configButton =
-        tester.widget<IconButton>(find.byType(IconButton).first);
+    final configButtonFinder =
+        find.byKey(const ValueKey('overview-header-ai-settings-button'));
     final generateButton =
-        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '生成总览'));
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '重新生成'));
+    final configButton =
+        tester.widget<IconButton>(configButtonFinder);
 
-    expect(
-        find.ancestor(
-          of: find.byIcon(Icons.settings_outlined),
-          matching: find.byType(OutlinedButton),
-        ),
-        findsNothing);
-    expect(
-        find.ancestor(
-          of: find.byIcon(Icons.settings_outlined),
-          matching: find.byType(IconButton),
-        ),
-        findsOneWidget);
-    expect(configButton.style?.backgroundColor?.resolve({}), isNull);
+    expect(configButtonFinder, findsOneWidget);
+    expect(tester.getRect(configButtonFinder).right,
+        lessThanOrEqualTo(
+            tester.getRect(find.widgetWithText(FilledButton, '重新生成')).left));
     expect(configButton.style?.foregroundColor?.resolve({}), overviewAccent);
     expect(generateButton.style?.backgroundColor?.resolve({}), overviewAccent);
+  });
+
+  testWidgets('overview page returns to setup before regenerating report',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final service = _FakeAiInsightsService(
+      careReport: _buildDetailedCareReport(),
+      isConfigured: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewPageHarness(
+          store: store,
+          service: service,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重新生成'), findsOneWidget);
+    expect(find.text('你的AI关怀助理'), findsNothing);
+    expect(service.generateCareReportCalls, 1);
+    expect(service.forceRefreshValues, <bool>[false]);
+
+    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsNothing);
+    expect(find.text('你的AI关怀助理'), findsOneWidget);
+    expect(find.text('右上角选好时间范围后，在此处选择你的爱宠即可生成总览'), findsOneWidget);
+    expect(find.byKey(const ValueKey('overview-floating-generate-button')),
+        findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
+    expect(service.generateCareReportCalls, 1);
+
+    await tester
+        .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
+    await tester.pumpAndSettle();
+
+    expect(service.generateCareReportCalls, 2);
+    expect(service.forceRefreshValues, <bool>[false, false]);
+    expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsOneWidget);
+  });
+
+  testWidgets('overview report keeps AI settings entry when provider becomes unavailable',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final service = _MutableAvailabilityAiInsightsService(isConfigured: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: buildPetNoteTheme(Brightness.light),
+        home: _OverviewPageHarness(
+          store: store,
+          service: service,
+          onOpenAiSettings: () => navigatorKey.currentState!.push(
+            MaterialPageRoute<void>(
+              builder: (context) => Scaffold(
+                appBar: AppBar(title: const Text('AI 配置')),
+                body: Center(
+                  child: FilledButton(
+                    onPressed: () {
+                      service.isConfigured = false;
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('移除 AI 配置'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
+        findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重新生成'), findsOneWidget);
+
+    await tester
+        .tap(find.byKey(const ValueKey('overview-header-ai-settings-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('AI 配置'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, '移除 AI 配置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
+        findsOneWidget);
+    final regenerateButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '重新生成'),
+    );
+    expect(regenerateButton.enabled, isTrue);
+    expect(service.hasActiveProviderCalls, greaterThanOrEqualTo(2));
+
+    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('你的AI关怀助理'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
+    expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -2307,7 +2450,7 @@ AiCareReport _buildDetailedCareReport({
     overallScoreLabel: '稳定',
     scoreConfidence: AiScoreConfidence.high,
     promptPayloadVersion: 'full',
-    promptPayloadVersionLabel: '全量原始版（100%）',
+    promptPayloadVersionLabel: '所有数据',
     statusLabel: '基本稳定',
     oneLineSummary: oneLineSummary,
     recommendationRankings: const [

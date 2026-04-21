@@ -121,26 +121,32 @@ class _OverviewPageState extends State<OverviewPage> {
           subtitle:
               showGenerationSetup ? '你的AI关怀助理' : _overviewTitle(snapshot.range),
           trailing: showGenerationSetup
-              ? _OverviewRangeMenuButton(
+              ? _OverviewSetupHeaderActions(
                   config: widget.store.overviewAnalysisConfig,
                   referenceDate: widget.store.referenceNow,
+                  onOpenAiSettings: widget.onOpenAiSettings == null
+                      ? null
+                      : _handleOpenAiSettings,
                   onSelectRange: _selectOverviewRangeFromSetup,
                   onSelectCustomRange: _applyCustomOverviewDateRange,
                 )
               : reportState.isLoading
-                  ? _OverviewGeneratingHeaderActions(
-                      onOpenConfig: _openOverviewConfig,
-                    )
-                  : showGenerationError
-                      ? null
-                      : _hasActiveProvider
+                  ? const _OverviewGeneratingHeaderActions()
+                      : showGenerationError
+                          ? null
+                      : (_hasActiveProvider || reportState.hasReport)
                           ? _OverviewHeaderActions(
                               isLoading: reportState.isLoading,
                               canGenerate: hasSelectedPets,
-                              onOpenConfig: _openOverviewConfig,
-                              onGenerate: () => _generateCareReport(
-                                forceRefresh: reportState.hasReport,
-                              ),
+                              hasReport: reportState.hasReport,
+                              onOpenAiSettings: widget.onOpenAiSettings == null
+                                  ? null
+                                  : _handleOpenAiSettings,
+                              onGenerate: reportState.hasReport
+                                  ? _returnToOverviewSetup
+                                  : () => _generateCareReport(
+                                        forceRefresh: false,
+                                      ),
                             )
                           : null,
         );
@@ -365,121 +371,6 @@ class _OverviewPageState extends State<OverviewPage> {
         ],
       ),
     ];
-  }
-
-  Future<void> _openOverviewConfig() async {
-    final currentConfig = widget.store.overviewAnalysisConfig;
-    var selectedRange = currentConfig.range;
-    var customRangeStart = currentConfig.customRangeStart;
-    var customRangeEnd = currentConfig.customRangeEnd;
-    final selectedPetIds = currentConfig.selectedPetIds.toSet();
-    final applied = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('总览配置'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('时间范围'),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final option in const [
-                          OverviewRange.sevenDays,
-                          OverviewRange.oneMonth,
-                          OverviewRange.threeMonths,
-                          OverviewRange.sixMonths,
-                          OverviewRange.oneYear,
-                          OverviewRange.custom,
-                        ])
-                          ChoiceChip(
-                            label: Text(_overviewRangeChipLabel(option)),
-                            selected: selectedRange == option,
-                            onSelected: (_) async {
-                              if (option == OverviewRange.custom) {
-                                final now = widget.store.referenceNow;
-                                final picked = await showDateRangePicker(
-                                  context: context,
-                                  firstDate: DateTime(now.year - 2, 1, 1),
-                                  lastDate: DateTime(now.year + 1, 12, 31),
-                                  initialDateRange: DateTimeRange(
-                                    start: customRangeStart ??
-                                        now.subtract(const Duration(days: 7)),
-                                    end: customRangeEnd ?? now,
-                                  ),
-                                  locale: const Locale('zh', 'CN'),
-                                );
-                                if (picked == null) {
-                                  return;
-                                }
-                                setDialogState(() {
-                                  selectedRange = option;
-                                  customRangeStart = picked.start;
-                                  customRangeEnd = picked.end;
-                                });
-                                return;
-                              }
-                              setDialogState(() {
-                                selectedRange = option;
-                              });
-                            },
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    const Text('分析宠物'),
-                    const SizedBox(height: 10),
-                    ...widget.store.pets.map(
-                      (pet) => CheckboxListTile(
-                        value: selectedPetIds.contains(pet.id),
-                        title: Text(pet.name),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        contentPadding: EdgeInsets.zero,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            if (value ?? false) {
-                              selectedPetIds.add(pet.id);
-                            } else {
-                              selectedPetIds.remove(pet.id);
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('应用配置'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    if (applied != true || !mounted) {
-      return;
-    }
-    widget.store.updateOverviewAnalysisConfig(
-      range: selectedRange,
-      selectedPetIds: selectedPetIds.toList(growable: false),
-      customRangeStart: customRangeStart,
-      customRangeEnd: customRangeEnd,
-    );
   }
 
   Future<void> _selectOverviewRangeFromSetup(OverviewRange range) async {
