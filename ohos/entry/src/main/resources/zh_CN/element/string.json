@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "宠记"
+    },
+    {
+      "name": "calendar_permission_reason",
+      "value": "用于创建和管理宠物提醒日历事件"
     }
   ]
 }

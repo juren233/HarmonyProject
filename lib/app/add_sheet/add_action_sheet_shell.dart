@@ -7,6 +7,7 @@ import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
+import 'package:petnote/notifications/notification_coordinator.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 import 'add_sheet_models.dart';
@@ -22,11 +23,16 @@ class AddActionSheet extends StatefulWidget {
   const AddActionSheet({
     super.key,
     required this.store,
+    this.notificationCoordinator,
+    this.notificationCoordinatorLoader,
     this.nativePetPhotoPicker,
     this.introHapticsDriver,
   });
 
   final PetNoteStore store;
+  final NotificationCoordinator? notificationCoordinator;
+  final Future<NotificationCoordinator?> Function()?
+      notificationCoordinatorLoader;
   final NativePetPhotoPicker? nativePetPhotoPicker;
   final IntroHapticsDriver? introHapticsDriver;
 
@@ -377,10 +383,18 @@ class _AddSheetState extends State<AddActionSheet>
     }
 
     return switch (action) {
-      AddAction.todo =>
-        TodoForm(key: const ValueKey('todo'), store: widget.store),
-      AddAction.reminder =>
-        ReminderForm(key: const ValueKey('reminder'), store: widget.store),
+      AddAction.todo => TodoForm(
+          key: const ValueKey('todo'),
+          store: widget.store,
+          notificationCoordinator: widget.notificationCoordinator,
+          notificationCoordinatorLoader: widget.notificationCoordinatorLoader,
+        ),
+      AddAction.reminder => ReminderForm(
+          key: const ValueKey('reminder'),
+          store: widget.store,
+          notificationCoordinator: widget.notificationCoordinator,
+          notificationCoordinatorLoader: widget.notificationCoordinatorLoader,
+        ),
       AddAction.record => RecordForm(
           key: const ValueKey('record'),
           store: widget.store,

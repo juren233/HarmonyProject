@@ -1,18 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/interaction_feedback.dart';
+import 'package:petnote/notifications/notification_coordinator.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 import '../form_controls/adaptive_date_time_field.dart';
 import '../form_controls/form_scaffold.dart';
 import '../form_controls/pet_selector.dart';
 import '../pickers/date_time_pickers.dart';
+import 'notification_permission_guard.dart';
 import 'semantic_form_support.dart';
 
 class TodoForm extends StatefulWidget {
-  const TodoForm({super.key, required this.store});
+  const TodoForm({
+    super.key,
+    required this.store,
+    this.notificationCoordinator,
+    this.notificationCoordinatorLoader,
+  });
 
   final PetNoteStore store;
+  final NotificationCoordinator? notificationCoordinator;
+  final Future<NotificationCoordinator?> Function()?
+      notificationCoordinatorLoader;
 
   @override
   State<TodoForm> createState() => _TodoFormState();
@@ -53,26 +63,7 @@ class _TodoFormState extends State<TodoForm> {
     return FormScaffold(
       actionLabel: '保存待办',
       actionColor: const Color(0xFF4F7BFF),
-      onSubmit: () async {
-        final title = _title.text.trim();
-        final note = _note.text.trim();
-        await widget.store.addTodo(
-          title: title,
-          petId: _petId,
-          dueAt: _dueAt,
-          notificationLeadTime: _notificationLeadTime,
-          note: note,
-          semantic: simplifiedTodoSemantic(
-            title: title,
-            note: note,
-            dueAt: _dueAt,
-          ),
-        );
-        if (!context.mounted) {
-          return;
-        }
-        Navigator.pop(context);
-      },
+      onSubmit: _handleSubmit,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -131,6 +122,38 @@ class _TodoFormState extends State<TodoForm> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleSubmit() async {
+    if (!mounted) {
+      return;
+    }
+    final hasPermission = await ensureNotificationPermissionBeforeChecklistSave(
+      context: context,
+      notificationCoordinator: widget.notificationCoordinator,
+      notificationCoordinatorLoader: widget.notificationCoordinatorLoader,
+    );
+    if (!hasPermission) {
+      return;
+    }
+    final title = _title.text.trim();
+    final note = _note.text.trim();
+    await widget.store.addTodo(
+      title: title,
+      petId: _petId,
+      dueAt: _dueAt,
+      notificationLeadTime: _notificationLeadTime,
+      note: note,
+      semantic: simplifiedTodoSemantic(
+        title: title,
+        note: note,
+        dueAt: _dueAt,
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    Navigator.pop(context);
   }
 }
 
@@ -191,7 +214,8 @@ class _TodoChipOptionState extends State<_TodoChipOption> {
           child: Text(
             widget.label,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: widget.selected ? Colors.white : const Color(0xFF6C7280),
+                  color:
+                      widget.selected ? Colors.white : const Color(0xFF6C7280),
                   fontWeight: FontWeight.w700,
                 ),
           ),

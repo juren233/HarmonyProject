@@ -70,10 +70,10 @@ void main() {
     await service.generateCareReport(_sampleCareContext());
 
     expect(systemPrompt, isNotNull);
-    expect(systemPrompt, contains('"executiveSummary": "80-140字'));
+    expect(systemPrompt, contains('\"executiveSummary\": \"60-100字'));
     expect(systemPrompt, contains('"overallAssessment": ["1-3条总体判断"]'));
     expect(systemPrompt, isNot(contains('120-220字')));
-    expect(userPrompt, contains('短版 AI 总览'));
+    expect(userPrompt, contains('生成 AI 总览'));
     expect(userPrompt, isNot(contains('正式分析报告”风格的 AI 总览')));
   });
 
@@ -129,11 +129,11 @@ void main() {
     await service.generateCareReport(_sampleCareContext());
 
     expect(userPrompt, isNotNull);
-    expect(userPrompt, contains('"packageType":"ai_summary"'));
-    expect(userPrompt, contains('"topicRollups"'));
-    expect(userPrompt, isNot(contains('"todos":[')));
-    expect(userPrompt, isNot(contains('"reminders":[')));
-    expect(userPrompt, isNot(contains('"records":[')));
+    expect(userPrompt, contains('\"context\":{'));
+    expect(userPrompt, contains('\"pets\":['));
+    expect(userPrompt, contains('\"todos\":['));
+    expect(userPrompt, contains('\"reminders\":['));
+    expect(userPrompt, contains('\"records\":['));
   });
 }
 
@@ -150,6 +150,7 @@ Map<String, Object?> _careReportResponseJson() {
       {
         'petId': 'pet-1',
         'petName': 'Mochi',
+        'score': 86,
         'summary': 'Mochi 当前照护节奏稳定。',
         'careFocus': '继续观察耳道状态。',
         'keyEvents': ['完成驱虫提醒'],
@@ -157,6 +158,10 @@ Map<String, Object?> _careReportResponseJson() {
         'riskAssessment': ['暂无新增风险'],
         'recommendedActions': ['继续保持记录'],
         'followUpFocus': '观察耳道与精神状态。',
+        'whyThisScore': ['近期照护节奏稳定，但耳道观察还需要持续闭环。'],
+        'topPriority': ['继续补充耳道观察记录并确认复查节点。'],
+        'missedItems': ['耳道复查后的连续观察记录还不够完整。'],
+        'followUpPlan': ['未来 7 天继续记录耳道与精神状态，并视情况安排复查。'],
       },
     ],
   };

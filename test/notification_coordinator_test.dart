@@ -3,7 +3,10 @@ import 'package:petnote/notifications/notification_coordinator.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'dart:async';
 
 void main() {
   setUp(() {
@@ -171,6 +174,11 @@ void main() {
       DateTime.parse('2026-03-27T10:25:00+08:00'),
     );
     expect(
+      reminderJob.eventScheduledAt,
+      DateTime.parse('2026-03-27T10:30:00+08:00'),
+    );
+    expect(reminderJob.reminderLeadTimeMinutes, 5);
+    expect(
       adapter.scheduled.map((job) => job.key),
       isNot(contains('todo:todo-1')),
     );
@@ -194,6 +202,73 @@ void main() {
 
     expect(adapter.scheduleCallCount, firstScheduleCount);
     expect(adapter.cancelCallCount, 0);
+  });
+
+  test('syncFromStore reschedules when persisted snapshot is missing on platform',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter();
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+    );
+    final store = PetNoteStore.seeded();
+
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+    final firstScheduleCount = adapter.scheduleCallCount;
+    adapter.currentScheduled.remove('todo:todo-1');
+
+    await coordinator.syncFromStore(store);
+
+    expect(adapter.scheduleCallCount, firstScheduleCount + 1);
+    expect(adapter.cancelled, contains('todo:todo-1'));
+    expect(adapter.currentScheduled, contains('todo:todo-1'));
+  });
+
+  test('syncFromStore keeps nearest jobs when platform has a schedule limit',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      capabilities: const NotificationPlatformCapabilities(
+        maxScheduledNotificationCount: 30,
+      ),
+    );
+    final now = DateTime.parse('2026-03-27T10:00:00+08:00');
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => now,
+    );
+    final store = await PetNoteStore.load(nowProvider: () => now);
+
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+    for (var index = 0; index < 35; index += 1) {
+      await store.addTodo(
+        title: '提醒 $index',
+        petId: store.pets.single.id,
+        dueAt: now.add(Duration(minutes: index + 1)),
+        notificationLeadTime: NotificationLeadTime.none,
+        note: '',
+      );
+    }
+
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+
+    expect(adapter.resetCallCount, 1);
+    expect(adapter.currentScheduled.length, 30);
+    expect(adapter.currentScheduled.keys, contains('todo:todo-1'));
+    expect(adapter.currentScheduled.keys, contains('todo:todo-30'));
+    expect(adapter.currentScheduled.keys, isNot(contains('todo:todo-31')));
   });
 
   test(
@@ -308,6 +383,107 @@ void main() {
       NotificationExactAlarmStatus.unavailable,
     );
   });
+
+  test('init uses platform prompt interaction state to decide settings routing',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.denied,
+      platformHandledPrompt: true,
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    await coordinator.init();
+
+    expect(coordinator.hasHandledPermissionPrompt, isTrue);
+    expect(coordinator.shouldOpenSettingsForPermissionRequest, isTrue);
+  });
+
+  test('init remains available when push token registration fails', () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      failRegisterPushToken: true,
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    await expectLater(coordinator.init(), completes);
+
+    expect(coordinator.isInitialized, isTrue);
+    expect(coordinator.pushToken, isNull);
+  });
+
+  test('init remains available when notification snapshot preferences time out',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      maxScheduledNotifications: false,
+    );
+    SharedPreferences.setMockInitialValues({});
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+    );
+
+    final originalStore = SharedPreferencesStorePlatform.instance;
+    SharedPreferencesStorePlatform.instance = _HangingSharedPreferencesStore();
+    addTearDown(() {
+      SharedPreferencesStorePlatform.instance = originalStore;
+    });
+
+    await expectLater(coordinator.init(), completes);
+
+    expect(coordinator.isInitialized, isTrue);
+  });
+
+  test('request permission keeps requesting when system dialog was not handled',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.denied,
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    await coordinator.init();
+
+    final firstResult = await coordinator.requestPermission();
+
+    expect(firstResult, NotificationPermissionState.denied);
+    expect(coordinator.hasHandledPermissionPrompt, isFalse);
+    expect(coordinator.shouldOpenSettingsForPermissionRequest, isFalse);
+    expect(adapter.requestPermissionCallCount, 1);
+    expect(adapter.openSettingsCallCount, 0);
+
+    final secondResult = await coordinator.requestPermission();
+
+    expect(secondResult, NotificationPermissionState.denied);
+    expect(adapter.requestPermissionCallCount, 2);
+    expect(adapter.openSettingsCallCount, 0);
+  });
+
+  test(
+      'request permission opens settings after system dialog was really handled',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.denied,
+      requestResult: const PermissionRequestOutcome(
+        state: NotificationPermissionState.denied,
+        promptHandledSystemDialog: true,
+      ),
+    );
+    final coordinator = NotificationCoordinator(adapter: adapter);
+
+    await coordinator.init();
+
+    final firstResult = await coordinator.requestPermission();
+
+    expect(firstResult, NotificationPermissionState.denied);
+    expect(coordinator.hasHandledPermissionPrompt, isTrue);
+    expect(coordinator.shouldOpenSettingsForPermissionRequest, isTrue);
+    expect(adapter.requestPermissionCallCount, 1);
+    expect(adapter.openSettingsCallCount, 0);
+
+    final secondResult = await coordinator.requestPermission();
+
+    expect(secondResult, NotificationPermissionState.denied);
+    expect(adapter.requestPermissionCallCount, 1);
+    expect(adapter.openSettingsCallCount, 1);
+  });
 }
 
 class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
@@ -315,7 +491,20 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
     this.openSettingsResult = NotificationSettingsOpenResult.opened,
     this.openExactAlarmSettingsResult = NotificationSettingsOpenResult.opened,
     this.permissionState = NotificationPermissionState.denied,
-  });
+    this.failRegisterPushToken = false,
+    this.platformHandledPrompt = false,
+    this.requestResult = const PermissionRequestOutcome(
+      state: NotificationPermissionState.denied,
+      promptHandledSystemDialog: false,
+    ),
+    this.maxScheduledNotifications = true,
+    NotificationPlatformCapabilities? capabilities,
+  }) : capabilities = capabilities ??
+            (maxScheduledNotifications
+                ? const NotificationPlatformCapabilities(
+                    maxScheduledNotificationCount: 30,
+                  )
+                : const NotificationPlatformCapabilities());
 
   final List<NotificationJob> scheduled = <NotificationJob>[];
   final Map<String, NotificationJob> currentScheduled =
@@ -324,10 +513,16 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   final NotificationSettingsOpenResult openSettingsResult;
   final NotificationSettingsOpenResult openExactAlarmSettingsResult;
   NotificationPermissionState permissionState;
-  NotificationPlatformCapabilities capabilities =
-      const NotificationPlatformCapabilities();
+  final bool failRegisterPushToken;
+  final bool platformHandledPrompt;
+  final PermissionRequestOutcome<NotificationPermissionState> requestResult;
+  final bool maxScheduledNotifications;
+  NotificationPlatformCapabilities capabilities;
   int scheduleCallCount = 0;
   int cancelCallCount = 0;
+  int resetCallCount = 0;
+  int requestPermissionCallCount = 0;
+  int openSettingsCallCount = 0;
 
   @override
   Future<NotificationPermissionState> getPermissionState() async {
@@ -340,6 +535,11 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   }
 
   @override
+  Future<bool> hasHandledPermissionPrompt() async {
+    return platformHandledPrompt;
+  }
+
+  @override
   Future<void> initialize() async {}
 
   @override
@@ -347,6 +547,7 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
 
   @override
   Future<NotificationSettingsOpenResult> openNotificationSettings() async {
+    openSettingsCallCount += 1;
     return openSettingsResult;
   }
 
@@ -356,7 +557,12 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   }
 
   @override
-  Future<String?> registerPushToken() async => null;
+  Future<String?> registerPushToken() async {
+    if (failRegisterPushToken) {
+      throw StateError('模拟推送 Token 注册失败');
+    }
+    return null;
+  }
 
   @override
   Future<void> cancelNotification(String key) async {
@@ -366,11 +572,26 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   }
 
   @override
+  Future<bool> hasScheduledNotification(String key) async {
+    return currentScheduled.containsKey(key);
+  }
+
+  @override
+  Future<void> resetScheduledNotifications() async {
+    resetCallCount += 1;
+    currentScheduled.clear();
+    scheduled.clear();
+  }
+
+  @override
   Future<NotificationLaunchIntent?> consumeForegroundTap() async => null;
 
   @override
-  Future<NotificationPermissionState> requestPermission() async {
-    return permissionState;
+  Future<PermissionRequestOutcome<NotificationPermissionState>>
+      requestPermission() async {
+    requestPermissionCallCount += 1;
+    permissionState = requestResult.state;
+    return requestResult;
   }
 
   @override
@@ -380,4 +601,20 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
     scheduled.add(job);
     currentScheduled[job.key] = job;
   }
+}
+
+class _HangingSharedPreferencesStore extends SharedPreferencesStorePlatform {
+  @override
+  Future<bool> clear() async => true;
+
+  @override
+  Future<Map<String, Object>> getAll() {
+    return Completer<Map<String, Object>>().future;
+  }
+
+  @override
+  Future<bool> remove(String key) async => true;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async => true;
 }

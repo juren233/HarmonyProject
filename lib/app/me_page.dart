@@ -32,6 +32,7 @@ class MePage extends StatelessWidget {
     required this.onRequestNotificationPermission,
     required this.onOpenNotificationSettings,
     required this.onOpenExactAlarmSettings,
+    this.shouldOpenNotificationSettingsForRequest = false,
     required this.settingsController,
     required this.aiSettingsCoordinator,
     required this.dataStorageCoordinator,
@@ -49,6 +50,7 @@ class MePage extends StatelessWidget {
   final Future<void> Function()? onRequestNotificationPermission;
   final Future<void> Function()? onOpenNotificationSettings;
   final Future<void> Function()? onOpenExactAlarmSettings;
+  final bool shouldOpenNotificationSettingsForRequest;
   final AppSettingsController? settingsController;
   final AppLogController? appLogController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
@@ -109,6 +111,8 @@ class MePage extends StatelessWidget {
                         onRequestNotificationPermission,
                     onOpenNotificationSettings: onOpenNotificationSettings,
                     onOpenExactAlarmSettings: onOpenExactAlarmSettings,
+                    shouldOpenNotificationSettingsForRequest:
+                        shouldOpenNotificationSettingsForRequest,
                   ),
                 ),
               ),
@@ -528,7 +532,8 @@ class _AboutPetNoteCardState extends State<_AboutPetNoteCard> {
   @override
   void didUpdateWidget(covariant _AboutPetNoteCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.appVersionInfo.buildNumber != widget.appVersionInfo.buildNumber ||
+    if (oldWidget.appVersionInfo.buildNumber !=
+            widget.appVersionInfo.buildNumber ||
         oldWidget.appUpdateChecker != widget.appUpdateChecker) {
       _loadReleaseInfo();
     }
@@ -857,6 +862,7 @@ class _NotificationSettingsPage extends StatelessWidget {
     required this.onRequestNotificationPermission,
     required this.onOpenNotificationSettings,
     required this.onOpenExactAlarmSettings,
+    this.shouldOpenNotificationSettingsForRequest = false,
   });
 
   final NotificationPermissionState notificationPermissionState;
@@ -865,6 +871,7 @@ class _NotificationSettingsPage extends StatelessWidget {
   final Future<void> Function()? onRequestNotificationPermission;
   final Future<void> Function()? onOpenNotificationSettings;
   final Future<void> Function()? onOpenExactAlarmSettings;
+  final bool shouldOpenNotificationSettingsForRequest;
 
   @override
   Widget build(BuildContext context) {
@@ -919,7 +926,9 @@ class _NotificationSettingsPage extends StatelessWidget {
                         buttonKey:
                             const ValueKey('me_request_notification_button'),
                         priority: SettingsActionPriority.primary,
-                        label: '请求通知权限',
+                        label: shouldOpenNotificationSettingsForRequest
+                            ? '前往系统设置'
+                            : '请求通知权限',
                         onPressed: onRequestNotificationPermission == null
                             ? null
                             : () => onRequestNotificationPermission!(),

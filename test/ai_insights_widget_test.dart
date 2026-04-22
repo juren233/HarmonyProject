@@ -2086,7 +2086,7 @@ void main() {
     expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsOneWidget);
   });
 
-  testWidgets('overview report keeps AI settings entry when provider becomes unavailable',
+  testWidgets('overview setup refreshes when provider becomes unavailable',
       (tester) async {
     final store = PetNoteStore.seeded();
     final navigatorKey = GlobalKey<NavigatorState>();
@@ -2120,13 +2120,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester
-        .tap(find.byKey(const ValueKey('overview-floating-generate-button')));
-    await tester.pumpAndSettle();
-
+    expect(find.text('右上角选好时间范围后，在此处选择你的爱宠即可生成总览'), findsOneWidget);
     expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
         findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重新生成'), findsOneWidget);
 
     await tester
         .tap(find.byKey(const ValueKey('overview-header-ai-settings-button')));
@@ -2138,21 +2134,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
-        findsOneWidget);
-    final regenerateButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '重新生成'),
+    expect(find.text('当前尚未配置AI服务，点我前往设置页进行配置➔'), findsOneWidget);
+    final generateButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('overview-floating-generate-button')),
     );
-    expect(regenerateButton.enabled, isTrue);
+    expect(generateButton.enabled, isFalse);
     expect(service.hasActiveProviderCalls, greaterThanOrEqualTo(2));
-
-    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('你的AI关怀助理'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
-    expect(find.byKey(const ValueKey('overview-header-ai-settings-button')),
-        findsOneWidget);
   });
 
   testWidgets(

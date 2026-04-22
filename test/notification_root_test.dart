@@ -7,6 +7,7 @@ import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -50,7 +51,7 @@ void main() {
   });
 
   testWidgets(
-      'notification-related store mutations wait for native scheduling to finish',
+      'notification-related store mutations do not wait for native scheduling to finish',
       (tester) async {
     final store = await PetNoteStore.load(
       nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
@@ -102,14 +103,133 @@ void main() {
     var mutationCompleted = false;
     unawaited(addReminderFuture.then((_) => mutationCompleted = true));
     await tester.pump();
-    expect(mutationCompleted, isFalse);
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(mutationCompleted, isTrue);
+    expect(store.reminders.single.title, '后台提醒闭环');
 
     adapter.completePendingSchedule();
-    await addReminderFuture;
     await tester.pumpAndSettle();
 
     expect(mutationCompleted, isTrue);
     expect(adapter.hasPendingSchedule, isFalse);
+    expect(
+      adapter.scheduled.map((job) => job.key),
+      contains('reminder:reminder-1'),
+    );
+  });
+
+  testWidgets('saving reminder closes add sheet while native scheduling continues',
+      (tester) async {
+    final store = await PetNoteStore.load(
+      nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+    );
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+    final adapter = _RootFakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.authorized,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    adapter.resetScheduleTracking();
+
+    await tester.tap(find.byKey(const ValueKey('dock_add_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增提醒'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '允许后抽屉先收回');
+    await tester.tap(find.widgetWithText(FilledButton, '保存提醒'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
+    expect(adapter.scheduleCallCount, 1);
+    expect(adapter.hasPendingSchedule, isTrue);
+
+    adapter.completePendingSchedule();
+    await tester.pumpAndSettle();
+
+    expect(
+      adapter.scheduled.map((job) => job.key),
+      contains('reminder:reminder-1'),
+    );
+  });
+
+  testWidgets('granting permission from reminder save closes sheet and continues scheduling',
+      (tester) async {
+    final store = await PetNoteStore.load(
+      nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+    );
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+    final adapter = _RootFakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.denied,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    adapter.resetScheduleTracking();
+
+    await tester.tap(find.byKey(const ValueKey('dock_add_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增提醒'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '授权后继续调度');
+    await tester.tap(find.widgetWithText(FilledButton, '保存提醒'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('需要开启通知权限'), findsOneWidget);
+
+    await tester.tap(find.text('去授权'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(adapter.requestPermissionCallCount, 1);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
+    expect(adapter.scheduleCallCount, 1);
+    expect(adapter.hasPendingSchedule, isTrue);
+
+    adapter.completePendingSchedule();
+    await tester.pumpAndSettle();
+
     expect(
       adapter.scheduled.map((job) => job.key),
       contains('reminder:reminder-1'),
@@ -199,6 +319,119 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 220));
   });
+
+  testWidgets(
+      'dock add button opens while notification initialization is pending',
+      (tester) async {
+    final store = PetNoteStore.seeded();
+    final adapter = _RootFakeNotificationPlatformAdapter(
+      holdInitialize: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(adapter.hasPendingInitialize, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('dock_add_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+
+    adapter.completePendingInitialize();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 220));
+  });
+
+  testWidgets(
+      'notification settings actions remain available when platform state refresh fails',
+      (tester) async {
+    final store = PetNoteStore.seeded()..setActiveTab(AppTab.me);
+    final adapter = _RootFakeNotificationPlatformAdapter(
+      failGetPermissionState: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
+    await tester.pumpAndSettle();
+
+    final requestButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('me_request_notification_button')),
+    );
+    final settingsButton = tester.widget<OutlinedButton>(
+      find.byKey(const ValueKey('me_open_notification_settings_button')),
+    );
+
+    expect(requestButton.onPressed, isNotNull);
+    expect(settingsButton.onPressed, isNotNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 220));
+  });
+
+  testWidgets('notification permission request does not wait for pending initialization',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = PetNoteStore.seeded();
+    final adapter = _RootFakeNotificationPlatformAdapter(
+      permissionState: NotificationPermissionState.denied,
+      holdInitialize: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pump();
+    for (var i = 0; i < 10 && !adapter.hasPendingInitialize; i += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(adapter.hasPendingInitialize, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('dock_add_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增待办'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '同步挂起时去授权');
+    await tester.tap(find.widgetWithText(FilledButton, '保存待办'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('需要开启通知权限'), findsOneWidget);
+
+    await tester.tap(find.text('去授权'));
+    await tester.pump();
+
+    expect(adapter.requestPermissionCallCount, 1);
+
+    adapter.completePendingInitialize();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 220));
+  });
 }
 
 class _RootFakeNotificationPlatformAdapter
@@ -206,11 +439,16 @@ class _RootFakeNotificationPlatformAdapter
   _RootFakeNotificationPlatformAdapter({
     this.initialIntent,
     this.permissionState = NotificationPermissionState.authorized,
+    this.failGetPermissionState = false,
+    this.holdInitialize = false,
   });
 
   final NotificationLaunchIntent? initialIntent;
   final NotificationPermissionState permissionState;
+  final bool failGetPermissionState;
+  final bool holdInitialize;
   final List<NotificationJob> scheduled = <NotificationJob>[];
+  Completer<void>? pendingInitializeCompleter;
   Completer<void>? pendingScheduleCompleter;
   int requestPermissionCallCount = 0;
   int scheduleCallCount = 0;
@@ -221,10 +459,16 @@ class _RootFakeNotificationPlatformAdapter
   Future<void> cancelNotification(String key) async {}
 
   @override
+  Future<void> resetScheduledNotifications() async {}
+
+  @override
   Future<NotificationLaunchIntent?> consumeForegroundTap() async => null;
 
   @override
   Future<NotificationPermissionState> getPermissionState() async {
+    if (failGetPermissionState) {
+      throw StateError('模拟通知状态读取失败');
+    }
     return permissionState;
   }
 
@@ -233,12 +477,25 @@ class _RootFakeNotificationPlatformAdapter
       initialIntent;
 
   @override
+  Future<bool> hasHandledPermissionPrompt() async => false;
+
+  @override
+  Future<bool> hasScheduledNotification(String key) async => true;
+
+  @override
   Future<NotificationPlatformCapabilities> getCapabilities() async {
     return const NotificationPlatformCapabilities();
   }
 
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    if (!holdInitialize) {
+      return;
+    }
+    final completer = Completer<void>();
+    pendingInitializeCompleter = completer;
+    await completer.future;
+  }
 
   @override
   Future<NotificationSettingsOpenResult> openNotificationSettings() async {
@@ -254,12 +511,23 @@ class _RootFakeNotificationPlatformAdapter
   Future<String?> registerPushToken() async => null;
 
   @override
-  Future<NotificationPermissionState> requestPermission() async {
+  Future<PermissionRequestOutcome<NotificationPermissionState>>
+      requestPermission() async {
     requestPermissionCallCount += 1;
-    return NotificationPermissionState.authorized;
+    return const PermissionRequestOutcome(
+      state: NotificationPermissionState.authorized,
+      promptHandledSystemDialog: true,
+    );
   }
 
   bool get hasPendingSchedule => pendingScheduleCompleter != null;
+
+  bool get hasPendingInitialize => pendingInitializeCompleter != null;
+
+  void completePendingInitialize() {
+    pendingInitializeCompleter?.complete();
+    pendingInitializeCompleter = null;
+  }
 
   void resetScheduleTracking() {
     scheduled.clear();

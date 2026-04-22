@@ -25,9 +25,11 @@ enum NotificationExactAlarmStatus {
 class NotificationPlatformCapabilities {
   const NotificationPlatformCapabilities({
     this.exactAlarmStatus = NotificationExactAlarmStatus.unsupported,
+    this.maxScheduledNotificationCount,
   });
 
   final NotificationExactAlarmStatus exactAlarmStatus;
+  final int? maxScheduledNotificationCount;
 
   bool get canScheduleExactAlarms =>
       exactAlarmStatus == NotificationExactAlarmStatus.available;
@@ -38,6 +40,7 @@ class NotificationPlatformCapabilities {
   Map<String, dynamic> toMap() {
     return {
       'exactAlarmStatus': exactAlarmStatus.name,
+      'maxScheduledNotificationCount': maxScheduledNotificationCount,
     };
   }
 
@@ -46,17 +49,23 @@ class NotificationPlatformCapabilities {
       exactAlarmStatus: notificationExactAlarmStatusFromName(
         map?['exactAlarmStatus'] as String?,
       ),
+      maxScheduledNotificationCount:
+          (map?['maxScheduledNotificationCount'] as num?)?.toInt(),
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is NotificationPlatformCapabilities &&
-        other.exactAlarmStatus == exactAlarmStatus;
+        other.exactAlarmStatus == exactAlarmStatus &&
+        other.maxScheduledNotificationCount == maxScheduledNotificationCount;
   }
 
   @override
-  int get hashCode => exactAlarmStatus.hashCode;
+  int get hashCode => Object.hash(
+        exactAlarmStatus,
+        maxScheduledNotificationCount,
+      );
 }
 
 class NotificationPayload {
@@ -127,12 +136,16 @@ class NotificationJob {
   const NotificationJob({
     required this.payload,
     required this.scheduledAt,
+    DateTime? eventScheduledAt,
+    this.reminderLeadTimeMinutes = 0,
     required this.title,
     required this.body,
-  });
+  }) : eventScheduledAt = eventScheduledAt ?? scheduledAt;
 
   final NotificationPayload payload;
   final DateTime scheduledAt;
+  final DateTime eventScheduledAt;
+  final int reminderLeadTimeMinutes;
   final String title;
   final String body;
 
@@ -142,6 +155,8 @@ class NotificationJob {
     return {
       'key': key,
       'scheduledAtEpochMs': scheduledAt.millisecondsSinceEpoch,
+      'eventScheduledAtEpochMs': eventScheduledAt.millisecondsSinceEpoch,
+      'reminderLeadTimeMinutes': reminderLeadTimeMinutes,
       'title': title,
       'body': body,
       'payload': payload.toMap(),

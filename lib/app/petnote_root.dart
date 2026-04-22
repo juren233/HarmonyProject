@@ -82,6 +82,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   int? _lastNotificationSyncVersion;
   Future<void> _pendingNotificationSync = Future<void>.value();
   Future<void>? _notificationInitializationTask;
+  Future<void>? _notificationCoordinatorReadyTask;
   bool _isNotificationSyncScheduled = false;
 
   @override
@@ -137,6 +138,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
               appLogController: widget.appLogController,
             );
       _notificationCoordinator = null;
+      _notificationCoordinatorReadyTask = null;
       _showFirstLaunchIntro =
           store.pets.isEmpty && store.shouldAutoShowFirstLaunchIntro;
       _showOnboarding = false;
@@ -161,15 +163,35 @@ class _PetNoteRootState extends State<PetNoteRoot>
           ),
       appLogController: widget.appLogController,
     );
-    await coordinator.init();
-    final launchIntent = await coordinator.consumeLaunchIntent();
     if (!mounted || !identical(_store, store)) {
       coordinator.dispose();
       return;
     }
+    final coordinatorReadyCompleter = Completer<void>();
+    _notificationCoordinatorReadyTask = coordinatorReadyCompleter.future;
     setState(() {
       _notificationCoordinator = coordinator;
     });
+    coordinatorReadyCompleter.complete();
+
+    await coordinator.init();
+    if (!mounted || !identical(_store, store)) {
+      coordinator.dispose();
+      return;
+    }
+
+    NotificationLaunchIntent? launchIntent;
+    try {
+      launchIntent = await coordinator.consumeLaunchIntent();
+    } catch (error, stackTrace) {
+      widget.appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '读取通知启动意图失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
+
     try {
       await coordinator.syncFromStore(store);
       if (mounted && identical(_store, store)) {
@@ -379,9 +401,30 @@ class _PetNoteRootState extends State<PetNoteRoot>
       ),
       builder: (context) => AddActionSheet(
         store: store,
+        notificationCoordinator: _notificationCoordinator,
+        notificationCoordinatorLoader: () =>
+            _resolveNotificationCoordinator(store),
         nativePetPhotoPicker: widget.nativePetPhotoPicker,
       ),
     );
+  }
+
+  Future<NotificationCoordinator?> _resolveNotificationCoordinator(
+    PetNoteStore store,
+  ) async {
+    final coordinator = _notificationCoordinator;
+    if (coordinator != null && coordinator.isInitialized) {
+      return coordinator;
+    }
+    final coordinatorReadyTask = _notificationCoordinatorReadyTask;
+    if (coordinatorReadyTask == null) {
+      return coordinator;
+    }
+    await coordinatorReadyTask;
+    if (!mounted || !identical(store, _store)) {
+      return null;
+    }
+    return _notificationCoordinator;
   }
 
   Future<void> _openEditPetSheet(
@@ -1021,20 +1064,38 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                         const NotificationPlatformCapabilities(),
                 notificationPushToken:
                     widget.notificationCoordinator?.pushToken,
-                onRequestNotificationPermission:
-                    widget.notificationCoordinator == null
-                        ? null
-                        : () async {
-                            await widget.notificationCoordinator!
-                                .requestPermission();
-                          },
-                onOpenNotificationSettings:
-                    widget.notificationCoordinator == null
-                        ? null
-                        : () async {
-                            await widget.notificationCoordinator!
-                                .openNotificationSettings();
-                          },
+                onRequestNotificationPermission: widget
+                            .notificationCoordinator ==
+                        null
+                    ? null
+                    : () async {
+                        final state = await widget.notificationCoordinator!
+                            .requestPermission();
+                        if (state == NotificationPermissionState.authorized ||
+                            state == NotificationPermissionState.provisional) {
+                          await widget.notificationCoordinator!
+                              .syncFromStore(widget.store);
+                        }
+                      },
+                onOpenNotificationSettings: widget.notificationCoordinator ==
+                        null
+                    ? null
+                    : () async {
+                        await widget.notificationCoordinator!
+                            .openNotificationSettings();
+                        final changed = await widget.notificationCoordinator!
+                            .refreshPlatformState();
+                        if (changed &&
+                            widget.notificationCoordinator!
+                                .hasGrantedPermission) {
+                          await widget.notificationCoordinator!
+                              .syncFromStore(widget.store);
+                        }
+                      },
+                shouldOpenNotificationSettingsForRequest: widget
+                        .notificationCoordinator
+                        ?.shouldOpenSettingsForPermissionRequest ??
+                    false,
                 onOpenExactAlarmSettings: widget.notificationCoordinator == null
                     ? null
                     : () async {

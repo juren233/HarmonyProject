@@ -34,6 +34,7 @@ ohos/entry/oh_modules/
 ohos/entry/src/main/ets/plugins/*
 !ohos/entry/src/main/ets/plugins/PackageInfoPlusPlugin.ets
 !ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets
+!ohos/entry/src/main/ets/plugins/PetNoteNotificationPlugin.ets
 ohos/entry/src/main/resources/rawfile/flutter_assets/
 
 # DevTools

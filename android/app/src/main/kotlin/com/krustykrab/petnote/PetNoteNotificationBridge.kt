@@ -53,6 +53,7 @@ class PetNoteNotificationBridge(
                 result.success(null)
             }
             "getPermissionState" -> result.success(permissionState())
+            "hasHandledPermissionPrompt" -> result.success(hasHandledPermissionPrompt())
             "requestPermission" -> requestPermission(result)
             "scheduleLocalNotification" -> {
                 scheduleLocalNotification(call.arguments as? Map<*, *>)
@@ -104,7 +105,9 @@ class PetNoteNotificationBridge(
         pendingPermissionResult = null
         val granted = grantResults.isNotEmpty() &&
             grantResults.first() == PackageManager.PERMISSION_GRANTED
-        result.success(if (granted) "authorized" else "denied")
+        val state = if (granted) "authorized" else "denied"
+        val promptHandled = grantResults.isNotEmpty()
+        result.success(permissionRequestResult(state, promptHandled))
         return true
     }
 
@@ -124,13 +127,43 @@ class PetNoteNotificationBridge(
         }
     }
 
+
+    private fun hasHandledPermissionPrompt(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return false
+        }
+        return try {
+            val packageManagerClass = PackageManager::class.java
+            val getPermissionFlagsMethod = packageManagerClass.getMethod(
+                "getPermissionFlags",
+                String::class.java,
+                String::class.java,
+                android.os.UserHandle::class.java,
+            )
+            val flagsValue = getPermissionFlagsMethod.invoke(
+                activity.packageManager,
+                Manifest.permission.POST_NOTIFICATIONS,
+                activity.packageName,
+                android.os.Process.myUserHandle(),
+            ) as? Number ?: return false
+            val userSetFlag = packageManagerClass.getField("FLAG_PERMISSION_USER_SET")
+                .get(null) as? Number ?: return false
+            val userFixedFlag = packageManagerClass.getField("FLAG_PERMISSION_USER_FIXED")
+                .get(null) as? Number ?: return false
+            val userDecisionFlags = userSetFlag.toLong() or userFixedFlag.toLong()
+            flagsValue.toLong() and userDecisionFlags != 0L
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun requestPermission(result: MethodChannel.Result) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            result.success("authorized")
+            result.success(permissionRequestResult("authorized", false))
             return
         }
         if (permissionState() == "authorized") {
-            result.success("authorized")
+            result.success(permissionRequestResult("authorized", false))
             return
         }
         pendingPermissionResult = result
@@ -138,6 +171,14 @@ class PetNoteNotificationBridge(
             activity,
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             REQUEST_CODE_NOTIFICATIONS,
+        )
+    }
+
+
+    private fun permissionRequestResult(state: String, promptHandled: Boolean): Map<String, Any> {
+        return mapOf(
+            "state" to state,
+            "promptHandled" to promptHandled,
         )
     }
 

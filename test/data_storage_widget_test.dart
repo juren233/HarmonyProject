@@ -174,7 +174,7 @@ void main() {
 
   testWidgets('data storage actions keep unified button sizing',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final settingsController = await AppSettingsController.load();

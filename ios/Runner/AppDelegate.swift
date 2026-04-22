@@ -1372,6 +1372,8 @@ final class PetNoteNotificationPlugin: NSObject, FlutterPlugin, UNUserNotificati
       result(nil)
     case "getPermissionState":
       getPermissionState(result: result)
+    case "hasHandledPermissionPrompt":
+      getPermissionPromptHandled(result: result)
     case "requestPermission":
       requestPermission(result: result)
     case "scheduleLocalNotification":
@@ -1407,15 +1409,40 @@ final class PetNoteNotificationPlugin: NSObject, FlutterPlugin, UNUserNotificati
     }
   }
 
-  private func requestPermission(result: @escaping FlutterResult) {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+
+  private func getPermissionPromptHandled(result: @escaping FlutterResult) {
+    UNUserNotificationCenter.current().getNotificationSettings { settings in
       DispatchQueue.main.async {
-        if granted {
-          UIApplication.shared.registerForRemoteNotifications()
-        }
-        result(granted ? "authorized" : "denied")
+        result(settings.authorizationStatus != .notDetermined)
       }
     }
+  }
+
+  private func requestPermission(result: @escaping FlutterResult) {
+    let center = UNUserNotificationCenter.current()
+    center.getNotificationSettings { previousSettings in
+      center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+        center.getNotificationSettings { currentSettings in
+          DispatchQueue.main.async {
+            if granted {
+              UIApplication.shared.registerForRemoteNotifications()
+            }
+            let state = self.permissionLabel(from: currentSettings.authorizationStatus)
+            let promptHandled = previousSettings.authorizationStatus == .notDetermined &&
+              currentSettings.authorizationStatus != .notDetermined
+            result(self.permissionRequestResult(state: state, promptHandled: promptHandled))
+          }
+        }
+      }
+    }
+  }
+
+
+  private func permissionRequestResult(state: String, promptHandled: Bool) -> [String: Any] {
+    return [
+      "state": state,
+      "promptHandled": promptHandled,
+    ]
   }
 
   private func scheduleLocalNotification(arguments: [String: Any]?, result: @escaping FlutterResult) {

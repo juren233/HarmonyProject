@@ -1,14 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationCoordinator extends ChangeNotifier {
   static const String persistedJobsStorageKey = 'notification_jobs_snapshot_v1';
+  static const String permissionPromptHandledStorageKey =
+      'notification_permission_prompt_handled_v1';
+  static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
 
   NotificationCoordinator({
     required NotificationPlatformAdapter adapter,
@@ -29,20 +34,81 @@ class NotificationCoordinator extends ChangeNotifier {
       const NotificationPlatformCapabilities();
   String? _pushToken;
   bool _initialized = false;
+  late final PermissionRequestGate<NotificationPermissionState>
+      _permissionRequestGate =
+      PermissionRequestGate<NotificationPermissionState>(
+    promptHandledStorageKey: permissionPromptHandledStorageKey,
+    isGranted: _isGrantedPermissionState,
+    requestPermission: _requestPlatformPermission,
+    openPermissionSettings: () async {
+      await openNotificationSettings();
+    },
+  );
 
   NotificationPermissionState get permissionState => _permissionState;
   NotificationPlatformCapabilities get capabilities => _capabilities;
   String? get pushToken => _pushToken;
   bool get isInitialized => _initialized;
+  bool get hasHandledPermissionPrompt =>
+      _permissionRequestGate.hasHandledPermissionPrompt;
 
   Future<void> init() async {
     if (_initialized) {
       return;
     }
-    await _adapter.initialize();
+    try {
+      await _adapter.initialize();
+    } catch (error, stackTrace) {
+      appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '通知桥接初始化失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
+    await _permissionRequestGate.load();
     await _refreshPlatformState(notify: false, includeCapabilities: true);
-    _pushToken = await _adapter.registerPushToken();
-    final persistedSnapshots = await _loadPersistedSnapshots();
+    try {
+      _pushToken = await _adapter.registerPushToken();
+    } catch (error, stackTrace) {
+      appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '注册推送 Token 失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+      _pushToken = null;
+    }
+    var shouldDiscardPersistedSnapshots = false;
+    if (_capabilities.maxScheduledNotificationCount != null) {
+      try {
+        await _adapter.resetScheduledNotifications();
+        shouldDiscardPersistedSnapshots = true;
+      } catch (error, stackTrace) {
+        appLogController?.error(
+          category: AppLogCategory.notifications,
+          title: '重置系统通知失败',
+          message: error.toString(),
+          details: stackTrace.toString(),
+        );
+      }
+    }
+    List<_PersistedNotificationJobSnapshot> persistedSnapshots;
+    if (shouldDiscardPersistedSnapshots) {
+      persistedSnapshots = const <_PersistedNotificationJobSnapshot>[];
+    } else {
+      try {
+        persistedSnapshots = await _loadPersistedSnapshots();
+      } catch (error, stackTrace) {
+        appLogController?.error(
+          category: AppLogCategory.notifications,
+          title: '恢复通知快照失败',
+          message: error.toString(),
+          details: stackTrace.toString(),
+        );
+        persistedSnapshots = const <_PersistedNotificationJobSnapshot>[];
+      }
+    }
     _scheduledSnapshots
       ..clear()
       ..addEntries(
@@ -63,20 +129,29 @@ class NotificationCoordinator extends ChangeNotifier {
   }
 
   Future<NotificationPermissionState> requestPermission() async {
-    _permissionState = await _adapter.requestPermission();
+    final previousState = _permissionState;
+    final previousHandledPrompt = hasHandledPermissionPrompt;
+    _permissionState =
+        await _permissionRequestGate.requestOrOpenSettings(_permissionState);
     appLogController?.info(
       category: AppLogCategory.notifications,
       title: '通知权限更新',
       message: '通知权限请求结果：${_permissionState.name}',
+      details: hasHandledPermissionPrompt ? 'systemPromptHandled: true' : null,
     );
-    notifyListeners();
+    if (_permissionState != previousState ||
+        hasHandledPermissionPrompt != previousHandledPrompt) {
+      notifyListeners();
+    }
     return _permissionState;
   }
 
   Future<void> syncFromStore(PetNoteStore store) async {
-    final snapshots = _buildJobsFromStore(store);
+    final builtSnapshots = _buildJobsFromStore(store);
+    final snapshots = _limitJobsToPlatformCapacity(builtSnapshots);
     final nextKeys = snapshots.keys.toSet();
     final staleKeys = _scheduledSnapshots.keys.toSet().difference(nextKeys);
+    final skippedForCapacity = builtSnapshots.length - snapshots.length;
 
     for (final key in staleKeys) {
       await _adapter.cancelNotification(key);
@@ -84,7 +159,7 @@ class NotificationCoordinator extends ChangeNotifier {
     for (final entry in snapshots.entries) {
       final previous = _scheduledSnapshots[entry.key];
       final next = entry.value;
-      if (previous == next) {
+      if (previous == next && await _hasPlatformNotification(entry.key)) {
         continue;
       }
       if (previous != null) {
@@ -100,8 +175,23 @@ class NotificationCoordinator extends ChangeNotifier {
     appLogController?.info(
       category: AppLogCategory.notifications,
       title: '同步通知任务',
-      message: '已同步 ${snapshots.length} 条通知任务，取消 ${staleKeys.length} 条旧任务。',
+      message: '已同步 ${snapshots.length} 条通知任务，取消 ${staleKeys.length} 条旧任务。'
+          '${skippedForCapacity > 0 ? '因系统上限暂缓 $skippedForCapacity 条较远提醒。' : ''}',
     );
+  }
+
+  Future<bool> _hasPlatformNotification(String key) async {
+    try {
+      return await _adapter.hasScheduledNotification(key);
+    } catch (error, stackTrace) {
+      appLogController?.warning(
+        category: AppLogCategory.notifications,
+        title: '回查系统通知失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+      return false;
+    }
   }
 
   Future<NotificationLaunchIntent?> consumeLaunchIntent() {
@@ -134,9 +224,10 @@ class NotificationCoordinator extends ChangeNotifier {
     return _refreshPlatformState(notify: true, includeCapabilities: true);
   }
 
-  bool get hasGrantedPermission =>
-      _permissionState == NotificationPermissionState.authorized ||
-      _permissionState == NotificationPermissionState.provisional;
+  bool get hasGrantedPermission => _isGrantedPermissionState(_permissionState);
+
+  bool get shouldOpenSettingsForPermissionRequest => _permissionRequestGate
+      .shouldOpenSettingsForPermissionRequest(_permissionState);
 
   Map<String, _PersistedNotificationJobSnapshot> _buildJobsFromStore(
     PetNoteStore store,
@@ -211,6 +302,27 @@ class NotificationCoordinator extends ChangeNotifier {
     return jobs;
   }
 
+  Map<String, _PersistedNotificationJobSnapshot> _limitJobsToPlatformCapacity(
+    Map<String, _PersistedNotificationJobSnapshot> jobs,
+  ) {
+    final limit = _capabilities.maxScheduledNotificationCount;
+    if (limit == null || limit <= 0 || jobs.length <= limit) {
+      return jobs;
+    }
+    final entries = jobs.entries.toList()
+      ..sort((left, right) {
+        final scheduledCompare =
+            left.value.scheduledAt.compareTo(right.value.scheduledAt);
+        if (scheduledCompare != 0) {
+          return scheduledCompare;
+        }
+        return left.key.compareTo(right.key);
+      });
+    return Map<String, _PersistedNotificationJobSnapshot>.fromEntries(
+      entries.take(limit),
+    );
+  }
+
   DateTime? _notificationTriggerAt({
     required DateTime scheduledAt,
     required NotificationLeadTime leadTime,
@@ -236,11 +348,50 @@ class NotificationCoordinator extends ChangeNotifier {
     required bool notify,
     required bool includeCapabilities,
   }) async {
-    final nextPermissionState = await _adapter.getPermissionState();
-    final nextCapabilities =
-        includeCapabilities ? await _adapter.getCapabilities() : _capabilities;
+    var nextPermissionState = _permissionState;
+    var nextCapabilities = _capabilities;
+
+    try {
+      nextPermissionState = await _adapter.getPermissionState();
+    } catch (error, stackTrace) {
+      appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '读取通知权限失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
+
+    if (includeCapabilities) {
+      try {
+        nextCapabilities = await _adapter.getCapabilities();
+      } catch (error, stackTrace) {
+        appLogController?.error(
+          category: AppLogCategory.notifications,
+          title: '读取通知能力失败',
+          message: error.toString(),
+          details: stackTrace.toString(),
+        );
+      }
+    }
+
+    var promptHandledChanged = false;
+    try {
+      final platformHandledPrompt = await _adapter.hasHandledPermissionPrompt();
+      promptHandledChanged = await _permissionRequestGate
+          .rememberHandledPromptFromSystem(platformHandledPrompt);
+    } catch (error, stackTrace) {
+      appLogController?.error(
+        category: AppLogCategory.notifications,
+        title: '读取权限弹窗操作状态失败',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
+
     final changed = nextPermissionState != _permissionState ||
-        nextCapabilities != _capabilities;
+        nextCapabilities != _capabilities ||
+        promptHandledChanged;
     if (!changed) {
       return false;
     }
@@ -260,7 +411,10 @@ class NotificationCoordinator extends ChangeNotifier {
 
   Future<List<_PersistedNotificationJobSnapshot>>
       _loadPersistedSnapshots() async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _loadPreferences();
+    if (preferences == null) {
+      return const <_PersistedNotificationJobSnapshot>[];
+    }
     final raw = preferences.getString(persistedJobsStorageKey);
     if (raw == null || raw.isEmpty) {
       return const <_PersistedNotificationJobSnapshot>[];
@@ -283,12 +437,45 @@ class NotificationCoordinator extends ChangeNotifier {
   Future<void> _persistSnapshots(
     Iterable<_PersistedNotificationJobSnapshot> snapshots,
   ) async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _loadPreferences();
+    if (preferences == null) {
+      return;
+    }
     final payload = jsonEncode(
       snapshots.map((snapshot) => snapshot.toMap()).toList(growable: false),
     );
     await preferences.setString(persistedJobsStorageKey, payload);
   }
+
+  Future<SharedPreferences?> _loadPreferences() async {
+    try {
+      return await SharedPreferences.getInstance().timeout(_preferencesLoadTimeout);
+    } on TimeoutException catch (error) {
+      appLogController?.warning(
+        category: AppLogCategory.notifications,
+        title: '通知偏好读取超时',
+        message: error.toString(),
+      );
+    } catch (error, stackTrace) {
+      appLogController?.warning(
+        category: AppLogCategory.notifications,
+        title: '通知偏好不可用',
+        message: error.toString(),
+        details: stackTrace.toString(),
+      );
+    }
+    return null;
+  }
+
+  Future<PermissionRequestOutcome<NotificationPermissionState>>
+      _requestPlatformPermission() {
+    return _adapter.requestPermission();
+  }
+}
+
+bool _isGrantedPermissionState(NotificationPermissionState state) {
+  return state == NotificationPermissionState.authorized ||
+      state == NotificationPermissionState.provisional;
 }
 
 class _PersistedNotificationJobSnapshot {
@@ -314,6 +501,8 @@ class _PersistedNotificationJobSnapshot {
     return NotificationJob(
       payload: payload,
       scheduledAt: scheduledAt,
+      eventScheduledAt: sourceScheduledAt,
+      reminderLeadTimeMinutes: leadTimeDuration(leadTime).inMinutes,
       title: title,
       body: body,
     );

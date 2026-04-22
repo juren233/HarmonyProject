@@ -133,7 +133,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final aiEntry = find.byKey(const ValueKey('me_ai_config_entry'));
-    final notificationEntry = find.byKey(const ValueKey('me_notification_entry'));
+    final notificationEntry =
+        find.byKey(const ValueKey('me_notification_entry'));
     final dataBackupEntry = find.byKey(const ValueKey('me_data_backup_entry'));
 
     expect(aiEntry, findsOneWidget);
@@ -250,7 +251,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已授权，可展示系统通知与提醒。'), findsOneWidget);
     expect(find.text('已授权'), findsOneWidget);
     expect(find.byIcon(Icons.check_rounded), findsNothing);
 
@@ -309,7 +309,6 @@ void main() {
         findsOneWidget);
     expect(find.text('已临时授权'), findsOneWidget);
     expect(find.text('当前可静默展示通知。'), findsNothing);
-    expect(find.text('已临时授权，可静默展示通知。'), findsOneWidget);
   });
 
   testWidgets('notification section wraps notification actions on narrow width',
@@ -458,6 +457,51 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('me_notification_permission_badge')),
         findsNothing);
+  });
+
+  testWidgets(
+      'notification section switches request button copy to open settings',
+      (tester) async {
+    final settingsController = await AppSettingsController.load();
+    final coordinator = _testCoordinator(settingsController);
+    final dataStorageCoordinator = DataStorageCoordinator(
+      store: PetNoteStore.seeded(),
+      settingsController: settingsController,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: MePage(
+            themePreference: settingsController.themePreference,
+            onThemePreferenceChanged: (_) {},
+            notificationPermissionState: NotificationPermissionState.denied,
+            notificationPushToken: null,
+            onRequestNotificationPermission: () async {},
+            onOpenNotificationSettings: () async {},
+            onOpenExactAlarmSettings: null,
+            shouldOpenNotificationSettingsForRequest: true,
+            settingsController: settingsController,
+            aiSettingsCoordinator: coordinator,
+            dataStorageCoordinator: dataStorageCoordinator,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('notification_settings_section')),
+      160,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextButton, '前往系统设置'), findsNothing);
+    expect(find.text('前往系统设置'), findsOneWidget);
   });
 
   testWidgets('can add an AI provider config from the editor flow',
@@ -1151,7 +1195,8 @@ void main() {
     expect(find.text('Cloudflare Account ID'), findsOneWidget);
   });
 
-  testWidgets('cloudflare workers ai editor shows account id label when selected',
+  testWidgets(
+      'cloudflare workers ai editor shows account id label when selected',
       (tester) async {
     final settingsController = await AppSettingsController.load();
 

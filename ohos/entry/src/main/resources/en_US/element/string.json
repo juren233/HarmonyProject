@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "PetNote"
+    },
+    {
+      "name": "calendar_permission_reason",
+      "value": "Used to create and manage pet reminder calendar events"
     }
   ]
 }

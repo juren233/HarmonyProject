@@ -365,6 +365,15 @@ function clearStaleFlutterOhosArkTsCache(flutterProjectPath: string, expectedSto
   }
 
   console.warn(`Detected stale flutter_ohos ArkTS cache. Clear incremental build outputs before rebuild.`)
+  clearFlutterOhosArkTsBuildOutputs(flutterProjectPath)
+}
+
+function clearFlutterOhosArkTsBuildOutputs(flutterProjectPath: string) {
+  const entryBuildPath = path.join(getOhosRoot(flutterProjectPath), 'entry', 'build')
+  if (!fs.existsSync(entryBuildPath)) {
+    return
+  }
+
   const staleBuildPaths = [
     path.join(entryBuildPath, 'default', 'cache'),
     path.join(entryBuildPath, 'default', 'intermediates', 'loader'),
@@ -374,6 +383,121 @@ function clearStaleFlutterOhosArkTsCache(flutterProjectPath: string, expectedSto
     path.join(entryBuildPath, 'default', 'outputs'),
   ]
   staleBuildPaths.forEach(removePathIfExists)
+}
+
+function patchFlutterOhosFlutterViewAvoidAreaHandling(
+  flutterProjectPath: string,
+  flutterOhosStorePath: string | null,
+): boolean {
+  if (!flutterOhosStorePath) {
+    return false
+  }
+
+  const flutterViewPath = path.join(
+    getOhosRoot(flutterProjectPath),
+    flutterOhosStorePath,
+    'oh_modules',
+    '@ohos',
+    'flutter_ohos',
+    'src',
+    'main',
+    'ets',
+    'view',
+    'FlutterView.ets',
+  )
+  if (!fs.existsSync(flutterViewPath)) {
+    return false
+  }
+
+  const originalContent = fs.readFileSync(flutterViewPath, 'utf-8')
+  const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n'
+  let content = originalContent.replace(/\r\n/g, '\n')
+
+  content = content.replace('  private keyboardHeight: number = 0;\n', '')
+  content = content.replace('    this.keyboardHeight = this.keyboardAvoidArea?.bottomRect.height ?? 0;\n', '')
+
+  if (!content.includes('  private cloneAvoidArea(avoidArea?: window.AvoidArea): window.AvoidArea {')) {
+    content = content.replace(
+      "  setTouchSlopCallbackValue(callback: callbackNumber) {\n    this.callbackValue = callback;\n  }\n\n",
+      "  setTouchSlopCallbackValue(callback: callbackNumber) {\n    this.callbackValue = callback;\n  }\n\n  private cloneRect(rect?: window.Rect): window.Rect {\n    return {\n      left: rect?.left ?? 0,\n      top: rect?.top ?? 0,\n      width: rect?.width ?? 0,\n      height: rect?.height ?? 0,\n    }\n  }\n\n  private cloneAvoidArea(avoidArea?: window.AvoidArea): window.AvoidArea {\n    return {\n      visible: avoidArea?.visible ?? false,\n      leftRect: this.cloneRect(avoidArea?.leftRect),\n      topRect: this.cloneRect(avoidArea?.topRect),\n      rightRect: this.cloneRect(avoidArea?.rightRect),\n      bottomRect: this.cloneRect(avoidArea?.bottomRect),\n    }\n  }\n\n",
+    )
+  }
+
+  content = content.replace(
+    '    this.systemAvoidArea = this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);\n',
+    '    this.systemAvoidArea = this.cloneAvoidArea(this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM));\n',
+  )
+  content = content.replace(
+    '    this.navigationAvoidArea = this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);\n',
+    '    this.navigationAvoidArea = this.cloneAvoidArea(this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR));\n',
+  )
+  content = content.replace(
+    '    this.gestureAvoidArea = this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM_GESTURE);\n',
+    '    this.gestureAvoidArea = this.cloneAvoidArea(this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM_GESTURE));\n',
+  )
+  content = content.replace(
+    '    this.keyboardAvoidArea = this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);\n',
+    '    this.keyboardAvoidArea = this.cloneAvoidArea(this.mainWindow?.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD));\n',
+  )
+
+  content = content.replace(
+    "      case window.AvoidAreaType.TYPE_SYSTEM:\n        this.systemAvoidArea = data.area;\n        break;\n",
+    "      case window.AvoidAreaType.TYPE_SYSTEM:\n        this.systemAvoidArea = this.cloneAvoidArea(data.area);\n        break;\n",
+  )
+  content = content.replace(
+    "      case window.AvoidAreaType.TYPE_SYSTEM_GESTURE:\n        this.gestureAvoidArea = data.area;\n        break;\n",
+    "      case window.AvoidAreaType.TYPE_SYSTEM_GESTURE:\n        this.gestureAvoidArea = this.cloneAvoidArea(data.area);\n        break;\n",
+  )
+  content = content.replace(
+    "      case window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR:\n        this.navigationAvoidArea = data.area;\n        break;\n",
+    "      case window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR:\n        this.navigationAvoidArea = this.cloneAvoidArea(data.area);\n        break;\n",
+  )
+
+  content = content.replace(
+    "      case window.AvoidAreaType.TYPE_KEYBOARD:\n        if (this.getKeyboardHeight() > 0) {\n          this.keyboardAvoidArea = data.area;\n        } else {\n          this.keyboardAvoidArea.bottomRect = { left: 0, top: 0, width: 0, height: 0 };\n        }\n        break;\n",
+    "      case window.AvoidAreaType.TYPE_KEYBOARD:\n        if (this.getKeyboardHeight() > 0) {\n          this.keyboardAvoidArea = this.cloneAvoidArea(data.area);\n        } else {\n          this.keyboardAvoidArea.bottomRect = { left: 0, top: 0, width: 0, height: 0 };\n        }\n        break;\n",
+  )
+  content = content.replace(
+    "      case window.AvoidAreaType.TYPE_KEYBOARD:\n        this.keyboardAvoidArea = data.area;\n        this.keyboardHeight = data.area?.bottomRect?.height ?? 0;\n        break;\n",
+    "      case window.AvoidAreaType.TYPE_KEYBOARD:\n        if (this.getKeyboardHeight() > 0) {\n          this.keyboardAvoidArea = this.cloneAvoidArea(data.area);\n        } else {\n          this.keyboardAvoidArea.bottomRect = { left: 0, top: 0, width: 0, height: 0 };\n        }\n        break;\n",
+  )
+
+  content = content.replace(
+    "  private keyboardHeightChangeCallback = (data: number) => {\n    Log.i(TAG, \"keyboardHeightChangeCallback \" + data);\n    this.keyboardHeight = data;\n    this.onAreaChange(null);\n  };\n",
+    "  private keyboardHeightChangeCallback = (data: number) => {\n    Log.i(TAG, \"keyboardHeightChangeCallback \" + data);\n    if (this.keyboardAvoidArea) {\n      this.keyboardAvoidArea.bottomRect.height = data;\n    }\n    this.onAreaChange(null);\n  };\n",
+  )
+
+  content = content.replace(
+    "  getKeyboardHeight() {\n    return this.keyboardHeight\n  }\n",
+    "  getKeyboardHeight() {\n    return this.keyboardAvoidArea?.bottomRect.height\n  }\n",
+  )
+
+  content = content.replace(
+    "  private onKeyboardAreaChange(fullScreen: boolean = false) {\n    if (this.checkKeyboard && fullScreen && this.keyboardHeight > 0) {\n      this.viewportMetrics.physicalViewInsetTop =\n        this.keyboardAvoidArea?.topRect.height ?? 0\n      this.viewportMetrics.physicalViewInsetLeft =\n        this.keyboardAvoidArea?.leftRect.width ?? 0\n      this.viewportMetrics.physicalViewInsetBottom = this.keyboardHeight\n      this.viewportMetrics.physicalViewInsetRight =\n        this.keyboardAvoidArea?.rightRect.width ?? 0\n    } else {\n",
+    "  private onKeyboardAreaChange(fullScreen: boolean = false) {\n    if (this.checkKeyboard && fullScreen) {\n      this.viewportMetrics.physicalViewInsetTop =\n        this.keyboardAvoidArea?.topRect.height ?? this.viewportMetrics.physicalViewInsetTop\n      this.viewportMetrics.physicalViewInsetLeft =\n        this.keyboardAvoidArea?.leftRect.width ?? this.viewportMetrics.physicalViewInsetLeft\n      this.viewportMetrics.physicalViewInsetBottom =\n        this.keyboardAvoidArea?.bottomRect.height ?? this.viewportMetrics.physicalViewInsetBottom\n      this.viewportMetrics.physicalViewInsetRight =\n        this.keyboardAvoidArea?.rightRect.width ?? this.viewportMetrics.physicalViewInsetRight\n    } else {\n",
+  )
+
+  if (
+    !content.includes('  private cloneAvoidArea(avoidArea?: window.AvoidArea): window.AvoidArea {') ||
+    !content.includes('this.keyboardAvoidArea = this.cloneAvoidArea') ||
+    !content.includes('this.keyboardAvoidArea.bottomRect.height = data;') ||
+    !content.includes('return this.keyboardAvoidArea?.bottomRect.height') ||
+    content.includes('private keyboardHeight: number = 0;') ||
+    content.includes('this.viewportMetrics.physicalViewInsetBottom = this.keyboardHeight') ||
+    content.includes('this.keyboardHeight = this.keyboardAvoidArea?.bottomRect.height ?? 0;') ||
+    content.includes('this.keyboardHeight = data;')
+  ) {
+    console.warn(`Skip incomplete flutter_ohos FlutterView avoid-area patch: ${flutterViewPath}`)
+    return false
+  }
+
+  if (content === originalContent.replace(/\r\n/g, '\n')) {
+    return false
+  }
+
+  fs.writeFileSync(flutterViewPath, content.replace(/\n/g, lineEnding), 'utf-8')
+  console.info(`Patched flutter_ohos FlutterView avoid-area handling: ${flutterViewPath}`)
+  return true
 }
 
 function getRepoOwnedHvigorPluginPath(flutterProjectPath: string): string {
@@ -452,9 +576,11 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
     pluginId: 'flutter-hvigor-plugin',
     apply(rootNode: HvigorNode) {
       const appContext = rootNode.getContext(OhosPluginId.OHOS_APP_PLUGIN) as OhosAppContext
-      const flutterPluginsDependenciesPath = getFlutterPluginsDependenciesPath(flutterProjectPath)
-      const nativePlugins = findFlutterPlugins(flutterPluginsDependenciesPath)
       const ohosDir = flutterProjectType === 1 ? '.ohos' : 'ohos'
+      const flutterOhosStorePath = getFlutterOhosStorePath(flutterProjectPath)
+      if (patchFlutterOhosFlutterViewAvoidAreaHandling(flutterProjectPath, flutterOhosStorePath)) {
+        clearFlutterOhosArkTsBuildOutputs(flutterProjectPath)
+      }
       const properties = loadProperties(path.join(flutterProjectPath, ohosDir, 'local.properties'))
       const flutterVersionInfo = getFlutterProjectVersionInfo(flutterProjectPath)
       const sdkPath = properties['flutter.sdk']
@@ -475,6 +601,7 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
         // build-profile.json5
         const overrides = appContext.getOverrides() ?? {}
         setFlutterHarInOverrides(overrides, targetPlatforms!, sdkPath, buildMode)
+        const nativePlugins = getNativePlugins(flutterProjectPath)
         nativePlugins.forEach(nativePlugin => {
           overrides[nativePlugin.name] =
             `file:${path.join(nativePlugin.path, 'ohos')}`
@@ -505,6 +632,7 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
             }
             const dependenciesOpt = hapContext.getDependenciesOpt()
             setFlutterHarInDependencies(dependenciesOpt, targetPlatforms)
+            const nativePlugins = getNativePlugins(flutterProjectPath)
             nativePlugins.forEach(nativePlugin => {
               dependenciesOpt[nativePlugin.name] = ''
             })
@@ -521,12 +649,13 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
             })
             const dependenciesOpt = harContext.getDependenciesOpt()
             setFlutterHarInDependencies(dependenciesOpt, targetPlatforms)
+            const nativePlugins = getNativePlugins(flutterProjectPath)
             nativePlugins.forEach(nativePlugin => {
               dependenciesOpt[nativePlugin.name] = ''
             })
             harContext.setDependenciesOpt(dependenciesOpt)
           })
-        } else if (nativePlugins.map(it => it.name).includes(subNodeName)) {
+        } else if (getNativePlugins(flutterProjectPath).map(it => it.name).includes(subNodeName)) {
           // 浠呭綋flutter plugin鐨刪vigorfile.ts鏄互涓嬪舰寮忥細
           // export default {
           //   system: harTasks,
@@ -593,8 +722,7 @@ export function injectNativeModules(nativeProjectPath: string, flutterProjectPat
       srcPath
     )
   }
-  const flutterPluginsDependenciesPath = getFlutterPluginsDependenciesPath(flutterProjectPath)
-  findFlutterPlugins(flutterPluginsDependenciesPath).forEach(nativePlugin => {
+  getNativePlugins(flutterProjectPath).forEach(nativePlugin => {
     const srcPath = relativePath(nativeProjectPath, path.join(nativePlugin.path, 'ohos'))
     hvigorConfig.includeNode(
       nativePlugin.name,
@@ -678,6 +806,9 @@ function registerFlutterTask(node: HvigorNode, sdkPath: string, buildMode: strin
         sdkPath,
       )
       const flutterOhosStorePath = getFlutterOhosStorePath(flutterProjectPath)
+      if (patchFlutterOhosFlutterViewAvoidAreaHandling(flutterProjectPath, flutterOhosStorePath)) {
+        clearFlutterOhosArkTsBuildOutputs(flutterProjectPath)
+      }
       clearStaleFlutterOhosArkTsCache(flutterProjectPath, flutterOhosStorePath)
       try {
         let targetNames: string[]
@@ -868,4 +999,8 @@ function findFlutterPlugins(flutterPluginsDependenciesPath: string): JSON[] {
     ? pluginsByPlatform.ohos
     : []
   return ohosPlugins.filter(plugin => plugin.native_build !== false)
+}
+
+function getNativePlugins(flutterProjectPath: string): JSON[] {
+  return findFlutterPlugins(getFlutterPluginsDependenciesPath(flutterProjectPath))
 }

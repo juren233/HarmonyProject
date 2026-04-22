@@ -1853,7 +1853,18 @@ class PetNoteStore extends ChangeNotifier {
     await _saveState();
     final handler = _notificationSyncHandler;
     if (handler != null) {
-      await handler();
+      unawaited(
+        Future<void>.sync(handler).catchError((Object error, StackTrace stackTrace) {
+          FlutterError.reportError(
+            FlutterErrorDetails(
+              exception: error,
+              stack: stackTrace,
+              library: 'petnote_store',
+              context: ErrorDescription('在后台同步通知任务时发生异常'),
+            ),
+          );
+        }),
+      );
     }
   }
 

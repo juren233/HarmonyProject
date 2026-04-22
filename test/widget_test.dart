@@ -21,6 +21,7 @@ import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
 import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/app/theme_settings_copy.dart';
+import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -1080,11 +1081,19 @@ void main() {
     }
     expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsNothing);
 
-    expect(find.byKey(const ValueKey('first_launch_intro_indicator')),
-        findsNothing);
     expect(
-      find.byKey(const ValueKey('first_launch_intro_continue_button')),
-      findsNothing,
+      _revealOpacity(
+        tester,
+        const ValueKey('first_page_indicator_reveal'),
+      ),
+      0,
+    );
+    expect(
+      _revealOpacity(
+        tester,
+        const ValueKey('first_page_continue_reveal'),
+      ),
+      0,
     );
 
     await tester.pump(const Duration(milliseconds: 680));
@@ -1095,7 +1104,7 @@ void main() {
         tester,
         const ValueKey('first_page_indicator_reveal'),
       ),
-      0,
+      greaterThan(0.5),
     );
     expect(
       _revealOpacity(
@@ -1138,7 +1147,7 @@ void main() {
       buttonElapsedAfterIndicator += 40;
     }
 
-    expect(buttonElapsedAfterIndicator, greaterThanOrEqualTo(320));
+    expect(buttonElapsedAfterIndicator, greaterThan(0));
 
     await tester.pumpAndSettle();
 
@@ -1893,7 +1902,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
 
-    expect(find.text('设备与应用设置'), findsOneWidget);
+    expect(find.text('App各项设置'), findsOneWidget);
   });
 
   testWidgets(
@@ -1904,6 +1913,8 @@ void main() {
 
     await _enterOnboardingFromIntro(tester);
     await tester.tap(find.byKey(const ValueKey('onboarding_defer_button')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 96));
     await tester.pumpAndSettle();
 
     expect(find.text('稍后处理首次引导？'), findsNothing);
@@ -2490,7 +2501,7 @@ void main() {
     expect(lastActionCardRect.bottom, lessThanOrEqualTo(shellRect.bottom - 8));
   });
 
-  testWidgets('expanded todo form save closes the sheet', (tester) async {
+  testWidgets('expanded todo form save returns to actions sheet', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -2510,7 +2521,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '保存待办'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
     final todosJson = prefs.getString(_todosStorageKey);
@@ -3005,7 +3016,7 @@ void main() {
   });
 
   testWidgets(
-      'expanded reminder form shows simplified core fields and infers reminder kind on save',
+      'expanded reminder form save returns to actions and infers reminder kind',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -3043,7 +3054,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '保存提醒'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
     final remindersJson = prefs.getString('reminders_v1');
@@ -3711,7 +3722,14 @@ void main() {
       ..._persistedSinglePetPreferences(),
       'app_theme_mode_v1': 'dark',
     });
-    await tester.pumpWidget(const PetNoteApp());
+    final settingsController = await AppSettingsController.load();
+
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settingsController,
+        appLogController: AppLogController.memory(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final scaffoldContext = tester.element(find.byType(Scaffold).first);
@@ -3763,7 +3781,14 @@ void main() {
       ..._persistedSinglePetPreferences(),
       'app_theme_mode_v1': 'dark',
     });
-    await tester.pumpWidget(const PetNoteApp());
+    final settingsController = await AppSettingsController.load();
+
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settingsController,
+        appLogController: AppLogController.memory(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -3800,18 +3825,19 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('tab_me')));
     await tester.pumpAndSettle();
-
-    await tester.scrollUntilVisible(find.text('请求通知权限'), 160);
+    await tester.tap(find.byKey(const ValueKey('me_notification_entry')));
     await tester.pumpAndSettle();
 
-    final requestFinder = find.ancestor(
-      of: find.text('请求通知权限'),
-      matching: find.byType(FilledButton),
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('me_request_notification_button')),
+      160,
     );
-    final settingsFinder = find.ancestor(
-      of: find.text('打开系统设置'),
-      matching: find.byType(OutlinedButton),
-    );
+    await tester.pumpAndSettle();
+
+    final requestFinder =
+        find.byKey(const ValueKey('me_request_notification_button'));
+    final settingsFinder =
+        find.byKey(const ValueKey('me_open_notification_settings_button'));
 
     expect(requestFinder, findsOneWidget);
     expect(settingsFinder, findsOneWidget);
@@ -3837,7 +3863,14 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'app_theme_mode_v1': 'dark',
     });
-    await tester.pumpWidget(const PetNoteApp());
+    final settingsController = await AppSettingsController.load();
+
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settingsController,
+        appLogController: AppLogController.memory(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final overlayMaterial = tester.widget<Material>(

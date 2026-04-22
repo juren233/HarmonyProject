@@ -72,8 +72,10 @@ void main() {
     expect(widgetsSource, contains('class StatusListRow'));
     expect(pagesSource, contains('PageEmptyStateBlock('));
     expect(overviewPageSource, contains('PageEmptyStateBlock('));
-    expect(petsPageSource, contains('InlineLoadingMessage('));
-    expect(petsPageSource, contains('StatusListRow('));
+    expect(File('lib/app/petnote_pages_pets_details.dart').readAsStringSync(),
+        contains('PageEmptyStateBlock('));
+    expect(File('lib/app/petnote_pages_pets_details.dart').readAsStringSync(),
+        contains('StatusListRow('));
     expect(File('lib/app/petnote_pages_ai.dart').readAsStringSync(),
         contains('TitledBulletGroup('));
   });
