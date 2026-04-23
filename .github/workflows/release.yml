@@ -521,9 +521,6 @@ jobs:
 
           lines.extend([
             "",
-            "## 版本元数据",
-            "",
-            f"- 构建号：{os.environ['VERSION_BUILD']}",
             "<!-- build-number: " + os.environ["VERSION_BUILD"] + " -->",
           ])
 

@@ -525,6 +525,13 @@ open -a "DevEco Studio" .
 
 Harmony / ArkTS 运行时问题警醒：
 
+- 任何共享 Dart 层代码只要会被 Android / iOS 官方 Flutter 编译解析，就不能直接静态引用 OHOS Flutter 独有符号，例如 `TargetPlatform.ohos`、`OhosView`、`PlatformViewsService.initOhosView`、`OhosViewController`、`OhosViewSurface` 等。即使运行时只在 Harmony 分支进入，官方 Flutter 的编译期仍会解析同一个 Dart 文件并直接报未定义。
+- Harmony 专属原生视图如果必须从共享层承载，优先使用官方 Flutter 与 OHOS Flutter 都存在的公共抽象，例如 `PlatformViewLink`、`PlatformViewController`、`SystemChannels.platform_views`、`Texture`，或者拆到明确只由 OHOS Flutter 状态解析的隔离入口。不要把“运行时平台判断”当成“编译期符号隔离”。
+- 判断 Harmony 平台时，不要在共享代码里写 `TargetPlatform.ohos`，因为官方 Flutter 的 `TargetPlatform` 没有这个枚举值。需要判断当前目标平台时，可在确认两套 SDK 都能解析的前提下使用 `platform.name == 'ohos'` 这类字符串判断，并同时保留测试环境兜底。
+- Dart 条件导入只支持 SDK 已定义的条件键，不要幻想用 `--dart-define` 自造 `if (petnote.hasOhosView)` 之类条件来隔离 OHOS 专属 API；这类写法不能阻止官方 Flutter 编译期解析错误。
+- 处理 Harmony 专属平台视图时，先同时对照官方 Flutter SDK 和项目内 OHOS Flutter SDK 的源码，不要只照着 OHOS SDK 抄类型。像 `PlatformViewHitTestBehavior` 这类类型虽然存在于 Flutter 内部源码，但当前官方 Flutter 可能没有从本项目可用入口导出，直接写进共享层会导致 Android release 在 `kernel_snapshot` 阶段失败。
+- 修改 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接这类跨 SDK 共享入口后，最低验证必须同时跑 Android 官方 Flutter 构建和 Harmony 构建。只验证 Harmony 端显示正常不算闭环，因为同一个共享 Dart 文件可能已经把 Android / iOS 编译打爆；只验证 Android 也不算闭环，因为低层平台视图协议可能让 Harmony 端再次不显示。
+- 跑 Android / Harmony 构建后，必须检查 [pubspec.lock](./pubspec.lock) 是否被工具链改成 `https://pub.dev`，这属于本地依赖源噪音，应恢复为 README 约定的 `https://pub.flutter-io.cn`，不要把构建副作用混进修复提交。
 - 如果安装后启动闪退，且栈落在 `ohos/oh_modules` 下的 `@ohos/flutter_ohos/src/main/ets/view/FlutterView.ets`，不要先把问题归因到新业务插件或用户环境。先按栈行号读取实际生成文件上下文，再回查负责改写该文件的仓库自管逻辑，通常应优先检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)。
 - `ohos/oh_modules` 和 `ohos/entry/build` 都是本地生成物，不要直接把修复写进生成物后结束。正确做法是修改仓库内自管补丁或源码入口，重新跑 Harmony 构建，再反查生成物确认补丁确实进入实际打包链路。
 - ArkTS / Harmony 原生对象不能按普通 TypeScript 动态对象随意整体替换。处理 `window.AvoidArea`、`window.Rect` 等系统对象时，先显式克隆成稳定结构；如果只是清零 `bottomRect`，优先逐字段更新 `left`、`top`、`width`、`height`，不要把 `bottomRect` 整体赋成对象字面量，否则可能触发 `Obj is not a Valid object` 一类运行时崩溃。
@@ -566,8 +573,10 @@ Harmony / ArkTS 运行时问题警醒：
 
 - 如果 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 在主仓库里显示为 `dirty`，先清掉子模块内部的本地改动再提主仓库。
 - 根目录 [pubspec.lock](./pubspec.lock) 提交前应保持“官方 Flutter 默认状态”。
+- 跑 Android / Harmony 脚本后，如果 [pubspec.lock](./pubspec.lock) 只出现 `https://pub.flutter-io.cn` 与 `https://pub.dev` 的来回变化，默认视为依赖源环境噪音，不要和业务修复一起提交。
 - 如果需要改 DevEco 直跑逻辑，请优先改 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)，不要去改子模块里的 upstream hvigor 插件源码。
 - 如果 Harmony 运行时错误栈落在 `@ohos/flutter_ohos/.../FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等 SDK / 桥接层，不要先入为主地怀疑业务插件本身；先检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin) 对 upstream FlutterView 的补丁是否仍然成立，再决定是否要改业务代码。
+- 如果共享 Dart 层为了 Harmony 特性引用了平台视图或平台判断相关 API，先确认这些符号在官方 Flutter 和 OHOS Flutter 下都能解析。不能把 `OhosView`、`TargetPlatform.ohos` 或只在某一套 SDK 暴露的类型直接留在共享入口里；官方 Flutter 不会因为运行时分支不进入就跳过编译期解析。
 - ArkTS 不是完整 TypeScript。写 Harmony 原生插件时，不要使用 `in`、`for..in`、依赖动态对象结构的写法，也不要假设 TS 风格对象探测在 ArkTS 下仍然可用；优先用显式类型、`typeof`、`instanceof` 和固定字段结构。
 - Harmony / ArkUI / 系统 API 返回的对象，尤其是 `window.AvoidArea`、`window.Rect` 这类原生对象，不要把嵌套字段整体替换成对象字面量；要么先克隆成普通对象再使用，要么只更新标量字段。把原生对象的子对象整体改写成字面量，可能在运行时触发 `Obj is not a Valid object` 这类崩溃。
 - 新增 Harmony 原生插件实现文件前，先检查它是否会被仓库忽略规则拦住。当前 `ohos/entry/src/main/ets/plugins/*` 可能出现“本地文件存在、构建能过、但 Git 默认不跟踪”的情况；新增插件时必须同时确认 [ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets](./ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets) 和对应实现文件都已经进入版本控制。

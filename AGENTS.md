@@ -134,6 +134,10 @@
 - 任何同时包含“本地立即可得信息”和“远端异步检查”的场景，必须优先保证本地信息首帧直接显示；远端检查只能作为异步补充，不得阻塞、覆盖或串联本地信息的即时展示。
 - 任何版本信息相关改动，必须先分别确认 `version`、`buildNumber`、内部比较口径与用户可见展示口径的职责边界，禁止把内部判断字段直接当成用户展示字段使用。
 - 任何一次改动只要同时触及数据来源、比较逻辑、展示文案三层，就必须先逐项写清楚“哪一层允许变、哪一层禁止变、哪一层需要确认后才能变”，确认边界后再动手修改代码。
+- 任何共享 Dart 层代码只要会被 Android / iOS 官方 Flutter 编译解析，就不能直接静态引用 OHOS Flutter 独有符号，例如 `TargetPlatform.ohos`、`OhosView`、`PlatformViewsService.initOhosView`、`OhosViewController`、`OhosViewSurface` 等。运行时平台判断不能隔离编译期符号解析；如果必须承载 Harmony 专属原生视图，应使用两套 SDK 都存在的公共抽象，或拆到明确只由 OHOS Flutter 状态解析的隔离入口。
+- 任何 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接相关改动，都必须同时验证官方 Flutter 和 OHOS Flutter 两条链路。Harmony 显示正常但 Android / iOS 编译失败，或者 Android 构建通过但 Harmony 原生视图不显示，都是未闭环；最低验证为 README 约定的 Android 构建脚本和 Harmony 构建脚本各跑一次。
+- 不要在共享 Dart 代码中用 `TargetPlatform.ohos` 判断 Harmony，因为官方 Flutter 没有该枚举值；不要用自造 Dart 条件导入如 `if (petnote.hasOhosView)` 试图隔离 OHOS API，因为 `--dart-define` 不会创建条件导入键。需要平台判断时，必须先确认写法能被官方 Flutter 与 OHOS Flutter 同时解析。
+- 任何跨 SDK 构建验证后，都要检查并清理 [pubspec.lock](./pubspec.lock) 的依赖源噪音。官方 Flutter 或 OHOS Flutter 构建可能把 `https://pub.flutter-io.cn` 改成 `https://pub.dev`，这不属于业务修复，不得混进提交。
 - 任何 Harmony / ArkTS 原生插件改动，必须先按 ArkTS 而不是 TypeScript 判断语法和类型可行性。禁止使用 `in`、`for..in`、动态对象布局、运行时追加字段、隐式 `any` 思路或未验证的对象探测写法；跨 MethodChannel 返回复杂结构时，必须使用明确字段结构，并用 Harmony 构建验证。
 - 任何安装后启动闪退且栈落在 `@ohos/flutter_ohos`、`FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等桥接层的位置时，禁止直接归因到新业务插件或用户环境。必须先读取生成物中的实际栈行号上下文，再回查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)、[ohos/hvigorfile.ts](./ohos/hvigorfile.ts)、[ohos/hvigorconfig.ts](./ohos/hvigorconfig.ts) 等仓库自管补丁链路。
 - 任何涉及 Harmony / ArkUI 系统对象的改动，都必须区分“普通 ArkTS 对象”和“系统原生对象”。对 `window.AvoidArea`、`window.Rect` 等对象，不得随意把嵌套字段整体替换成对象字面量；需要清零或调整时优先逐字段更新标量值，或先克隆成稳定普通结构后再使用，避免触发 `Obj is not a Valid object` 一类运行时崩溃。
