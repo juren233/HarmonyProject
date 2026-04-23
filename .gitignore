@@ -33,6 +33,7 @@ ohos/oh_modules/
 ohos/entry/oh_modules/
 ohos/entry/src/main/ets/plugins/*
 !ohos/entry/src/main/ets/plugins/PackageInfoPlusPlugin.ets
+!ohos/entry/src/main/ets/plugins/PetNoteHarmonyNativeDockPlugin.ets
 !ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets
 !ohos/entry/src/main/ets/plugins/PetNoteNotificationPlugin.ets
 !ohos/entry/src/main/ets/plugins/SharedPreferencesPlugin.ets
@@ -74,3 +75,5 @@ debug_intro_output.txt
 
 # Local legacy backup project
 .legacy_arkui_disabled/
+
+PPT/

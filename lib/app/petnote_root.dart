@@ -12,6 +12,7 @@ import 'package:petnote/app/ai_settings_page.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/app_version_info.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/harmony_native_dock.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/me_page.dart';
@@ -283,6 +284,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
         !useNativeAndroidDock || _hasCompletedIntroBottomNavPrewarm;
     final useNativeIosDock =
         showBottomNavigation && supportsIosNativeDock(platform);
+    final useNativeHarmonyDock =
+        showBottomNavigation && supportsHarmonyNativeDock(platform);
     final dockNavigation = !showBottomNavigation
         ? null
         : useNativeAndroidDock
@@ -293,10 +296,12 @@ class _PetNoteRootState extends State<PetNoteRoot>
               )
             : useNativeIosDock
                 ? _buildIosNativeDock(context, store)
-                : _PetNoteBottomNav(
-                    store: store,
-                    onAdd: () => _openAddSheet(context, store),
-                  );
+                : useNativeHarmonyDock
+                    ? _buildHarmonyNativeDock(context, store)
+                    : _PetNoteBottomNav(
+                        store: store,
+                        onAdd: () => _openAddSheet(context, store),
+                      );
     final bottomNavigation = dockNavigation == null
         ? null
         : _ShellBottomChrome(
@@ -385,6 +390,19 @@ class _PetNoteRootState extends State<PetNoteRoot>
           onAddTap: () => _openAddSheet(context, store),
           onFirstInteractionPrewarmed: _handleIntroBottomNavPrewarmCompleted,
           shouldPrewarmFirstInteraction: shouldPrewarmBottomNavDuringIntro,
+        );
+      },
+    );
+  }
+
+  Widget _buildHarmonyNativeDock(BuildContext context, PetNoteStore store) {
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        return HarmonyNativeDockHost(
+          selectedTab: store.activeTab,
+          onTabSelected: store.setActiveTab,
+          onAddTap: () => _openAddSheet(context, store),
         );
       },
     );
