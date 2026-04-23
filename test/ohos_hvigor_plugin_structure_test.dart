@@ -231,4 +231,52 @@ void main() {
     expect(readme.contains('pubspec.yaml'), isTrue);
     expect(readme.contains('ohos/local.properties'), isTrue);
   });
+
+  test('OHOS registers repo-owned shared preferences plugin for persistence',
+      () {
+    final registrant = File(
+      'ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets',
+    ).readAsStringSync();
+    final plugin = File(
+      'ohos/entry/src/main/ets/plugins/SharedPreferencesPlugin.ets',
+    ).readAsStringSync();
+    final gitignore = File('.gitignore').readAsStringSync();
+
+    expect(
+      registrant.contains(
+          "import SharedPreferencesPlugin from './SharedPreferencesPlugin';"),
+      isTrue,
+    );
+    expect(
+      registrant.contains(
+          'flutterEngine.getPlugins()?.add(new SharedPreferencesPlugin());'),
+      isTrue,
+    );
+    expect(
+        plugin.contains(
+            "const CHANNEL_NAME = 'plugins.flutter.io/shared_preferences';"),
+        isTrue);
+    expect(
+        plugin
+            .contains("import dataPreferences from '@ohos.data.preferences';"),
+        isTrue);
+    expect(plugin.contains("case 'getAll':"), isTrue);
+    expect(plugin.contains("case 'setString':"), isTrue);
+    expect(plugin.contains("case 'setBool':"), isTrue);
+    expect(plugin.contains("case 'setInt':"), isTrue);
+    expect(plugin.contains("case 'setDouble':"), isTrue);
+    expect(plugin.contains("case 'setStringList':"), isTrue);
+    expect(plugin.contains("case 'remove':"), isTrue);
+    expect(plugin.contains("case 'clear':"), isTrue);
+    expect(plugin.contains("case 'getAllWithParameters':"), isTrue);
+    expect(plugin.contains("case 'clearWithParameters':"), isTrue);
+    expect(plugin.contains('.flushSync()'), isTrue);
+    expect(RegExp(r'const\s+\w+\s*=\s*call\.argument').hasMatch(plugin),
+        isFalse);
+    expect(
+      gitignore.contains(
+          '!ohos/entry/src/main/ets/plugins/SharedPreferencesPlugin.ets'),
+      isTrue,
+    );
+  });
 }
