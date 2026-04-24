@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -46,6 +48,9 @@ class _IosNativeUpdateReminderSwitchHostState
         viewType: iosNativeUpdateReminderSwitchViewType,
         creationParams: {'value': widget.value},
         creationParamsCodec: const StandardMessageCodec(),
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+        },
         onPlatformViewCreated: _onPlatformViewCreated,
       ),
     );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/me_page.dart';
@@ -55,6 +56,10 @@ void main() {
     );
     final platformView = tester.widget<UiKitView>(find.byType(UiKitView));
     expect(platformView.viewType, 'petnote/ios_update_reminder_switch');
+    final gestureRecognizerFactory = platformView.gestureRecognizers!.single;
+    final gestureRecognizer = gestureRecognizerFactory.constructor();
+    addTearDown(gestureRecognizer.dispose);
+    expect(gestureRecognizer, isA<EagerGestureRecognizer>());
     final creationParams =
         platformView.creationParams! as Map<Object?, Object?>;
     expect(creationParams['value'], isTrue);
