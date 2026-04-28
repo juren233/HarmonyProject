@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:petnote/logging/app_log_controller.dart';
+import 'package:petnote/platform/petnote_app_directory.dart';
 
 enum DataPackageFileErrorCode {
   cancelled,
@@ -71,9 +74,10 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
     if (payload == null) {
       return null;
     }
+    final rawJson = await _readPickedJson(payload);
     return PickedDataPackageFile(
       displayName: _requireString(payload, 'displayName'),
-      rawJson: _requireString(payload, 'rawJson'),
+      rawJson: rawJson,
       locationLabel: _requireString(payload, 'locationLabel'),
       byteLength: _requireInt(payload, 'byteLength'),
     );
@@ -84,21 +88,31 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
     required String suggestedFileName,
     required String rawJson,
   }) async {
-    final payload = await _invoke(
-      'saveBackupFile',
-      arguments: <String, Object?>{
-        'suggestedFileName': suggestedFileName,
-        'rawJson': rawJson,
-      },
+    final sourceFile = await _writeExportTempFile(
+      suggestedFileName: suggestedFileName,
+      rawJson: rawJson,
     );
-    if (payload == null) {
-      return null;
+    try {
+      final payload = await _invoke(
+        'saveBackupFile',
+        arguments: <String, Object?>{
+          'suggestedFileName': suggestedFileName,
+          'sourceFilePath': sourceFile.path,
+        },
+      );
+      if (payload == null) {
+        return null;
+      }
+      return SavedDataPackageFile(
+        displayName: _requireString(payload, 'displayName'),
+        locationLabel: _requireString(payload, 'locationLabel'),
+        byteLength: _requireInt(payload, 'byteLength'),
+      );
+    } finally {
+      if (await sourceFile.exists()) {
+        await sourceFile.delete();
+      }
     }
-    return SavedDataPackageFile(
-      displayName: _requireString(payload, 'displayName'),
-      locationLabel: _requireString(payload, 'locationLabel'),
-      byteLength: _requireInt(payload, 'byteLength'),
-    );
   }
 
   Future<Map<Object?, Object?>?> _invoke(
@@ -200,6 +214,49 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
       DataPackageFileErrorCode.invalidResponse,
       'Native file access did not return a valid $key.',
     );
+  }
+
+  static Future<String> _readPickedJson(Map<Object?, Object?> payload) async {
+    final rawJson = payload['rawJson'];
+    if (rawJson is String && rawJson.isNotEmpty) {
+      return rawJson;
+    }
+    final localFilePath = payload['localFilePath'];
+    if (localFilePath is String && localFilePath.trim().isNotEmpty) {
+      final file = File(localFilePath);
+      try {
+        return await file.readAsString();
+      } finally {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+    }
+    throw const DataPackageFileException(
+      DataPackageFileErrorCode.invalidResponse,
+      'Native file access returned no readable backup content.',
+    );
+  }
+
+  static Future<File> _writeExportTempFile({
+    required String suggestedFileName,
+    required String rawJson,
+  }) async {
+    final baseDirectory =
+        await PetNoteAppDirectory.load() ?? Directory.systemTemp.path;
+    final directory = Directory(
+      '$baseDirectory${Platform.pathSeparator}petnote_exports',
+    );
+    await directory.create(recursive: true);
+    final safeFileName =
+        suggestedFileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final fileName =
+        safeFileName.isEmpty ? 'petnote-backup.json' : safeFileName;
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}'
+      '${DateTime.now().microsecondsSinceEpoch}_$fileName',
+    );
+    return file.writeAsString(rawJson);
   }
 
   static DataPackageFileErrorCode _parseErrorCode(String? value) {

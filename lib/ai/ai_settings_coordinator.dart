@@ -19,8 +19,12 @@ class AiSettingsCoordinator {
   }
 
   Future<bool> hasSavedKey(String configId) async {
-    final key = await secretStore.readKey(configId);
-    return key != null && key.isNotEmpty;
+    final states = await savedKeyStates([configId]);
+    return states[configId] ?? false;
+  }
+
+  Future<Map<String, bool>> savedKeyStates(Iterable<String> configIds) {
+    return secretStore.hasKeys(configIds);
   }
 
   Future<void> saveConfig({

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:petnote/ai/ai_connection_tester.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
@@ -28,6 +29,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   _AiSettingsFeedbackState? _feedbackState;
   Timer? _feedbackDismissTimer;
   String? _testingConfigId;
+  Future<_AiSecretStoreStatus>? _secretStoreStatusFuture;
+  List<String> _secretStoreStatusConfigIds = const <String>[];
 
   @override
   void dispose() {
@@ -42,6 +45,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
       builder: (context, _) {
         final configs = widget.settingsController.aiProviderConfigs;
         final activeConfig = widget.settingsController.activeAiProviderConfig;
+        final secretStoreStatusFuture = _secretStoreStatusFutureFor(configs);
         return Scaffold(
           appBar: AppBar(title: const Text('AI 配置')),
           body: HyperPageBackground(
@@ -56,10 +60,11 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                           '这里保存的是你自己的 AI 服务配置。PetNote 不托管你的 API Key，只用当前激活的一套配置驱动 AI 能力。',
                       child: SizedBox.shrink(),
                     ),
-                    FutureBuilder<bool>(
-                      future: widget.coordinator.isSecretStoreAvailable(),
+                    FutureBuilder<_AiSecretStoreStatus>(
+                      future: secretStoreStatusFuture,
                       builder: (context, snapshot) {
-                        if (snapshot.data == false) {
+                        final secretStoreStatus = snapshot.data;
+                        if (secretStoreStatus?.isAvailable == false) {
                           return const Padding(
                             padding: EdgeInsets.only(top: 18),
                             child: SectionCard(
@@ -82,14 +87,17 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       priority: SettingsActionPriority.primary,
                       icon: Icons.add_rounded,
                       label: '新增配置',
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => AiConfigEditorPage(
-                            settingsController: widget.settingsController,
-                            coordinator: widget.coordinator,
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (context) => AiConfigEditorPage(
+                              settingsController: widget.settingsController,
+                              coordinator: widget.coordinator,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                        _refreshSecretStoreStatus();
+                      },
                     ),
                     const SizedBox(height: 18),
                     SectionCard(
@@ -106,33 +114,47 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    SectionCard(
-                      title: '配置列表',
-                      children: configs.isEmpty
-                          ? const [
-                              ListRow(
-                                title: '还没有任何 AI 配置',
-                                subtitle:
-                                    '你可以先添加 OpenAI、Anthropic、Cloudflare Workers AI 或兼容 OpenAI 的服务配置。',
-                              ),
-                            ]
-                          : configs
-                              .map(
-                                (config) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 14),
-                                  child: _AiConfigCard(
-                                    config: config,
-                                    coordinator: widget.coordinator,
-                                    settingsController:
-                                        widget.settingsController,
-                                    isTesting: _testingConfigId == config.id,
-                                    isTestLocked: _testingConfigId != null,
-                                    onTestConnection: () =>
-                                        _handleTestConnection(config),
+                    FutureBuilder<_AiSecretStoreStatus>(
+                      future: secretStoreStatusFuture,
+                      builder: (context, snapshot) {
+                        final secretStoreStatus = snapshot.data;
+                        return SectionCard(
+                          title: '配置列表',
+                          children: configs.isEmpty
+                              ? const [
+                                  ListRow(
+                                    title: '还没有任何 AI 配置',
+                                    subtitle:
+                                        '你可以先添加 OpenAI、Anthropic、Cloudflare Workers AI 或兼容 OpenAI 的服务配置。',
                                   ),
-                                ),
-                              )
-                              .toList(),
+                                ]
+                              : configs
+                                  .map(
+                                    (config) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 14),
+                                      child: _AiConfigCard(
+                                        config: config,
+                                        coordinator: widget.coordinator,
+                                        settingsController:
+                                            widget.settingsController,
+                                        hasSavedKey:
+                                            secretStoreStatus?.hasSavedKey(
+                                          config.id,
+                                        ),
+                                        isTesting:
+                                            _testingConfigId == config.id,
+                                        isTestLocked: _testingConfigId != null,
+                                        onTestConnection: () =>
+                                            _handleTestConnection(config),
+                                        onSecretStatusMayHaveChanged:
+                                            _refreshSecretStoreStatus,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -155,6 +177,48 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         );
       },
     );
+  }
+
+  Future<_AiSecretStoreStatus> _secretStoreStatusFutureFor(
+    List<AiProviderConfig> configs,
+  ) {
+    final configIds =
+        configs.map((config) => config.id).toList(growable: false);
+    final cachedFuture = _secretStoreStatusFuture;
+    if (cachedFuture != null &&
+        listEquals(configIds, _secretStoreStatusConfigIds)) {
+      return cachedFuture;
+    }
+    _secretStoreStatusConfigIds = configIds;
+    return _secretStoreStatusFuture = _loadSecretStoreStatus(configIds);
+  }
+
+  Future<_AiSecretStoreStatus> _loadSecretStoreStatus(
+    List<String> configIds,
+  ) async {
+    await Future<void>.delayed(Duration.zero);
+    final isAvailable = await widget.coordinator.isSecretStoreAvailable();
+    if (!isAvailable) {
+      return const _AiSecretStoreStatus(
+        isAvailable: false,
+        hasSavedKeys: <String, bool>{},
+      );
+    }
+    final hasSavedKeys = await widget.coordinator.savedKeyStates(configIds);
+    return _AiSecretStoreStatus(
+      isAvailable: true,
+      hasSavedKeys: Map<String, bool>.unmodifiable(hasSavedKeys),
+    );
+  }
+
+  void _refreshSecretStoreStatus() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _secretStoreStatusFuture = null;
+      _secretStoreStatusConfigIds = const <String>[];
+    });
   }
 
   Future<void> _handleTestConnection(AiProviderConfig config) async {
@@ -218,104 +282,127 @@ class _AiConfigCard extends StatelessWidget {
     required this.config,
     required this.coordinator,
     required this.settingsController,
+    required this.hasSavedKey,
     required this.isTesting,
     required this.isTestLocked,
     required this.onTestConnection,
+    required this.onSecretStatusMayHaveChanged,
   });
 
   final AiProviderConfig config;
   final AiSettingsCoordinator coordinator;
   final AppSettingsController settingsController;
+  final bool? hasSavedKey;
   final bool isTesting;
   final bool isTestLocked;
   final Future<void> Function() onTestConnection;
+  final VoidCallback onSecretStatusMayHaveChanged;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: coordinator.hasSavedKey(config.id),
-      builder: (context, snapshot) {
-        final hasSavedKey = snapshot.data ?? false;
-        return Column(
-          children: [
-            ListRow(
-              title: config.displayName,
-              subtitle:
-                  '${aiProviderLabel(config.providerType)} · ${config.model}\n'
-                  '${hasSavedKey ? '已保存 API Key' : '尚未保存 API Key'}\n'
-                  '${isTesting ? '正在测试连接，请稍候。' : (config.lastConnectionMessage ?? aiConnectionStatusLabel(config.lastConnectionStatus))}',
-              trailing: config.isActive
-                  ? Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF0FF),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text(
-                        '当前使用',
-                        style: TextStyle(
-                          color: Color(0xFF335FCA),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    )
-                  : null,
-            ),
-            if (isTesting) ...[
-              const SizedBox(height: 10),
-              _AiConnectionTestingNotice(
-                key: ValueKey('ai_config_testing_indicator_${config.id}'),
-                message: '正在测试连接，请稍候。',
-              ),
-            ],
-            const SizedBox(height: 10),
-            SettingsActionButtonGroup(
-              children: [
-                SettingsActionButton(
-                  buttonKey: ValueKey('ai_config_activate_button_${config.id}'),
-                  label: config.isActive ? '当前使用中' : '设为当前',
-                  onPressed: config.isActive
-                      ? null
-                      : () => settingsController.setActiveAiProviderConfig(
-                            config.id,
-                          ),
-                ),
-                SettingsActionButton(
-                  buttonKey: ValueKey('ai_config_test_button_${config.id}'),
-                  label: isTesting ? '测试中...' : '测试连接',
-                  onPressed: isTestLocked ? null : onTestConnection,
-                ),
-                SettingsActionButton(
-                  buttonKey: ValueKey('ai_config_edit_button_${config.id}'),
-                  label: '编辑',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (context) => AiConfigEditorPage(
-                        settingsController: settingsController,
-                        coordinator: coordinator,
-                        initialConfig: config,
-                      ),
+    return Column(
+      children: [
+        ListRow(
+          title: config.displayName,
+          subtitle:
+              '${aiProviderLabel(config.providerType)} · ${config.model}\n'
+              '${_savedKeyLabel(hasSavedKey)}\n'
+              '${isTesting ? '正在测试连接，请稍候。' : (config.lastConnectionMessage ?? aiConnectionStatusLabel(config.lastConnectionStatus))}',
+          trailing: config.isActive
+              ? Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF0FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    '当前使用',
+                    style: TextStyle(
+                      color: Color(0xFF335FCA),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
                     ),
                   ),
-                ),
-                SettingsActionButton(
-                  buttonKey: ValueKey('ai_config_delete_button_${config.id}'),
-                  label: '删除',
-                  priority: SettingsActionPriority.dangerSecondary,
-                  onPressed: () async {
-                    await coordinator.deleteConfig(config.id);
-                  },
-                ),
-              ],
+                )
+              : null,
+        ),
+        if (isTesting) ...[
+          const SizedBox(height: 10),
+          _AiConnectionTestingNotice(
+            key: ValueKey('ai_config_testing_indicator_${config.id}'),
+            message: '正在测试连接，请稍候。',
+          ),
+        ],
+        const SizedBox(height: 10),
+        SettingsActionButtonGroup(
+          children: [
+            SettingsActionButton(
+              buttonKey: ValueKey('ai_config_activate_button_${config.id}'),
+              label: config.isActive ? '当前使用中' : '设为当前',
+              onPressed: config.isActive
+                  ? null
+                  : () => settingsController.setActiveAiProviderConfig(
+                        config.id,
+                      ),
+            ),
+            SettingsActionButton(
+              buttonKey: ValueKey('ai_config_test_button_${config.id}'),
+              label: isTesting ? '测试中...' : '测试连接',
+              onPressed: isTestLocked ? null : onTestConnection,
+            ),
+            SettingsActionButton(
+              buttonKey: ValueKey('ai_config_edit_button_${config.id}'),
+              label: '编辑',
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => AiConfigEditorPage(
+                      settingsController: settingsController,
+                      coordinator: coordinator,
+                      initialConfig: config,
+                    ),
+                  ),
+                );
+                onSecretStatusMayHaveChanged();
+              },
+            ),
+            SettingsActionButton(
+              buttonKey: ValueKey('ai_config_delete_button_${config.id}'),
+              label: '删除',
+              priority: SettingsActionPriority.dangerSecondary,
+              onPressed: () async {
+                await coordinator.deleteConfig(config.id);
+                onSecretStatusMayHaveChanged();
+              },
             ),
           ],
-        );
-      },
+        ),
+      ],
     );
+  }
+
+  String _savedKeyLabel(bool? hasSavedKey) {
+    if (hasSavedKey == null) {
+      return '正在检查 API Key 状态';
+    }
+    return hasSavedKey ? '已保存 API Key' : '尚未保存 API Key';
+  }
+}
+
+class _AiSecretStoreStatus {
+  const _AiSecretStoreStatus({
+    required this.isAvailable,
+    required this.hasSavedKeys,
+  });
+
+  final bool isAvailable;
+  final Map<String, bool> hasSavedKeys;
+
+  bool hasSavedKey(String configId) {
+    return hasSavedKeys[configId] ?? false;
   }
 }
 

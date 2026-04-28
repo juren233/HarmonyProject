@@ -29,6 +29,9 @@ import UserNotifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteDataPackageFileAccessPlugin") {
       PetNoteDataPackageFileAccessPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteAppDirectoryPlugin") {
+      PetNoteAppDirectoryPlugin.register(with: registrar)
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
     }
@@ -57,6 +60,38 @@ import UserNotifications
   }
 }
 
+final class PetNoteAppDirectoryPlugin: NSObject, FlutterPlugin {
+  static let channelName = "petnote/app_directory"
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteAppDirectoryPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "getApplicationSupportPath":
+      do {
+        let url = try FileManager.default.url(
+          for: .applicationSupportDirectory,
+          in: .userDomainMask,
+          appropriateFor: nil,
+          create: true
+        )
+        result(url.path)
+      } catch {
+        result(FlutterError(code: "app_directory_error", message: error.localizedDescription, details: nil))
+      }
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+}
+
 final class PetNoteAiSecretStorePlugin: NSObject, FlutterPlugin {
   static let channelName = "petnote/ai_secret_store"
   private static let service = "com.krustykrab.petnote.ai-secret-store"
@@ -82,6 +117,11 @@ final class PetNoteAiSecretStorePlugin: NSObject, FlutterPlugin {
         return
       }
       result(readKey(configId: configId))
+    case "hasKeys":
+      let configIds = arguments?["configIds"] as? [String] ?? []
+      result(Dictionary(uniqueKeysWithValues: configIds.map { configId in
+        (configId, !(readKey(configId: configId) ?? "").isEmpty)
+      }))
     case "writeKey":
       guard let configId, let value = arguments?["value"] as? String else {
         result(nil)
@@ -159,8 +199,7 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
 
   private struct PendingOperation {
     let kind: OperationKind
-    let rawJson: String?
-    let tempURL: URL?
+    let sourceURL: URL?
   }
 
   private var pendingResult: FlutterResult?
@@ -188,14 +227,14 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
       let arguments = call.arguments as? [String: Any]
       guard
         let suggestedFileName = arguments?["suggestedFileName"] as? String,
-        let rawJson = arguments?["rawJson"] as? String
+        let sourceFilePath = arguments?["sourceFilePath"] as? String
       else {
-        result(Self.errorPayload(code: "invalidResponse", message: "Missing suggestedFileName or rawJson."))
+        result(Self.errorPayload(code: "invalidResponse", message: "Missing suggestedFileName or sourceFilePath."))
         return
       }
       presentExportPicker(
         suggestedFileName: suggestedFileName,
-        rawJson: rawJson,
+        sourceFilePath: sourceFilePath,
         result: result
       )
     default:
@@ -226,7 +265,7 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
       let payload = readPickedFile(from: url)
       finish(with: payload)
     case .saveBackup:
-      let payload = saveResultPayload(for: url, rawJson: operation.rawJson ?? "")
+      let payload = saveResultPayload(for: url, sourceURL: operation.sourceURL)
       finish(with: payload)
     }
   }
@@ -236,26 +275,25 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
     picker.delegate = self
     picker.allowsMultipleSelection = false
     pendingResult = result
-    pendingOperation = PendingOperation(kind: kind, rawJson: nil, tempURL: nil)
+    pendingOperation = PendingOperation(kind: kind, sourceURL: nil)
     present(picker, result: result)
   }
 
   private func presentExportPicker(
     suggestedFileName: String,
-    rawJson: String,
+    sourceFilePath: String,
     result: @escaping FlutterResult
   ) {
-    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(suggestedFileName)
-    do {
-      try rawJson.data(using: .utf8)?.write(to: tempURL, options: .atomic)
-      let picker = UIDocumentPickerViewController(url: tempURL, in: .exportToService)
-      picker.delegate = self
-      pendingResult = result
-      pendingOperation = PendingOperation(kind: .saveBackup, rawJson: rawJson, tempURL: tempURL)
-      present(picker, result: result)
-    } catch {
-      result(Self.errorPayload(code: "writeFailed", message: error.localizedDescription))
+    let sourceURL = URL(fileURLWithPath: sourceFilePath)
+    guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+      result(Self.errorPayload(code: "writeFailed", message: "Backup source file is not readable."))
+      return
     }
+    let picker = UIDocumentPickerViewController(url: sourceURL, in: .exportToService)
+    picker.delegate = self
+    pendingResult = result
+    pendingOperation = PendingOperation(kind: .saveBackup, sourceURL: sourceURL)
+    present(picker, result: result)
   }
 
   private func present(
@@ -279,36 +317,49 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
       }
     }
     do {
-      let rawJson = try String(contentsOf: url, encoding: .utf8)
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("petnote_imports", isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      let destinationURL = directory
+        .appendingPathComponent("\(UUID().uuidString)_\(url.lastPathComponent)")
+      if FileManager.default.fileExists(atPath: destinationURL.path) {
+        try FileManager.default.removeItem(at: destinationURL)
+      }
+      try FileManager.default.copyItem(at: url, to: destinationURL)
       return Self.successPayload(
         displayName: url.lastPathComponent,
         locationLabel: url.deletingLastPathComponent().lastPathComponent,
-        byteLength: rawJson.lengthOfBytes(using: .utf8),
-        rawJson: rawJson
+        byteLength: Self.fileSize(destinationURL),
+        rawJson: nil,
+        localFilePath: destinationURL.path
       )
     } catch {
       return Self.errorPayload(code: "readFailed", message: error.localizedDescription)
     }
   }
 
-  private func saveResultPayload(for url: URL, rawJson: String) -> [String: Any?] {
+  private func saveResultPayload(for url: URL, sourceURL: URL?) -> [String: Any?] {
     return Self.successPayload(
       displayName: url.lastPathComponent,
       locationLabel: url.deletingLastPathComponent().lastPathComponent,
-      byteLength: rawJson.lengthOfBytes(using: .utf8),
+      byteLength: sourceURL.flatMap { Self.fileSize($0) } ?? 0,
       rawJson: nil
     )
   }
 
   private func finish(with payload: [String: Any?]) {
     let callback = pendingResult
-    let tempURL = pendingOperation?.tempURL
     pendingResult = nil
     pendingOperation = nil
-    if let tempURL {
-      try? FileManager.default.removeItem(at: tempURL)
-    }
     callback?(payload)
+  }
+
+  private static func fileSize(_ url: URL) -> Int {
+    let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+    return values?.fileSize ?? 0
   }
 
   private static func topViewController(
@@ -334,7 +385,8 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
     displayName: String,
     locationLabel: String,
     byteLength: Int,
-    rawJson: String?
+    rawJson: String?,
+    localFilePath: String? = nil
   ) -> [String: Any?] {
     return [
       "status": "success",
@@ -342,6 +394,7 @@ final class PetNoteDataPackageFileAccessPlugin: NSObject, FlutterPlugin, UIDocum
       "locationLabel": locationLabel.isEmpty ? "Files" : locationLabel,
       "byteLength": byteLength,
       "rawJson": rawJson,
+      "localFilePath": localFilePath,
     ]
   }
 

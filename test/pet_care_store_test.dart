@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
+import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:sembast/sembast_memory.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -170,6 +172,225 @@ void main() {
       expect(reloaded.reminders.single.title, '驱虫');
       expect(reloaded.records, hasLength(1));
       expect(reloaded.records.single.title, '门诊记录');
+    });
+
+    test('adding a record only rewrites the changed local data tables',
+        () async {
+      final storage = PetNoteLocalStorage.memory();
+      final store = await PetNoteStore.load(storage: storage);
+
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      final writesAfterPet = storage.writeCounts;
+
+      await store.addRecord(
+        petId: store.pets.single.id,
+        type: PetRecordType.medical,
+        title: '门诊记录',
+        recordDate: DateTime.parse('2026-03-27T14:00:00+08:00'),
+        summary: '恢复正常',
+        note: '继续观察',
+      );
+
+      expect(storage.writeCounts[PetNoteLocalTable.pets],
+          writesAfterPet[PetNoteLocalTable.pets]);
+      expect(storage.writeCounts[PetNoteLocalTable.todos],
+          writesAfterPet[PetNoteLocalTable.todos]);
+      expect(storage.writeCounts[PetNoteLocalTable.reminders],
+          writesAfterPet[PetNoteLocalTable.reminders]);
+      expect(storage.writeCounts[PetNoteLocalTable.records],
+          (writesAfterPet[PetNoteLocalTable.records] ?? 0) + 1);
+      expect(storage.writeCounts[PetNoteLocalTable.overviewConfig],
+          writesAfterPet[PetNoteLocalTable.overviewConfig]);
+      expect(storage.writeCounts[PetNoteLocalTable.overviewAiReport],
+          writesAfterPet[PetNoteLocalTable.overviewAiReport]);
+    });
+
+    test('reapplying unchanged local data skips duplicate table writes',
+        () async {
+      final storage = PetNoteLocalStorage.memory();
+      final store = await PetNoteStore.load(storage: storage);
+
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      final writesAfterPet = storage.writeCounts;
+
+      await store.updatePet(
+        petId: store.pets.single.id,
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+
+      expect(storage.writeCounts[PetNoteLocalTable.pets],
+          writesAfterPet[PetNoteLocalTable.pets]);
+      expect(storage.writeCounts[PetNoteLocalTable.overviewAiReport],
+          writesAfterPet[PetNoteLocalTable.overviewAiReport]);
+    });
+
+    test('local app data can load from the document database backend',
+        () async {
+      final storage = await PetNoteLocalStorage.loadDatabase(
+        databaseFactory: databaseFactoryMemory,
+        databasePath: 'petnote-store-test.db',
+      );
+      expect(storage?.backend, PetNoteLocalStorageBackend.database);
+
+      final store = await PetNoteStore.load(storage: storage);
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+
+      final reloaded = await PetNoteStore.load(storage: storage);
+
+      expect(reloaded.pets, hasLength(1));
+      expect(reloaded.pets.single.name, 'Mochi');
+    });
+
+    test('database backend stores local data rows by entity id', () async {
+      final storage = await PetNoteLocalStorage.loadDatabase(
+        databaseFactory: databaseFactoryMemory,
+        databasePath: 'petnote-entity-store-test.db',
+      );
+      expect(storage?.backend, PetNoteLocalStorageBackend.database);
+
+      final store = await PetNoteStore.load(storage: storage);
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      await store.addPet(
+        name: 'Tofu',
+        type: PetType.dog,
+        breed: '柯基',
+        sex: '公',
+        birthday: '2023-11-01',
+        weightKg: 8.5,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '一天两餐',
+        allergies: '牛肉敏感',
+        note: '喜欢追球',
+      );
+
+      final tables = storage!.debugExportTables();
+
+      expect(tables.containsKey(PetNoteLocalTable.pets.storageKey), isFalse);
+      expect(tables.keys, contains('pets_v1/pet-1'));
+      expect(tables.keys, contains('pets_v1/pet-2'));
+      expect(tables['pets_v1/pet-2'], contains('Tofu'));
+
+      final reloaded = await PetNoteStore.load(storage: storage);
+      expect(reloaded.pets.map((pet) => pet.name), ['Tofu', 'Mochi']);
+    });
+
+    test('database backend only rewrites changed entity rows', () async {
+      final storage = await PetNoteLocalStorage.loadDatabase(
+        databaseFactory: databaseFactoryMemory,
+        databasePath: 'petnote-entity-diff-write-test.db',
+      );
+      expect(storage?.backend, PetNoteLocalStorageBackend.database);
+
+      final store = await PetNoteStore.load(storage: storage);
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      await store.addPet(
+        name: 'Tofu',
+        type: PetType.dog,
+        breed: '柯基',
+        sex: '公',
+        birthday: '2023-11-01',
+        weightKg: 8.5,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '一天两餐',
+        allergies: '牛肉敏感',
+        note: '喜欢追球',
+      );
+
+      final putsAfterInsert =
+          storage!.debugEntityPutCounts[PetNoteLocalTable.pets] ?? 0;
+      final deletesAfterInsert =
+          storage.debugEntityDeleteCounts[PetNoteLocalTable.pets] ?? 0;
+
+      await store.updatePet(
+        petId: store.pets.first.id,
+        name: 'Tofu',
+        type: PetType.dog,
+        breed: '柯基',
+        sex: '公',
+        birthday: '2023-11-01',
+        weightKg: 8.6,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '一天两餐',
+        allergies: '牛肉敏感',
+        note: '体重更新',
+      );
+
+      expect(
+        storage.debugEntityPutCounts[PetNoteLocalTable.pets],
+        putsAfterInsert + 1,
+      );
+      expect(
+        storage.debugEntityDeleteCounts[PetNoteLocalTable.pets] ?? 0,
+        deletesAfterInsert,
+      );
+      expect(
+        storage.debugExportTables()['pets_v1/${store.pets.first.id}'],
+        contains('8.6'),
+      );
     });
 
     test('updating a pet persists edited profile fields', () async {

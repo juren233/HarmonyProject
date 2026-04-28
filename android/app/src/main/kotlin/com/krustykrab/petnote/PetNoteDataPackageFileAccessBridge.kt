@@ -4,9 +4,11 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import java.io.File
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 class PetNoteDataPackageFileAccessBridge(
     private val activity: Activity,
@@ -15,6 +17,7 @@ class PetNoteDataPackageFileAccessBridge(
     companion object {
         const val CHANNEL_NAME = "petnote/data_package_file_access"
         private const val REQUEST_CODE = 12041
+        private const val IMPORT_CACHE_DIRECTORY_NAME = "data_package_imports"
     }
 
     private enum class RequestKind {
@@ -24,10 +27,11 @@ class PetNoteDataPackageFileAccessBridge(
 
     private data class PendingRequest(
         val kind: RequestKind,
-        val rawJson: String? = null,
+        val sourceFilePath: String? = null,
     )
 
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
+    private val ioExecutor = Executors.newSingleThreadExecutor()
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequest: PendingRequest? = null
 
@@ -40,19 +44,17 @@ class PetNoteDataPackageFileAccessBridge(
             return false
         }
 
-        val callback = pendingResult ?: return false
         val request = pendingRequest ?: return false
-        pendingResult = null
         pendingRequest = null
 
         if (resultCode != Activity.RESULT_OK) {
-            callback.success(cancelledPayload())
+            finishPendingRequest(cancelledPayload())
             return true
         }
 
         val uri = data?.data
         if (uri == null) {
-            callback.success(
+            finishPendingRequest(
                 errorPayload(
                     errorCode = "invalidResponse",
                     message = "System file manager did not return a document URI.",
@@ -61,33 +63,41 @@ class PetNoteDataPackageFileAccessBridge(
             return true
         }
 
-        try {
-            when (request.kind) {
-                RequestKind.PICK_BACKUP -> callback.success(readPickedFile(uri))
+        ioExecutor.execute {
+            val payload = try {
+                when (request.kind) {
+                    RequestKind.PICK_BACKUP -> readPickedFile(uri)
 
-                RequestKind.SAVE_BACKUP -> callback.success(
-                    writeBackupFile(
+                    RequestKind.SAVE_BACKUP -> writeBackupFile(
                         uri = uri,
-                        rawJson = request.rawJson.orEmpty(),
-                    ),
-                )
-            }
-        } catch (error: Throwable) {
-            callback.success(
+                        sourceFilePath = request.sourceFilePath.orEmpty(),
+                    )
+                }
+            } catch (error: Throwable) {
                 errorPayload(
                     errorCode = when (request.kind) {
                         RequestKind.SAVE_BACKUP -> "writeFailed"
                         else -> "readFailed"
                     },
                     message = error.message ?: "Unknown file manager error.",
-                ),
-            )
+                )
+            }
+            activity.runOnUiThread {
+                finishPendingRequest(payload)
+            }
         }
         return true
     }
 
     init {
         channel.setMethodCallHandler(this)
+    }
+
+    fun close() {
+        channel.setMethodCallHandler(null)
+        ioExecutor.shutdown()
+        pendingResult = null
+        pendingRequest = null
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -110,12 +120,12 @@ class PetNoteDataPackageFileAccessBridge(
             "saveBackupFile" -> {
                 val arguments = call.arguments as? Map<*, *>
                 val suggestedFileName = arguments?.get("suggestedFileName") as? String
-                val rawJson = arguments?.get("rawJson") as? String
-                if (suggestedFileName.isNullOrBlank() || rawJson == null) {
+                val sourceFilePath = arguments?.get("sourceFilePath") as? String
+                if (suggestedFileName.isNullOrBlank() || sourceFilePath.isNullOrBlank()) {
                     result.success(
                         errorPayload(
                             errorCode = "invalidResponse",
-                            message = "Missing suggestedFileName or rawJson.",
+                            message = "Missing suggestedFileName or sourceFilePath.",
                         ),
                     )
                     return
@@ -123,7 +133,7 @@ class PetNoteDataPackageFileAccessBridge(
                 launchCreateDocument(
                     result = result,
                     suggestedFileName = suggestedFileName,
-                    rawJson = rawJson,
+                    sourceFilePath = sourceFilePath,
                 )
             }
 
@@ -149,12 +159,12 @@ class PetNoteDataPackageFileAccessBridge(
     private fun launchCreateDocument(
         result: MethodChannel.Result,
         suggestedFileName: String,
-        rawJson: String,
+        sourceFilePath: String,
     ) {
         pendingResult = result
         pendingRequest = PendingRequest(
             kind = RequestKind.SAVE_BACKUP,
-            rawJson = rawJson,
+            sourceFilePath = sourceFilePath,
         )
         activity.startActivityForResult(
             Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -168,38 +178,49 @@ class PetNoteDataPackageFileAccessBridge(
 
     private fun readPickedFile(uri: Uri): Map<String, Any?> {
         takePersistablePermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        val rawJson = activity.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader(Charsets.UTF_8).readText()
+        val displayName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "selected.json"
+        val directory = File(activity.cacheDir, IMPORT_CACHE_DIRECTORY_NAME).apply {
+            mkdirs()
+        }
+        val localFile = File(directory, "${System.currentTimeMillis()}_${displayName.sanitizeFileName()}")
+        activity.contentResolver.openInputStream(uri)?.use { input ->
+            localFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
         } ?: throw IllegalStateException("Unable to open selected file.")
 
-        val displayName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "selected.json"
         return successPayload(
             displayName = displayName,
             locationLabel = uri.authority ?: uri.scheme ?: "Documents",
-            byteLength = rawJson.toByteArray(Charsets.UTF_8).size,
-            rawJson = rawJson,
+            byteLength = localFile.length(),
+            localFilePath = localFile.absolutePath,
         )
     }
 
     private fun writeBackupFile(
         uri: Uri,
-        rawJson: String,
+        sourceFilePath: String,
     ): Map<String, Any?> {
         takePersistablePermission(
             uri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
         )
-        activity.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
-            stream.writer(Charsets.UTF_8).use { writer ->
-                writer.write(rawJson)
-            }
-        } ?: throw IllegalStateException("Unable to open destination file.")
+        val sourceFile = File(sourceFilePath)
+        if (!sourceFile.isFile) {
+            throw IllegalStateException("Backup source file is not readable.")
+        }
+        val byteLength = sourceFile.length()
+        sourceFile.inputStream().use { input ->
+            activity.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                input.copyTo(output)
+            } ?: throw IllegalStateException("Unable to open destination file.")
+        }
 
         val displayName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "backup.json"
         return successPayload(
             displayName = displayName,
             locationLabel = uri.authority ?: uri.scheme ?: "Documents",
-            byteLength = rawJson.toByteArray(Charsets.UTF_8).size,
+            byteLength = byteLength,
         )
     }
 
@@ -230,18 +251,24 @@ class PetNoteDataPackageFileAccessBridge(
         }
     }
 
+    private fun finishPendingRequest(payload: Map<String, Any?>) {
+        val callback = pendingResult ?: return
+        pendingResult = null
+        callback.success(payload)
+    }
+
     private fun successPayload(
         displayName: String,
         locationLabel: String,
-        byteLength: Int,
-        rawJson: String? = null,
+        byteLength: Long,
+        localFilePath: String? = null,
     ): Map<String, Any?> {
         return mutableMapOf<String, Any?>(
             "status" to "success",
             "displayName" to displayName,
             "locationLabel" to locationLabel,
             "byteLength" to byteLength,
-            "rawJson" to rawJson,
+            "localFilePath" to localFilePath,
         )
     }
 
@@ -261,5 +288,9 @@ class PetNoteDataPackageFileAccessBridge(
             "errorCode" to errorCode,
             "errorMessage" to message,
         )
+    }
+
+    private fun String.sanitizeFileName(): String {
+        return replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "selected.json" }
     }
 }

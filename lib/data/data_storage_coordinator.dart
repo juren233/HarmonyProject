@@ -248,7 +248,6 @@ class DataStorageCoordinator extends ChangeNotifier {
     }
     try {
       store.exportDataState();
-      store.exportDataState();
     } catch (_) {
       return '当前数据状态异常，暂时无法导入。';
     }

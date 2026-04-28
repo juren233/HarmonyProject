@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ReminderKind { vaccine, deworming, medication, review, grooming, custom }
@@ -578,10 +579,10 @@ class PetNoteStore extends ChangeNotifier {
     List<PetRecord>? records,
     OverviewAnalysisConfig? overviewAnalysisConfig,
     OverviewAiReportState? overviewAiReportState,
-    SharedPreferences? preferences,
+    PetNoteLocalStorage? storage,
     DateTime Function()? nowProvider,
     bool shouldAutoShowFirstLaunchIntro = true,
-  })  : _preferences = preferences,
+  })  : _storage = storage,
         _nowProvider = nowProvider ?? DateTime.now,
         _shouldAutoShowFirstLaunchIntro = shouldAutoShowFirstLaunchIntro {
     if (pets != null) {
@@ -611,6 +612,7 @@ class PetNoteStore extends ChangeNotifier {
     if (overviewAiReportState != null) {
       _restoreOverviewAiReportState(overviewAiReportState);
     }
+    _refreshPersistedTableSnapshots();
   }
 
   factory PetNoteStore.seeded({
@@ -750,42 +752,46 @@ class PetNoteStore extends ChangeNotifier {
 
   static Future<PetNoteStore> load({
     Future<SharedPreferences> Function()? preferencesLoader,
+    PetNoteLocalStorage? storage,
     DateTime Function()? nowProvider,
   }) async {
-    final preferences = await _loadPreferences(preferencesLoader);
-    final petsJson = preferences?.getString(_petsStorageKey);
-    final todosJson = preferences?.getString(_todosStorageKey);
-    final remindersJson = preferences?.getString(_remindersStorageKey);
-    final recordsJson = preferences?.getString(_recordsStorageKey);
-    final overviewConfigJson =
-        preferences?.getString(_overviewConfigStorageKey);
-    final overviewAiReportJson =
-        preferences?.getString(_overviewAiReportStorageKey);
+    final localStorage = storage ??
+        await PetNoteLocalStorage.load(
+          preferencesLoader: preferencesLoader,
+          timeout: _preferencesLoadTimeout,
+        );
     final store = PetNoteStore._(
-      preferences: preferences,
+      storage: localStorage,
       nowProvider: nowProvider,
       shouldAutoShowFirstLaunchIntro:
-          preferences?.getBool(_firstLaunchIntroAutoEnabledKey) ?? true,
-      pets: _decodePets(petsJson),
-      todos: _decodeTodos(todosJson),
-      reminders: _decodeReminders(remindersJson),
-      records: _decodeRecords(recordsJson),
-      overviewAnalysisConfig: _decodeOverviewAnalysisConfig(overviewConfigJson),
-      overviewAiReportState: _decodeOverviewAiReportState(overviewAiReportJson),
+          localStorage?.readBool(_firstLaunchIntroAutoEnabledKey) ?? true,
+      pets: _decodePets(localStorage?.readTable(PetNoteLocalTable.pets)),
+      todos: _decodeTodos(localStorage?.readTable(PetNoteLocalTable.todos)),
+      reminders: _decodeReminders(
+        localStorage?.readTable(PetNoteLocalTable.reminders),
+      ),
+      records: _decodeRecords(
+        localStorage?.readTable(PetNoteLocalTable.records),
+      ),
+      overviewAnalysisConfig: _decodeOverviewAnalysisConfig(
+        localStorage?.readTable(PetNoteLocalTable.overviewConfig),
+      ),
+      overviewAiReportState: _decodeOverviewAiReportState(
+        localStorage?.readTable(PetNoteLocalTable.overviewAiReport),
+      ),
     );
     final migrated = store._migrateLegacySemanticData();
     if (migrated) {
-      await store._saveState();
+      await store._saveState(
+        todos: true,
+        reminders: true,
+        records: true,
+        overviewAiReport: true,
+      );
     }
     return store;
   }
 
-  static const String _petsStorageKey = 'pets_v1';
-  static const String _todosStorageKey = 'todos_v1';
-  static const String _remindersStorageKey = 'reminders_v1';
-  static const String _recordsStorageKey = 'records_v1';
-  static const String _overviewConfigStorageKey = 'overview_config_v1';
-  static const String _overviewAiReportStorageKey = 'overview_ai_report_v1';
   static const String _firstLaunchIntroAutoEnabledKey =
       'first_launch_intro_auto_enabled_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
@@ -795,7 +801,9 @@ class PetNoteStore extends ChangeNotifier {
   final List<ReminderItem> _reminders = [];
   final List<PetRecord> _records = [];
   final DateTime Function() _nowProvider;
-  final SharedPreferences? _preferences;
+  final PetNoteLocalStorage? _storage;
+  final Map<PetNoteLocalTable, String?> _persistedTableSnapshots =
+      <PetNoteLocalTable, String?>{};
   Future<void> Function()? _notificationSyncHandler;
   List<ChecklistSection>? _checklistSectionsCache;
   int? _checklistSectionsCacheMinuteStamp;
@@ -1204,7 +1212,7 @@ class PetNoteStore extends ChangeNotifier {
         activeRequestToken: requestToken,
       );
       notifyListeners();
-      await _saveState();
+      await _saveState(overviewAiReport: true);
     } on AiGenerationException catch (error) {
       if (_overviewAiRequestToken != requestToken ||
           _overviewAiReportState.requestKey != requestKey) {
@@ -1218,7 +1226,7 @@ class PetNoteStore extends ChangeNotifier {
         activeRequestToken: requestToken,
       );
       notifyListeners();
-      await _saveState();
+      await _saveState(overviewAiReport: true);
     } catch (_) {
       if (_overviewAiRequestToken != requestToken ||
           _overviewAiReportState.requestKey != requestKey) {
@@ -1232,7 +1240,7 @@ class PetNoteStore extends ChangeNotifier {
         activeRequestToken: requestToken,
       );
       notifyListeners();
-      await _saveState();
+      await _saveState(overviewAiReport: true);
     }
   }
 
@@ -1242,7 +1250,7 @@ class PetNoteStore extends ChangeNotifier {
       activeRequestToken: _overviewAiRequestToken,
     );
     notifyListeners();
-    await _saveState();
+    await _saveState(overviewAiReport: true);
   }
 
   void setActiveTab(AppTab tab) {
@@ -1264,7 +1272,7 @@ class PetNoteStore extends ChangeNotifier {
     }
     _invalidateOverviewDerivedData();
     notifyListeners();
-    unawaited(_saveState());
+    unawaited(_saveState(overviewConfig: true, overviewAiReport: true));
   }
 
   void updateOverviewAnalysisConfig({
@@ -1289,7 +1297,7 @@ class PetNoteStore extends ChangeNotifier {
     }
     _invalidateOverviewDerivedData();
     notifyListeners();
-    unawaited(_saveState());
+    unawaited(_saveState(overviewConfig: true, overviewAiReport: true));
   }
 
   void selectPet(String petId) {
@@ -1312,7 +1320,10 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      todos: sourceType == 'todo',
+      reminders: sourceType != 'todo',
+    );
   }
 
   Future<void> postponeChecklist(String sourceType, String itemId) async {
@@ -1329,7 +1340,10 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      todos: sourceType == 'todo',
+      reminders: sourceType != 'todo',
+    );
   }
 
   Future<void> skipChecklist(String sourceType, String itemId) async {
@@ -1344,12 +1358,15 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      todos: sourceType == 'todo',
+      reminders: sourceType != 'todo',
+    );
   }
 
   Future<void> dismissFirstLaunchIntro() async {
     _shouldAutoShowFirstLaunchIntro = false;
-    await _preferences?.setBool(_firstLaunchIntroAutoEnabledKey, false);
+    await _storage?.writeBool(_firstLaunchIntroAutoEnabledKey, false);
     notifyListeners();
   }
 
@@ -1388,7 +1405,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(todos: true);
   }
 
   Future<void> addReminder({
@@ -1434,7 +1451,7 @@ class PetNoteStore extends ChangeNotifier {
       _invalidateSelectedPetReminders();
     }
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(reminders: true);
   }
 
   Future<void> addRecord({
@@ -1500,7 +1517,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetDerivedData();
     notifyListeners();
-    await _saveState();
+    await _saveState(records: true, overviewAiReport: true);
   }
 
   Future<void> updateTodo({
@@ -1541,7 +1558,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(todos: true);
   }
 
   Future<void> updateReminder({
@@ -1587,7 +1604,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetReminders();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(reminders: true);
   }
 
   Future<void> updateRecord({
@@ -1653,7 +1670,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetDerivedData();
     notifyListeners();
-    await _saveState();
+    await _saveState(records: true, overviewAiReport: true);
   }
 
   Future<void> deleteRecords(Iterable<String> recordIds) async {
@@ -1673,7 +1690,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _invalidateSelectedPetDerivedData();
     notifyListeners();
-    await _saveState();
+    await _saveState(records: true, overviewAiReport: true);
   }
 
   Future<void> addPet({
@@ -1709,8 +1726,12 @@ class PetNoteStore extends ChangeNotifier {
     _overviewSelectedPetIds.add(pet.id);
     _selectedPetId = pet.id;
     _activeTab = AppTab.pets;
-    await _saveState();
     _invalidateAllDerivedData();
+    await _saveState(
+      pets: true,
+      overviewConfig: true,
+      overviewAiReport: true,
+    );
     notifyListeners();
   }
 
@@ -1757,11 +1778,11 @@ class PetNoteStore extends ChangeNotifier {
     if (_todos.any((item) => item.petId == current.id) ||
         _reminders.any((item) => item.petId == current.id)) {
       _bumpNotificationSyncVersion();
-      await _finalizeNotificationMutation();
+      await _finalizeNotificationMutation(pets: true);
       return;
     }
     notifyListeners();
-    await _saveState();
+    await _saveState(pets: true, overviewAiReport: true);
   }
 
   PetNoteDataState exportDataState() {
@@ -1795,7 +1816,13 @@ class PetNoteStore extends ChangeNotifier {
     _activeTab = _pets.isEmpty ? AppTab.checklist : AppTab.pets;
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
   }
 
   Future<void> appendData(PetNoteDataState state) async {
@@ -1832,7 +1859,13 @@ class PetNoteStore extends ChangeNotifier {
     }
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
   }
 
   Future<void> clearAllData() async {
@@ -1845,16 +1878,36 @@ class PetNoteStore extends ChangeNotifier {
     _activeTab = AppTab.checklist;
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
   }
 
-  Future<void> _finalizeNotificationMutation() async {
+  Future<void> _finalizeNotificationMutation({
+    bool pets = false,
+    bool todos = false,
+    bool reminders = false,
+    bool records = false,
+    bool overviewConfig = false,
+  }) async {
     notifyListeners();
-    await _saveState();
+    await _saveState(
+      pets: pets,
+      todos: todos,
+      reminders: reminders,
+      records: records,
+      overviewConfig: overviewConfig,
+      overviewAiReport: true,
+    );
     final handler = _notificationSyncHandler;
     if (handler != null) {
       unawaited(
-        Future<void>.sync(handler).catchError((Object error, StackTrace stackTrace) {
+        Future<void>.sync(handler)
+            .catchError((Object error, StackTrace stackTrace) {
           FlutterError.reportError(
             FlutterErrorDetails(
               exception: error,
@@ -2051,39 +2104,128 @@ class PetNoteStore extends ChangeNotifier {
 
   Pet? petById(String petId) => _findPet(petId);
 
-  Future<void> _saveState() async {
-    if (_preferences == null) {
+  Future<void> _saveState({
+    bool pets = false,
+    bool todos = false,
+    bool reminders = false,
+    bool records = false,
+    bool overviewConfig = false,
+    bool overviewAiReport = false,
+  }) async {
+    final storage = _storage;
+    if (storage == null) {
       return;
     }
-    await _preferences.setString(
-      _petsStorageKey,
-      jsonEncode(_pets.map((pet) => pet.toJson()).toList()),
-    );
-    await _preferences.setString(
-      _todosStorageKey,
-      jsonEncode(_todos.map((item) => item.toJson()).toList()),
-    );
-    await _preferences.setString(
-      _remindersStorageKey,
-      jsonEncode(_reminders.map((item) => item.toJson()).toList()),
-    );
-    await _preferences.setString(
-      _recordsStorageKey,
-      jsonEncode(_records.map((item) => item.toJson()).toList()),
-    );
-    await _preferences.setString(
-      _overviewConfigStorageKey,
-      jsonEncode(_encodeOverviewAnalysisConfig()),
-    );
-    final encodedOverviewAiReport = _encodeOverviewAiReportState();
-    if (encodedOverviewAiReport == null) {
-      await _preferences.remove(_overviewAiReportStorageKey);
-    } else {
-      await _preferences.setString(
-        _overviewAiReportStorageKey,
-        jsonEncode(encodedOverviewAiReport),
+    if (pets) {
+      await _writeTableIfChanged(
+        storage,
+        PetNoteLocalTable.pets,
+        _encodePetsTable(),
       );
     }
+    if (todos) {
+      await _writeTableIfChanged(
+        storage,
+        PetNoteLocalTable.todos,
+        _encodeTodosTable(),
+      );
+    }
+    if (reminders) {
+      await _writeTableIfChanged(
+        storage,
+        PetNoteLocalTable.reminders,
+        _encodeRemindersTable(),
+      );
+    }
+    if (records) {
+      await _writeTableIfChanged(
+        storage,
+        PetNoteLocalTable.records,
+        _encodeRecordsTable(),
+      );
+    }
+    if (overviewConfig) {
+      await _writeTableIfChanged(
+        storage,
+        PetNoteLocalTable.overviewConfig,
+        _encodeOverviewConfigTable(),
+      );
+    }
+    if (overviewAiReport) {
+      final encodedOverviewAiReport = _encodeOverviewAiReportTable();
+      if (encodedOverviewAiReport == null) {
+        await _removeTableIfPresent(
+            storage, PetNoteLocalTable.overviewAiReport);
+      } else {
+        await _writeTableIfChanged(
+          storage,
+          PetNoteLocalTable.overviewAiReport,
+          encodedOverviewAiReport,
+        );
+      }
+    }
+  }
+
+  void _refreshPersistedTableSnapshots() {
+    _persistedTableSnapshots[PetNoteLocalTable.pets] = _encodePetsTable();
+    _persistedTableSnapshots[PetNoteLocalTable.todos] = _encodeTodosTable();
+    _persistedTableSnapshots[PetNoteLocalTable.reminders] =
+        _encodeRemindersTable();
+    _persistedTableSnapshots[PetNoteLocalTable.records] = _encodeRecordsTable();
+    _persistedTableSnapshots[PetNoteLocalTable.overviewConfig] =
+        _encodeOverviewConfigTable();
+    _persistedTableSnapshots[PetNoteLocalTable.overviewAiReport] =
+        _encodeOverviewAiReportTable();
+  }
+
+  Future<void> _writeTableIfChanged(
+    PetNoteLocalStorage storage,
+    PetNoteLocalTable table,
+    String value,
+  ) async {
+    if (_persistedTableSnapshots[table] == value) {
+      return;
+    }
+    await storage.writeTable(table, value);
+    _persistedTableSnapshots[table] = value;
+  }
+
+  Future<void> _removeTableIfPresent(
+    PetNoteLocalStorage storage,
+    PetNoteLocalTable table,
+  ) async {
+    if (_persistedTableSnapshots[table] == null) {
+      return;
+    }
+    await storage.removeTable(table);
+    _persistedTableSnapshots[table] = null;
+  }
+
+  String _encodePetsTable() {
+    return jsonEncode(_pets.map((pet) => pet.toJson()).toList());
+  }
+
+  String _encodeTodosTable() {
+    return jsonEncode(_todos.map((item) => item.toJson()).toList());
+  }
+
+  String _encodeRemindersTable() {
+    return jsonEncode(_reminders.map((item) => item.toJson()).toList());
+  }
+
+  String _encodeRecordsTable() {
+    return jsonEncode(_records.map((item) => item.toJson()).toList());
+  }
+
+  String _encodeOverviewConfigTable() {
+    return jsonEncode(_encodeOverviewAnalysisConfig());
+  }
+
+  String? _encodeOverviewAiReportTable() {
+    final encodedOverviewAiReport = _encodeOverviewAiReportState();
+    return encodedOverviewAiReport == null
+        ? null
+        : jsonEncode(encodedOverviewAiReport);
   }
 
   String _avatarTextForName(String name) {
@@ -2266,20 +2408,6 @@ class PetNoteStore extends ChangeNotifier {
         .map((item) => item.trim())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
-  }
-
-  static Future<SharedPreferences?> _loadPreferences(
-    Future<SharedPreferences> Function()? preferencesLoader,
-  ) async {
-    final loader = preferencesLoader ?? SharedPreferences.getInstance;
-    try {
-      return await loader().timeout(_preferencesLoadTimeout);
-    } on TimeoutException catch (error) {
-      debugPrint('SharedPreferences timed out during startup: $error');
-    } catch (error) {
-      debugPrint('SharedPreferences unavailable on this platform: $error');
-    }
-    return null;
   }
 
   String _formatDate(DateTime value) {

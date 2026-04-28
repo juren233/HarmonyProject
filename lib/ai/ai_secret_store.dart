@@ -9,6 +9,15 @@ abstract class AiSecretStore {
   Future<void> writeKey(String configId, String value);
 
   Future<void> deleteKey(String configId);
+
+  Future<Map<String, bool>> hasKeys(Iterable<String> configIds) async {
+    final result = <String, bool>{};
+    for (final configId in configIds.toSet()) {
+      final value = await readKey(configId);
+      result[configId] = value != null && value.isNotEmpty;
+    }
+    return result;
+  }
 }
 
 class MethodChannelAiSecretStore implements AiSecretStore {
@@ -21,12 +30,18 @@ class MethodChannelAiSecretStore implements AiSecretStore {
 
   final MethodChannel _channel;
   final AppLogController? appLogController;
+  bool? _availabilityCache;
 
   @override
   Future<bool> isAvailable() async {
+    final cached = _availabilityCache;
+    if (cached != null) {
+      return cached;
+    }
     try {
       final available =
           (await _channel.invokeMethod<bool>('isAvailable')) ?? false;
+      _availabilityCache = available;
       if (!available) {
         appLogController?.warning(
           category: AppLogCategory.nativeBridge,
@@ -42,6 +57,7 @@ class MethodChannelAiSecretStore implements AiSecretStore {
         message: error.message ?? '安全存储可用性检查失败。',
         details: error.details?.toString(),
       );
+      _availabilityCache = false;
       return false;
     } on MissingPluginException {
       appLogController?.warning(
@@ -49,6 +65,7 @@ class MethodChannelAiSecretStore implements AiSecretStore {
         title: '安全存储插件缺失',
         message: '当前平台未接入 AI 安全存储插件。',
       );
+      _availabilityCache = false;
       return false;
     }
   }
@@ -56,6 +73,10 @@ class MethodChannelAiSecretStore implements AiSecretStore {
   @override
   Future<String?> readKey(String configId) async {
     await _ensureAvailable();
+    return _readKeyUnchecked(configId);
+  }
+
+  Future<String?> _readKeyUnchecked(String configId) async {
     try {
       final value = await _channel
           .invokeMethod<String>('readKey', {'configId': configId});
@@ -75,6 +96,47 @@ class MethodChannelAiSecretStore implements AiSecretStore {
       );
       rethrow;
     }
+  }
+
+  @override
+  Future<Map<String, bool>> hasKeys(Iterable<String> configIds) async {
+    final ids = configIds.toSet().toList(growable: false);
+    if (ids.isEmpty) {
+      return <String, bool>{};
+    }
+    await _ensureAvailable();
+    try {
+      final rawResult = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'hasKeys',
+        <String, Object?>{'configIds': ids},
+      );
+      return <String, bool>{
+        for (final id in ids) id: rawResult?[id] == true,
+      };
+    } on MissingPluginException {
+      return _hasKeysByReading(ids);
+    } on PlatformException catch (error) {
+      if (error.code == 'MissingPluginException' ||
+          error.code == 'notImplemented') {
+        return _hasKeysByReading(ids);
+      }
+      appLogController?.error(
+        category: AppLogCategory.nativeBridge,
+        title: '批量读取安全存储失败',
+        message: error.message ?? '批量读取 API Key 状态失败。',
+        details: error.details?.toString(),
+      );
+      rethrow;
+    }
+  }
+
+  Future<Map<String, bool>> _hasKeysByReading(List<String> configIds) async {
+    final result = <String, bool>{};
+    for (final configId in configIds) {
+      final value = await _readKeyUnchecked(configId);
+      result[configId] = value != null && value.isNotEmpty;
+    }
+    return result;
   }
 
   @override
@@ -146,6 +208,14 @@ class InMemoryAiSecretStore implements AiSecretStore {
   @override
   Future<void> writeKey(String configId, String value) async {
     _values[configId] = value;
+  }
+
+  @override
+  Future<Map<String, bool>> hasKeys(Iterable<String> configIds) async {
+    return <String, bool>{
+      for (final configId in configIds.toSet())
+        configId: _values[configId]?.isNotEmpty == true,
+    };
   }
 }
 

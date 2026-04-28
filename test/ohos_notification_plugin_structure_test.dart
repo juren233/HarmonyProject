@@ -97,6 +97,26 @@ void main() {
     );
   });
 
+  test('ohos app directory plugin is registered and version-controlled', () {
+    final registrant = File(
+      'ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets',
+    ).readAsStringSync();
+    final gitignore = File('.gitignore').readAsStringSync();
+
+    expect(registrant, contains("import PetNoteAppDirectoryPlugin from './PetNoteAppDirectoryPlugin'"));
+    expect(registrant, contains('flutterEngine.getPlugins()?.add(new PetNoteAppDirectoryPlugin())'));
+    expect(
+      File(
+        'ohos/entry/src/main/ets/plugins/PetNoteAppDirectoryPlugin.ets',
+      ).existsSync(),
+      isTrue,
+    );
+    expect(
+      gitignore,
+      contains('!ohos/entry/src/main/ets/plugins/PetNoteAppDirectoryPlugin.ets'),
+    );
+  });
+
   test('ohos notification implementation removes legacy workscheduler fallback', () {
     final moduleJson = File('ohos/entry/src/main/module.json5').readAsStringSync();
 

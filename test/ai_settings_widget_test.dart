@@ -787,6 +787,87 @@ void main() {
     );
   });
 
+  testWidgets('AI settings page defers and batches saved key checks',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final settingsController = await AppSettingsController.load();
+    final secretStore = _CountingAiSecretStore(
+      initialValues: const <String, String>{'cfg-1': 'sk-1'},
+    );
+    final coordinator = AiSettingsCoordinator(
+      settingsController: settingsController,
+      secretStore: secretStore,
+      connectionTester: AiConnectionTester(
+        transport: _FakeAiHttpTransport(
+          handler: (request) async => AiHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'data': [
+                {'id': 'glm-4.7'},
+              ],
+            }),
+          ),
+        ),
+      ),
+    );
+    final createdAt = DateTime.parse('2026-04-11T18:00:00+08:00');
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-1',
+        displayName: '主账号',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7',
+        isActive: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await settingsController.upsertAiProviderConfig(
+      AiProviderConfig(
+        id: 'cfg-2',
+        displayName: '备用账号',
+        providerType: AiProviderType.openaiCompatible,
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        model: 'glm-4.7',
+        isActive: false,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: AiSettingsPage(
+          settingsController: settingsController,
+          coordinator: coordinator,
+        ),
+      ),
+    );
+
+    expect(secretStore.isAvailableCallCount, 0);
+    expect(secretStore.hasKeysCallCount, 0);
+    expect(secretStore.readKeyCallCount, 0);
+
+    await tester.pumpAndSettle();
+
+    expect(secretStore.isAvailableCallCount, 1);
+    expect(secretStore.hasKeysCallCount, 1);
+    expect(secretStore.readKeyCallCount, 0);
+    expect(secretStore.requestedKeyBatches.single, ['cfg-1', 'cfg-2']);
+    expect(find.textContaining('已保存 API Key'), findsOneWidget);
+    expect(find.textContaining('尚未保存 API Key'), findsOneWidget);
+
+    await settingsController.setActiveAiProviderConfig('cfg-1');
+    await tester.pumpAndSettle();
+
+    expect(secretStore.isAvailableCallCount, 1);
+    expect(secretStore.hasKeysCallCount, 1);
+  });
+
   testWidgets(
       'editor test connection shows in-card pending state and floating feedback result',
       (tester) async {
@@ -1481,6 +1562,51 @@ class _FakeAiHttpTransport implements AiHttpTransport {
 
   @override
   Future<AiHttpResponse> send(AiHttpRequest request) => handler(request);
+}
+
+class _CountingAiSecretStore implements AiSecretStore {
+  _CountingAiSecretStore({
+    Map<String, String> initialValues = const <String, String>{},
+  }) : _values = Map<String, String>.from(initialValues);
+
+  final Map<String, String> _values;
+  final List<List<String>> requestedKeyBatches = <List<String>>[];
+  int isAvailableCallCount = 0;
+  int readKeyCallCount = 0;
+  int hasKeysCallCount = 0;
+
+  @override
+  Future<void> deleteKey(String configId) async {
+    _values.remove(configId);
+  }
+
+  @override
+  Future<Map<String, bool>> hasKeys(Iterable<String> configIds) async {
+    hasKeysCallCount += 1;
+    final ids = configIds.toList(growable: false);
+    requestedKeyBatches.add(ids);
+    return <String, bool>{
+      for (final configId in ids)
+        configId: _values[configId]?.isNotEmpty == true,
+    };
+  }
+
+  @override
+  Future<bool> isAvailable() async {
+    isAvailableCallCount += 1;
+    return true;
+  }
+
+  @override
+  Future<String?> readKey(String configId) async {
+    readKeyCallCount += 1;
+    return _values[configId];
+  }
+
+  @override
+  Future<void> writeKey(String configId, String value) async {
+    _values[configId] = value;
+  }
 }
 
 Map<String, Object> _persistedSinglePetPreferences() {

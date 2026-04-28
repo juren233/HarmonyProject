@@ -245,6 +245,9 @@ class NotificationCoordinator extends ChangeNotifier {
   ) {
     final jobs = <String, _PersistedNotificationJobSnapshot>{};
     final now = _nowProvider();
+    final petNamesById = <String, String>{
+      for (final pet in store.pets) pet.id: pet.name,
+    };
 
     for (final todo in store.todos) {
       if (todo.status == TodoStatus.done ||
@@ -267,14 +270,16 @@ class NotificationCoordinator extends ChangeNotifier {
       if (triggerAt == null) {
         continue;
       }
-      final pet = store.petById(todo.petId);
       jobs[payload.key] = _PersistedNotificationJobSnapshot(
         payload: payload,
         scheduledAt: triggerAt,
         sourceScheduledAt: todo.dueAt,
         leadTime: todo.notificationLeadTime,
         title: _notificationTitle(todo.title, fallback: '待办提醒'),
-        body: _notificationBody(petName: pet?.name, note: todo.note),
+        body: _notificationBody(
+          petName: petNamesById[todo.petId],
+          note: todo.note,
+        ),
       );
     }
 
@@ -299,14 +304,16 @@ class NotificationCoordinator extends ChangeNotifier {
       if (triggerAt == null) {
         continue;
       }
-      final pet = store.petById(reminder.petId);
       jobs[payload.key] = _PersistedNotificationJobSnapshot(
         payload: payload,
         scheduledAt: triggerAt,
         sourceScheduledAt: reminder.scheduledAt,
         leadTime: reminder.notificationLeadTime,
         title: _notificationTitle(reminder.title, fallback: '提醒事项'),
-        body: _notificationBody(petName: pet?.name, note: reminder.note),
+        body: _notificationBody(
+          petName: petNamesById[reminder.petId],
+          note: reminder.note,
+        ),
       );
     }
 

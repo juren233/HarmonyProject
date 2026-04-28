@@ -1,6 +1,7 @@
 package com.krustykrab.petnote
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -18,6 +19,8 @@ class PetNoteAiSecretStoreBridge(
     }
 
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
+    private var cachedPreferences: SharedPreferences? = null
+    private var preferencesResolved = false
 
     init {
         channel.setMethodCallHandler(this)
@@ -29,6 +32,16 @@ class PetNoteAiSecretStoreBridge(
             "readKey" -> {
                 val configId = (call.arguments as? Map<*, *>)?.get("configId") as? String
                 result.success(configId?.let { preferences()?.getString(it, null) })
+            }
+            "hasKeys" -> {
+                val configIds = (call.arguments as? Map<*, *>)?.get("configIds") as? List<*>
+                val prefs = preferences()
+                val states = mutableMapOf<String, Boolean>()
+                configIds?.forEach { value ->
+                    val configId = value as? String ?: return@forEach
+                    states[configId] = prefs?.getString(configId, null)?.isNotEmpty() == true
+                }
+                result.success(states)
             }
             "writeKey" -> {
                 val arguments = call.arguments as? Map<*, *>
@@ -58,8 +71,12 @@ class PetNoteAiSecretStoreBridge(
 
     private fun isAvailable(): Boolean = preferences() != null
 
-    private fun preferences() =
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+    private fun preferences(): SharedPreferences? {
+        if (preferencesResolved) {
+            return cachedPreferences
+        }
+        preferencesResolved = true
+        cachedPreferences = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             null
         } else {
             try {
@@ -77,4 +94,6 @@ class PetNoteAiSecretStoreBridge(
                 null
             }
         }
+        return cachedPreferences
+    }
 }

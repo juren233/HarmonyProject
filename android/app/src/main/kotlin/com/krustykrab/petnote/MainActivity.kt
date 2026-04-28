@@ -12,6 +12,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var notificationBridge: PetNoteNotificationBridge? = null
     private var aiSecretStoreBridge: PetNoteAiSecretStoreBridge? = null
     private var dataPackageFileAccessBridge: PetNoteDataPackageFileAccessBridge? = null
+    private var appDirectoryBridge: PetNoteAppDirectoryBridge? = null
     private var introHapticsBridge: PetNoteIntroHapticsBridge? = null
     private var nativeOptionPickerBridge: PetNoteNativeOptionPickerBridge? = null
     private var nativePetPhotoPickerBridge: PetNoteNativePetPhotoPickerBridge? = null
@@ -47,6 +48,10 @@ class MainActivity : FlutterFragmentActivity() {
         )
         dataPackageFileAccessBridge = PetNoteDataPackageFileAccessBridge(
             activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
+        appDirectoryBridge = PetNoteAppDirectoryBridge(
+            context = applicationContext,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
         introHapticsBridge = PetNoteIntroHapticsBridge(
@@ -94,6 +99,14 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        dataPackageFileAccessBridge?.close()
+        dataPackageFileAccessBridge = null
+        appDirectoryBridge?.close()
+        appDirectoryBridge = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun requestHighRefreshRate() {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/data/data_package_file_access.dart';
@@ -50,6 +52,35 @@ void main() {
     final picked = await access.pickBackupFile();
 
     expect(picked, isNull);
+  });
+
+  test('saveBackupFile sends a temp file path instead of raw JSON', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      log.add(call);
+      final arguments = Map<Object?, Object?>.from(call.arguments as Map);
+      expect(arguments['rawJson'], isNull);
+      final sourceFilePath = arguments['sourceFilePath'];
+      expect(sourceFilePath, isA<String>());
+      expect(File(sourceFilePath as String).readAsStringSync(),
+          '{"hello":"world"}');
+      return <String, Object?>{
+        'status': 'success',
+        'displayName': 'backup.json',
+        'locationLabel': 'Files',
+        'byteLength': 17,
+      };
+    });
+
+    final access = MethodChannelDataPackageFileAccess(channel: channel);
+    final saved = await access.saveBackupFile(
+      suggestedFileName: 'backup.json',
+      rawJson: '{"hello":"world"}',
+    );
+
+    expect(log.single.method, 'saveBackupFile');
+    expect(saved?.displayName, 'backup.json');
+    expect(saved?.byteLength, 17);
   });
 
   test('saveBackupFile maps native write failure into a typed exception',
