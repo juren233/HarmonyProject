@@ -1011,6 +1011,71 @@ void main() {
         contains('当天提醒'),
       );
     });
+
+    testWidgets('time derived refresh notifies when minute stamp changes',
+        (tester) async {
+      DateTime now = DateTime.now();
+      final dueAt = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        now.hour,
+        now.minute + 1,
+      );
+      final store = await PetNoteStore.load(
+        storage: PetNoteLocalStorage.memory(),
+        nowProvider: () => now,
+      );
+      addTearDown(store.dispose);
+
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      await store.addTodo(
+        title: '分钟边界待办',
+        petId: store.pets.single.id,
+        dueAt: dueAt,
+        note: '',
+      );
+
+      expect(
+        store.checklistSections
+            .firstWhere((section) => section.key == 'overdue')
+            .items,
+        isEmpty,
+      );
+
+      var notifyCount = 0;
+      void countNotification() {
+        notifyCount += 1;
+      }
+
+      store.addListener(countNotification);
+      addTearDown(() => store.removeListener(countNotification));
+      store.startTimeDerivedDataRefresh();
+
+      now = dueAt.add(const Duration(seconds: 1));
+      await tester.pump(const Duration(minutes: 1));
+
+      expect(notifyCount, 1);
+      expect(
+        store.checklistSections
+            .firstWhere((section) => section.key == 'overdue')
+            .items
+            .map((item) => item.title),
+        contains('分钟边界待办'),
+      );
+      store.stopTimeDerivedDataRefresh();
+    });
   });
 }
 

@@ -11,7 +11,12 @@ void main() {
     expect(source.contains('WidgetsBinding.instance.addPostFrameCallback'),
         isTrue);
     expect(source.contains('_prewarmPersistentTabs()'), isTrue);
-    expect(source.contains('Future<void>.delayed(const Duration(milliseconds: 48))'),
+    expect(
+        source
+            .contains('Future<void>.delayed(const Duration(milliseconds: 48))'),
+        isTrue);
+    expect(source.contains('_maxDeferredPrewarmTabCount = 1'), isTrue);
+    expect(source.contains('prewarmedCount >= _maxDeferredPrewarmTabCount'),
         isTrue);
     expect(source.contains('AppTab.overview,'), isTrue);
     expect(source.contains('AppTab.pets,'), isTrue);

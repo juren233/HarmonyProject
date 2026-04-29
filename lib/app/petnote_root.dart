@@ -84,7 +84,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
   _OverlayTransition _overlayTransition = _OverlayTransition.none;
   late final AnimationController _overlayTransitionController;
   late final OverviewBottomCtaController _overviewBottomCtaController;
-  Timer? _timeRefreshTimer;
   int? _lastNotificationSyncVersion;
   Future<void> _pendingNotificationSync = Future<void>.value();
   Future<void>? _notificationInitializationTask;
@@ -133,6 +132,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     final oldStore = _store;
     oldStore?.removeListener(_handleStoreChanged);
     oldStore?.setNotificationSyncHandler(null);
+    oldStore?.stopTimeDerivedDataRefresh();
     store.addListener(_handleStoreChanged);
     setState(() {
       _store = store;
@@ -155,8 +155,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _overlayTransition = _OverlayTransition.none;
     });
     store.setNotificationSyncHandler(() => _flushNotificationSync(store));
+    store.startTimeDerivedDataRefresh();
     _overlayTransitionController.value = 0;
-    _startTimeRefreshTicker();
     _notificationInitializationTask = _initializeNotifications(store);
     unawaited(_notificationInitializationTask!);
   }
@@ -260,20 +260,12 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
   }
 
-  void _startTimeRefreshTicker() {
-    _timeRefreshTimer?.cancel();
-    _timeRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final appLogController = widget.appLogController;
     if (state == AppLifecycleState.resumed) {
       appLogController?.updateCrashMonitoringHeartbeat(reason: 'resumed');
+      _store?.startTimeDerivedDataRefresh();
       if (mounted) {
         setState(() {});
       }
@@ -289,6 +281,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       appLogController?.updateCrashMonitoringHeartbeat(reason: 'paused');
       final store = _store;
       if (store != null) {
+        store.stopTimeDerivedDataRefresh();
         unawaited(_flushNotificationSync(store));
       }
       return;
@@ -778,9 +771,9 @@ class _PetNoteRootState extends State<PetNoteRoot>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.appLogController?.endCrashMonitoringSession(reason: 'dispose');
-    _timeRefreshTimer?.cancel();
     _store?.removeListener(_handleStoreChanged);
     _store?.setNotificationSyncHandler(null);
+    _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
@@ -870,6 +863,7 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
     AppTab.pets,
     AppTab.me,
   ];
+  static const int _maxDeferredPrewarmTabCount = 1;
 
   final Set<AppTab> _visitedTabs = <AppTab>{};
   late AppTab _activeTab;
@@ -931,7 +925,11 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
   }
 
   Future<void> _prewarmPersistentTabs() async {
+    var prewarmedCount = 0;
     for (final tab in _deferredPrewarmTabs(_activeTab)) {
+      if (prewarmedCount >= _maxDeferredPrewarmTabCount) {
+        break;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 48));
       if (!mounted) {
         return;
@@ -947,6 +945,7 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
       setState(() {
         _visitedTabs.add(tab);
       });
+      prewarmedCount += 1;
     }
   }
 

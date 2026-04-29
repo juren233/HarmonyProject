@@ -2466,6 +2466,65 @@ void main() {
   });
 
   testWidgets(
+      'root reflects store-managed time-derived refresh on minute boundary',
+      (tester) async {
+    var now = DateTime.now();
+    final dueAt = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute + 1,
+    );
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+      nowProvider: () => now,
+    );
+    await store.dismissFirstLaunchIntro();
+    await store.addPet(
+      name: 'Luna',
+      type: PetType.cat,
+      breed: 'British Shorthair',
+      sex: 'Female',
+      birthday: '2023-04-18',
+      weightKg: 4.6,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '早晚各一餐',
+      allergies: '无',
+      note: '测试宠物',
+    );
+    await store.addTodo(
+      title: '分钟边界刷新测试',
+      petId: store.pets.first.id,
+      dueAt: dueAt,
+      note: '',
+    );
+    store.setActiveTab(AppTab.checklist);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('checklist_card_todo-todo-1')),
+    );
+
+    expect(find.text('已逾期 0 项'), findsOneWidget);
+
+    now = dueAt.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('已逾期 1 项'), findsOneWidget);
+  });
+
+  testWidgets(
       'opening add sheet from iOS dock does not throw Flutter layout exceptions',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));

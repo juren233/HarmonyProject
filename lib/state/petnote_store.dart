@@ -813,6 +813,8 @@ class PetNoteStore extends ChangeNotifier {
   final Map<PetNoteLocalTable, String?> _persistedTableSnapshots =
       <PetNoteLocalTable, String?>{};
   Future<void> Function()? _notificationSyncHandler;
+  Timer? _timeDerivedDataTimer;
+  int? _timeDerivedDataMinuteStamp;
   List<ChecklistSection>? _checklistSectionsCache;
   int? _checklistSectionsCacheMinuteStamp;
   OverviewSnapshot? _overviewSnapshotCache;
@@ -875,6 +877,23 @@ class PetNoteStore extends ChangeNotifier {
 
   void setNotificationSyncHandler(Future<void> Function()? handler) {
     _notificationSyncHandler = handler;
+  }
+
+  void startTimeDerivedDataRefresh() {
+    _timeDerivedDataMinuteStamp = _minuteStamp(_referenceNow);
+    _scheduleNextTimeDerivedDataRefresh();
+  }
+
+  void stopTimeDerivedDataRefresh() {
+    _timeDerivedDataTimer?.cancel();
+    _timeDerivedDataTimer = null;
+    _timeDerivedDataMinuteStamp = null;
+  }
+
+  @override
+  void dispose() {
+    stopTimeDerivedDataRefresh();
+    super.dispose();
   }
 
   Pet? get selectedPet {
@@ -2048,6 +2067,40 @@ class PetNoteStore extends ChangeNotifier {
   void _invalidateSelectedPetDerivedData() {
     _invalidateSelectedPetReminders();
     _invalidateSelectedPetRecords();
+  }
+
+  void _invalidateTimeDerivedData() {
+    _invalidateChecklistDerivedData();
+    _overviewSnapshotCache = null;
+    _overviewSnapshotCacheMinuteStamp = null;
+    _overviewDataSliceCache = null;
+    _overviewDataSliceCacheKey = null;
+  }
+
+  void _scheduleNextTimeDerivedDataRefresh() {
+    _timeDerivedDataTimer?.cancel();
+    final now = _referenceNow;
+    final nextMinute = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute + 1,
+    );
+    _timeDerivedDataTimer =
+        Timer(nextMinute.difference(now), _handleTimeDerivedDataRefresh);
+  }
+
+  void _handleTimeDerivedDataRefresh() {
+    final minuteStamp = _minuteStamp(_referenceNow);
+    if (_timeDerivedDataMinuteStamp != minuteStamp) {
+      _timeDerivedDataMinuteStamp = minuteStamp;
+      _invalidateTimeDerivedData();
+      notifyListeners();
+    }
+    if (_timeDerivedDataTimer != null) {
+      _scheduleNextTimeDerivedDataRefresh();
+    }
   }
 
   ChecklistItemViewModel _todoToChecklistItem(TodoItem item) {
