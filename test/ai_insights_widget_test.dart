@@ -24,6 +24,13 @@ import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+Finder _buttonWithText(String text) {
+  return find.ancestor(
+    of: find.text(text),
+    matching: find.byWidgetPredicate((widget) => widget is ButtonStyleButton),
+  );
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -1696,19 +1703,19 @@ void main() {
 
     expect(service.generateCareReportCalls, 1);
 
-    final headerGenerateButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '重新生成'),
+    final headerGenerateButton = tester.widget<ButtonStyleButton>(
+      _buttonWithText('重新生成'),
     );
     expect(headerGenerateButton.onPressed, isNotNull);
 
     await tester.tap(
-      find.widgetWithText(FilledButton, '重新生成'),
+      _buttonWithText('重新生成'),
       warnIfMissed: false,
     );
     await tester.pumpAndSettle();
 
     expect(find.text('你的AI关怀助理'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
+    expect(_buttonWithText('重新生成'), findsNothing);
     expect(service.generateCareReportCalls, 1);
   });
 
@@ -1891,7 +1898,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.tap(_buttonWithText('重新生成'));
     await tester.pumpAndSettle();
 
     expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsNothing);
@@ -2025,14 +2032,12 @@ void main() {
     final configButtonFinder =
         find.byKey(const ValueKey('overview-header-ai-settings-button'));
     final generateButton =
-        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '重新生成'));
-    final configButton =
-        tester.widget<IconButton>(configButtonFinder);
+        tester.widget<ButtonStyleButton>(_buttonWithText('重新生成'));
+    final configButton = tester.widget<IconButton>(configButtonFinder);
 
     expect(configButtonFinder, findsOneWidget);
     expect(tester.getRect(configButtonFinder).right,
-        lessThanOrEqualTo(
-            tester.getRect(find.widgetWithText(FilledButton, '重新生成')).left));
+        lessThanOrEqualTo(tester.getRect(_buttonWithText('重新生成')).left));
     expect(configButton.style?.foregroundColor?.resolve({}), overviewAccent);
     expect(generateButton.style?.backgroundColor?.resolve({}), overviewAccent);
   });
@@ -2061,12 +2066,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重新生成'), findsOneWidget);
+    expect(_buttonWithText('重新生成'), findsOneWidget);
     expect(find.text('你的AI关怀助理'), findsNothing);
     expect(service.generateCareReportCalls, 1);
     expect(service.forceRefreshValues, <bool>[false]);
 
-    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.tap(_buttonWithText('重新生成'));
     await tester.pumpAndSettle();
 
     expect(find.text('Luna 和 Milo 当前整体稳定，但耳道护理和皮肤复查还需要继续盯紧。'), findsNothing);
@@ -2074,7 +2079,7 @@ void main() {
     expect(find.text('右上角选好时间范围后，在此处选择你的爱宠即可生成总览'), findsOneWidget);
     expect(find.byKey(const ValueKey('overview-floating-generate-button')),
         findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重新生成'), findsNothing);
+    expect(_buttonWithText('重新生成'), findsNothing);
     expect(service.generateCareReportCalls, 1);
 
     await tester
@@ -2178,14 +2183,14 @@ void main() {
       findsNothing,
     );
     expect(find.text('关键变化'), findsNothing);
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsNothing);
+    expect(_buttonWithText('返回重试'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 360));
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsNothing);
+    expect(_buttonWithText('返回重试'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 180));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsOneWidget);
+    expect(_buttonWithText('返回重试'), findsOneWidget);
     expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
 
     store.setActiveTab(AppTab.checklist);
@@ -2200,16 +2205,16 @@ void main() {
     expect(find.text('服务暂时不可用'), findsOneWidget);
     expect(find.text('关键变化'), findsNothing);
     expect(service.generateCareReportCalls, 1);
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsNothing);
+    expect(_buttonWithText('返回重试'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 360));
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsNothing);
+    expect(_buttonWithText('返回重试'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 180));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsOneWidget);
+    expect(_buttonWithText('返回重试'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, '返回重试'));
+    await tester.tap(_buttonWithText('返回重试'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('overview-generation-error-experience')),
@@ -2290,10 +2295,10 @@ void main() {
     expect(errorTitleFinder, findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 40));
-    expect(find.widgetWithText(FilledButton, '返回重试'), findsOneWidget);
+    expect(_buttonWithText('返回重试'), findsOneWidget);
     final errorTitleTop = tester.getTopLeft(errorTitleFinder).dy;
 
-    await tester.tap(find.widgetWithText(FilledButton, '返回重试'));
+    await tester.tap(_buttonWithText('返回重试'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 180));
 

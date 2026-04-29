@@ -6,8 +6,12 @@ import 'package:petnote/state/petnote_store.dart';
 
 const _androidLiquidGlassDockViewType = 'petnote/android_liquid_glass_dock';
 
+@visibleForTesting
+bool debugDisableAndroidLiquidGlassDock = false;
+
 bool supportsAndroidLiquidGlassDock(TargetPlatform platform) {
   return platform == TargetPlatform.android &&
+      !debugDisableAndroidLiquidGlassDock &&
       !Platform.environment.containsKey('FLUTTER_TEST');
 }
 

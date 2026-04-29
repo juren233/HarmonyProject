@@ -1136,7 +1136,8 @@ void main() {
         updatedAt: createdAt,
       ),
     );
-    await secretStore.writeKey('cfg-missing-field-retry-same-level', 'sk-test-123');
+    await secretStore.writeKey(
+        'cfg-missing-field-retry-same-level', 'sk-test-123');
 
     final service = NetworkAiInsightsService(
       clientFactory: AiClientFactory(
@@ -2485,6 +2486,11 @@ class _FakeAiHttpTransport implements AiHttpTransport {
 class _ThrowingSecretStore implements AiSecretStore {
   @override
   Future<void> deleteKey(String configId) async {}
+
+  @override
+  Future<Map<String, bool>> hasKeys(Iterable<String> configIds) async {
+    throw const AiSecretStoreException('secure storage unavailable');
+  }
 
   @override
   Future<bool> isAvailable() async => true;

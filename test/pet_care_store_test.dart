@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
@@ -19,6 +20,33 @@ void main() {
       expect(store.pets, isEmpty);
       expect(store.shouldAutoShowFirstLaunchIntro, isTrue);
       expect(store.checklistSections.length, 5);
+    });
+
+    test('load skips database warning when Flutter binding is unavailable',
+        () async {
+      final messages = <String>[];
+      final previousDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) {
+          messages.add(message);
+        }
+      };
+      addTearDown(() {
+        debugPrint = previousDebugPrint;
+      });
+
+      await PetNoteStore.load();
+
+      expect(
+        messages.where((message) => message.contains('Binding has not yet')),
+        isEmpty,
+      );
+      expect(
+        messages.where(
+          (message) => message.contains('PetNote local database unavailable'),
+        ),
+        isEmpty,
+      );
     });
 
     test('adding a pet persists its typed profile fields', () async {
@@ -321,7 +349,11 @@ void main() {
       expect(tables.containsKey(PetNoteLocalTable.pets.storageKey), isFalse);
       expect(tables.keys, contains('pets_v1/pet-1'));
       expect(tables.keys, contains('pets_v1/pet-2'));
-      expect(tables['pets_v1/pet-2'], contains('Tofu'));
+      expect(tables['pets_v1/pet-2'], isA<Map>());
+      expect(
+        ((tables['pets_v1/pet-2'] as Map)['data'] as Map)['name'],
+        'Tofu',
+      );
 
       final reloaded = await PetNoteStore.load(storage: storage);
       expect(reloaded.pets.map((pet) => pet.name), ['Tofu', 'Mochi']);
@@ -389,7 +421,113 @@ void main() {
       );
       expect(
         storage.debugExportTables()['pets_v1/${store.pets.first.id}'],
-        contains('8.6'),
+        isA<Map>(),
+      );
+      final row =
+          storage.debugExportTables()['pets_v1/${store.pets.first.id}'] as Map;
+      expect((row['data'] as Map)['weightKg'], 8.6);
+    });
+
+    test('database backend exposes queryable entity rows by pet and date',
+        () async {
+      final storage = await PetNoteLocalStorage.loadDatabase(
+        databaseFactory: databaseFactoryMemory,
+        databasePath: 'petnote-entity-query-test.db',
+      );
+      final store = await PetNoteStore.load(storage: storage);
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      await store.addRecord(
+        petId: store.pets.first.id,
+        type: PetRecordType.medical,
+        title: '区间内记录',
+        recordDate: DateTime.parse('2026-03-20T10:00:00+08:00'),
+        summary: '检查正常',
+        note: '继续观察',
+      );
+      await store.addRecord(
+        petId: store.pets.first.id,
+        type: PetRecordType.medical,
+        title: '区间外记录',
+        recordDate: DateTime.parse('2026-01-01T10:00:00+08:00'),
+        summary: '旧记录',
+        note: '旧备注',
+      );
+
+      final rows = storage!.readEntityTableSlice(
+        PetNoteLocalTable.records,
+        petIds: {store.pets.first.id},
+        start: DateTime.parse('2026-03-01T00:00:00+08:00'),
+        end: DateTime.parse('2026-03-31T23:59:59+08:00'),
+      );
+      final storedRows = storage.debugExportTables();
+      final recordRow = storedRows['records_v1/record-1'] as Map;
+
+      expect(recordRow['petId'], store.pets.first.id);
+      expect(recordRow['dateMillis'], isA<int>());
+      expect(rows, hasLength(1));
+      expect(rows!.single['title'], '区间内记录');
+    });
+
+    test('overview data uses database range slices after reload', () async {
+      final storage = await PetNoteLocalStorage.loadDatabase(
+        databaseFactory: databaseFactoryMemory,
+        databasePath: 'petnote-overview-slice-test.db',
+      );
+      final store = await PetNoteStore.load(
+        storage: storage,
+        nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+      );
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      await store.addRecord(
+        petId: store.pets.first.id,
+        type: PetRecordType.medical,
+        title: '区间内记录',
+        recordDate: DateTime.parse('2026-03-20T10:00:00+08:00'),
+        summary: '检查正常',
+        note: '继续观察',
+      );
+
+      final reloaded = await PetNoteStore.load(
+        storage: storage,
+        nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+      );
+      final readsBefore =
+          storage!.debugEntitySliceReadCounts[PetNoteLocalTable.records] ?? 0;
+
+      expect(
+        reloaded.overviewSnapshot.sections.first.items.first,
+        contains('1 条资料记录'),
+      );
+      final readsAfterSnapshot =
+          storage.debugEntitySliceReadCounts[PetNoteLocalTable.records] ?? 0;
+      reloaded.buildOverviewAiGenerationContext();
+
+      expect(readsAfterSnapshot, readsBefore + 1);
+      expect(
+        storage.debugEntitySliceReadCounts[PetNoteLocalTable.records],
+        readsAfterSnapshot,
       );
     });
 
@@ -577,12 +715,29 @@ void main() {
 
     test('load falls back to in-memory mode when preferences are unavailable',
         () async {
+      final messages = <String>[];
+      final previousDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) {
+          messages.add(message);
+        }
+      };
+      addTearDown(() {
+        debugPrint = previousDebugPrint;
+      });
+
       final store = await PetNoteStore.load(
         preferencesLoader: () async => throw Exception('plugin unavailable'),
       );
 
       expect(store.pets, isEmpty);
       expect(store.shouldAutoShowFirstLaunchIntro, isTrue);
+      expect(
+        messages.where(
+          (message) => message.contains('SharedPreferences unavailable'),
+        ),
+        hasLength(1),
+      );
     });
 
     test('seeded store exposes five checklist sections', () {

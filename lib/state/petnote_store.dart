@@ -571,6 +571,18 @@ class OverviewAnalysisConfig {
   final DateTime? customRangeEnd;
 }
 
+class _OverviewDataSlice {
+  const _OverviewDataSlice({
+    required this.todos,
+    required this.reminders,
+    required this.records,
+  });
+
+  final List<TodoItem> todos;
+  final List<ReminderItem> reminders;
+  final List<PetRecord> records;
+}
+
 class PetNoteStore extends ChangeNotifier {
   PetNoteStore._({
     List<Pet>? pets,
@@ -765,14 +777,10 @@ class PetNoteStore extends ChangeNotifier {
       nowProvider: nowProvider,
       shouldAutoShowFirstLaunchIntro:
           localStorage?.readBool(_firstLaunchIntroAutoEnabledKey) ?? true,
-      pets: _decodePets(localStorage?.readTable(PetNoteLocalTable.pets)),
-      todos: _decodeTodos(localStorage?.readTable(PetNoteLocalTable.todos)),
-      reminders: _decodeReminders(
-        localStorage?.readTable(PetNoteLocalTable.reminders),
-      ),
-      records: _decodeRecords(
-        localStorage?.readTable(PetNoteLocalTable.records),
-      ),
+      pets: _decodePetsFromStorage(localStorage),
+      todos: _decodeTodosFromStorage(localStorage),
+      reminders: _decodeRemindersFromStorage(localStorage),
+      records: _decodeRecordsFromStorage(localStorage),
       overviewAnalysisConfig: _decodeOverviewAnalysisConfig(
         localStorage?.readTable(PetNoteLocalTable.overviewConfig),
       ),
@@ -809,6 +817,9 @@ class PetNoteStore extends ChangeNotifier {
   int? _checklistSectionsCacheMinuteStamp;
   OverviewSnapshot? _overviewSnapshotCache;
   int? _overviewSnapshotCacheMinuteStamp;
+  _OverviewDataSlice? _overviewDataSliceCache;
+  String? _overviewDataSliceCacheKey;
+  bool _overviewEntityStorageFresh = true;
   String? _remindersForSelectedPetCachePetId;
   List<ReminderItem>? _remindersForSelectedPetCache;
   String? _recordsForSelectedPetCachePetId;
@@ -1030,32 +1041,14 @@ class PetNoteStore extends ChangeNotifier {
 
     final range = _resolveOverviewDateRange(referenceNow);
     final selectedPetIds = _effectiveOverviewSelectedPetIds().toSet();
-
-    final todos = _todos
-        .where(
-          (todo) =>
-              selectedPetIds.contains(todo.petId) &&
-              !todo.dueAt.isBefore(range.start) &&
-              !todo.dueAt.isAfter(range.end),
-        )
-        .toList();
-    final reminders = _reminders
-        .where(
-          (reminder) =>
-              selectedPetIds.contains(reminder.petId) &&
-              !reminder.scheduledAt.isBefore(range.start) &&
-              !reminder.scheduledAt.isAfter(range.end),
-        )
-        .toList();
-    final records = _records
-        .where(
-          (record) =>
-              selectedPetIds.contains(record.petId) &&
-              !record.recordDate.isBefore(range.start) &&
-              !record.recordDate.isAfter(range.end),
-        )
-        .toList()
-      ..sort((a, b) => b.recordDate.compareTo(a.recordDate));
+    final slice = _overviewDataSlice(
+      range: range,
+      selectedPetIds: selectedPetIds,
+      minuteStamp: minuteStamp,
+    );
+    final todos = slice.todos;
+    final reminders = slice.reminders;
+    final records = slice.records;
 
     final riskItems = <String>[];
     final overdueCount = todos
@@ -1123,10 +1116,58 @@ class PetNoteStore extends ChangeNotifier {
   AiGenerationContext buildOverviewAiGenerationContext() {
     final now = _referenceNow;
     final range = _resolveOverviewDateRange(now);
+    final minuteStamp = _minuteStamp(now);
     final selectedPetIds = _effectiveOverviewSelectedPetIds().toSet();
     final selectedPets = _pets
         .where((pet) => selectedPetIds.contains(pet.id))
         .toList(growable: false);
+    final slice = _overviewDataSlice(
+      range: range,
+      selectedPetIds: selectedPetIds,
+      minuteStamp: minuteStamp,
+    );
+
+    return AiGenerationContext(
+      title: _overviewTitle(_overviewRange),
+      rangeLabel: _overviewRangeLabel(_overviewRange),
+      rangeStart: range.start,
+      rangeEnd: range.end,
+      languageTag: 'zh-CN',
+      pets: selectedPets,
+      todos: slice.todos,
+      reminders: slice.reminders,
+      records: slice.records,
+    );
+  }
+
+  _OverviewDataSlice _overviewDataSlice({
+    required ({DateTime start, DateTime end}) range,
+    required Set<String> selectedPetIds,
+    required int minuteStamp,
+  }) {
+    final sortedPetIds = selectedPetIds.toList(growable: false)..sort();
+    final cacheKey = [
+      minuteStamp,
+      _overviewRange.name,
+      range.start.millisecondsSinceEpoch,
+      range.end.millisecondsSinceEpoch,
+      ...sortedPetIds,
+    ].join('|');
+    final cached = _overviewDataSliceCache;
+    if (cached != null && _overviewDataSliceCacheKey == cacheKey) {
+      return cached;
+    }
+
+    final storageSlice = _overviewDataSliceFromStorage(
+      range: range,
+      selectedPetIds: selectedPetIds,
+    );
+    if (storageSlice != null) {
+      _overviewDataSliceCache = storageSlice;
+      _overviewDataSliceCacheKey = cacheKey;
+      return storageSlice;
+    }
+
     final todos = _todos
         .where(
           (todo) =>
@@ -1150,18 +1191,60 @@ class PetNoteStore extends ChangeNotifier {
               !record.recordDate.isBefore(range.start) &&
               !record.recordDate.isAfter(range.end),
         )
-        .toList(growable: false);
-
-    return AiGenerationContext(
-      title: _overviewTitle(_overviewRange),
-      rangeLabel: _overviewRangeLabel(_overviewRange),
-      rangeStart: range.start,
-      rangeEnd: range.end,
-      languageTag: 'zh-CN',
-      pets: selectedPets,
+        .toList(growable: false)
+      ..sort((a, b) => b.recordDate.compareTo(a.recordDate));
+    final slice = _OverviewDataSlice(
       todos: todos,
       reminders: reminders,
       records: records,
+    );
+    _overviewDataSliceCache = slice;
+    _overviewDataSliceCacheKey = cacheKey;
+    return slice;
+  }
+
+  _OverviewDataSlice? _overviewDataSliceFromStorage({
+    required ({DateTime start, DateTime end}) range,
+    required Set<String> selectedPetIds,
+  }) {
+    if (!_overviewEntityStorageFresh || selectedPetIds.isEmpty) {
+      return null;
+    }
+    final storage = _storage;
+    if (storage == null ||
+        !storage.usesEntityRows(PetNoteLocalTable.todos) ||
+        !storage.usesEntityRows(PetNoteLocalTable.reminders) ||
+        !storage.usesEntityRows(PetNoteLocalTable.records)) {
+      return null;
+    }
+    final todoRows = storage.readEntityTableSlice(
+      PetNoteLocalTable.todos,
+      petIds: selectedPetIds,
+      start: range.start,
+      end: range.end,
+    );
+    final reminderRows = storage.readEntityTableSlice(
+      PetNoteLocalTable.reminders,
+      petIds: selectedPetIds,
+      start: range.start,
+      end: range.end,
+    );
+    final recordRows = storage.readEntityTableSlice(
+      PetNoteLocalTable.records,
+      petIds: selectedPetIds,
+      start: range.start,
+      end: range.end,
+    );
+    if (todoRows == null || reminderRows == null || recordRows == null) {
+      return null;
+    }
+    final records =
+        _decodeRows(recordRows, PetRecord.fromJson) ?? <PetRecord>[];
+    return _OverviewDataSlice(
+      todos: _decodeRows(todoRows, TodoItem.fromJson) ?? <TodoItem>[],
+      reminders:
+          _decodeRows(reminderRows, ReminderItem.fromJson) ?? <ReminderItem>[],
+      records: records..sort((a, b) => b.recordDate.compareTo(a.recordDate)),
     );
   }
 
@@ -1939,6 +2022,9 @@ class PetNoteStore extends ChangeNotifier {
   void _invalidateOverviewDerivedData() {
     _overviewSnapshotCache = null;
     _overviewSnapshotCacheMinuteStamp = null;
+    _overviewDataSliceCache = null;
+    _overviewDataSliceCacheKey = null;
+    _overviewEntityStorageFresh = false;
     _invalidateOverviewAiReportState();
   }
 
@@ -2117,31 +2203,35 @@ class PetNoteStore extends ChangeNotifier {
       return;
     }
     if (pets) {
-      await _writeTableIfChanged(
+      await _writeEntityTableIfChanged(
         storage,
         PetNoteLocalTable.pets,
-        _encodePetsTable(),
+        _pets.map((pet) => pet.toJson()).toList(growable: false),
+        _encodePetsTable,
       );
     }
     if (todos) {
-      await _writeTableIfChanged(
+      await _writeEntityTableIfChanged(
         storage,
         PetNoteLocalTable.todos,
-        _encodeTodosTable(),
+        _todos.map((item) => item.toJson()).toList(growable: false),
+        _encodeTodosTable,
       );
     }
     if (reminders) {
-      await _writeTableIfChanged(
+      await _writeEntityTableIfChanged(
         storage,
         PetNoteLocalTable.reminders,
-        _encodeRemindersTable(),
+        _reminders.map((item) => item.toJson()).toList(growable: false),
+        _encodeRemindersTable,
       );
     }
     if (records) {
-      await _writeTableIfChanged(
+      await _writeEntityTableIfChanged(
         storage,
         PetNoteLocalTable.records,
-        _encodeRecordsTable(),
+        _records.map((item) => item.toJson()).toList(growable: false),
+        _encodeRecordsTable,
       );
     }
     if (overviewConfig) {
@@ -2164,18 +2254,50 @@ class PetNoteStore extends ChangeNotifier {
         );
       }
     }
+    if (pets || todos || reminders || records) {
+      _overviewEntityStorageFresh = true;
+    }
   }
 
   void _refreshPersistedTableSnapshots() {
-    _persistedTableSnapshots[PetNoteLocalTable.pets] = _encodePetsTable();
-    _persistedTableSnapshots[PetNoteLocalTable.todos] = _encodeTodosTable();
-    _persistedTableSnapshots[PetNoteLocalTable.reminders] =
-        _encodeRemindersTable();
-    _persistedTableSnapshots[PetNoteLocalTable.records] = _encodeRecordsTable();
+    _refreshPersistedTableSnapshot(PetNoteLocalTable.pets, _encodePetsTable);
+    _refreshPersistedTableSnapshot(PetNoteLocalTable.todos, _encodeTodosTable);
+    _refreshPersistedTableSnapshot(
+      PetNoteLocalTable.reminders,
+      _encodeRemindersTable,
+    );
+    _refreshPersistedTableSnapshot(
+      PetNoteLocalTable.records,
+      _encodeRecordsTable,
+    );
     _persistedTableSnapshots[PetNoteLocalTable.overviewConfig] =
         _encodeOverviewConfigTable();
     _persistedTableSnapshots[PetNoteLocalTable.overviewAiReport] =
         _encodeOverviewAiReportTable();
+  }
+
+  void _refreshPersistedTableSnapshot(
+    PetNoteLocalTable table,
+    String Function() encode,
+  ) {
+    if (_storage?.usesEntityRows(table) ?? false) {
+      _persistedTableSnapshots.remove(table);
+      return;
+    }
+    _persistedTableSnapshots[table] = encode();
+  }
+
+  Future<void> _writeEntityTableIfChanged(
+    PetNoteLocalStorage storage,
+    PetNoteLocalTable table,
+    List<Map<String, Object?>> values,
+    String Function() encode,
+  ) async {
+    if (storage.usesEntityRows(table)) {
+      await storage.writeEntityTable(table, values);
+      return;
+    }
+    await _writeTableIfChanged(storage, table, encode());
   }
 
   Future<void> _writeTableIfChanged(
@@ -2236,27 +2358,45 @@ class PetNoteStore extends ChangeNotifier {
     return trimmed.substring(0, 1).toUpperCase();
   }
 
-  static List<Pet> _decodePets(String? petsJson) {
-    if (petsJson == null || petsJson.isEmpty) {
-      return const <Pet>[];
-    }
-    final decoded = jsonDecode(petsJson);
-    if (decoded is! List) {
-      return const <Pet>[];
-    }
-    return decoded.whereType<Map<String, dynamic>>().map(Pet.fromJson).toList();
+  static List<Pet> _decodePetsFromStorage(PetNoteLocalStorage? storage) {
+    return _decodeRows(
+            storage?.readEntityTable(PetNoteLocalTable.pets), Pet.fromJson) ??
+        _decodeList(storage?.readTable(PetNoteLocalTable.pets), Pet.fromJson);
   }
 
-  static List<TodoItem> _decodeTodos(String? todosJson) {
-    return _decodeList(todosJson, TodoItem.fromJson);
+  static List<TodoItem> _decodeTodosFromStorage(PetNoteLocalStorage? storage) {
+    return _decodeRows(storage?.readEntityTable(PetNoteLocalTable.todos),
+            TodoItem.fromJson) ??
+        _decodeList(
+          storage?.readTable(PetNoteLocalTable.todos),
+          TodoItem.fromJson,
+        );
   }
 
-  static List<ReminderItem> _decodeReminders(String? remindersJson) {
-    return _decodeList(remindersJson, ReminderItem.fromJson);
+  static List<ReminderItem> _decodeRemindersFromStorage(
+    PetNoteLocalStorage? storage,
+  ) {
+    return _decodeRows(
+          storage?.readEntityTable(PetNoteLocalTable.reminders),
+          ReminderItem.fromJson,
+        ) ??
+        _decodeList(
+          storage?.readTable(PetNoteLocalTable.reminders),
+          ReminderItem.fromJson,
+        );
   }
 
-  static List<PetRecord> _decodeRecords(String? recordsJson) {
-    return _decodeList(recordsJson, PetRecord.fromJson);
+  static List<PetRecord> _decodeRecordsFromStorage(
+    PetNoteLocalStorage? storage,
+  ) {
+    return _decodeRows(
+          storage?.readEntityTable(PetNoteLocalTable.records),
+          PetRecord.fromJson,
+        ) ??
+        _decodeList(
+          storage?.readTable(PetNoteLocalTable.records),
+          PetRecord.fromJson,
+        );
   }
 
   static OverviewAnalysisConfig? _decodeOverviewAnalysisConfig(
@@ -2324,6 +2464,15 @@ class PetNoteStore extends ChangeNotifier {
         .whereType<Map>()
         .map((item) => fromJson(Map<String, dynamic>.from(item)))
         .toList();
+  }
+
+  static List<T>? _decodeRows<T>(
+    List<Map<String, Object?>>? rows,
+    T Function(Map<String, dynamic> json) fromJson,
+  ) {
+    return rows
+        ?.map((item) => fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _encodeOverviewAnalysisConfig() {

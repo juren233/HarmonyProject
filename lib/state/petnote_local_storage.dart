@@ -28,7 +28,7 @@ class PetNoteLocalStorage {
     SharedPreferences? preferences,
     Map<String, Object?>? memoryValues,
     Database? database,
-    StoreRef<String, String>? store,
+    StoreRef<String, Object?>? store,
     PetNoteLocalStorageBackend? backend,
   })  : _preferences = preferences,
         _memoryValues = memoryValues,
@@ -88,14 +88,18 @@ class PetNoteLocalStorage {
   }) async {
     final factory = databaseFactory ?? databaseFactoryIo;
     try {
-      final path = databasePath ?? await _resolveDatabasePath(directoryLoader);
+      final path = databasePath ??
+          await _resolveDatabasePath(directoryLoader).timeout(
+            timeout,
+            onTimeout: () => null,
+          );
       if (path == null || path.trim().isEmpty) {
         return null;
       }
       final database = await factory.openDatabase(path).timeout(timeout);
       final storage = PetNoteLocalStorage._(
         database: database,
-        store: StoreRef<String, String>(_databaseStoreName),
+        store: StoreRef<String, Object?>(_databaseStoreName),
       );
       await storage._migrateLegacyPreferences(
         legacyPreferencesLoader ?? SharedPreferences.getInstance,
@@ -118,7 +122,7 @@ class PetNoteLocalStorage {
     );
     final storage = PetNoteLocalStorage._(
       database: database,
-      store: StoreRef<String, String>(_databaseStoreName),
+      store: StoreRef<String, Object?>(_databaseStoreName),
     );
     for (final entry in existingValues.entries) {
       await storage._writeString(entry.key, entry.value.toString());
@@ -146,11 +150,14 @@ class PetNoteLocalStorage {
   final SharedPreferences? _preferences;
   final Map<String, Object?>? _memoryValues;
   final Database? _database;
-  final StoreRef<String, String>? _store;
+  final StoreRef<String, Object?>? _store;
   final PetNoteLocalStorageBackend backend;
   final Map<PetNoteLocalTable, int> _writeCounts = <PetNoteLocalTable, int>{};
-  final Map<PetNoteLocalTable, int> _entityPutCounts = <PetNoteLocalTable, int>{};
+  final Map<PetNoteLocalTable, int> _entityPutCounts =
+      <PetNoteLocalTable, int>{};
   final Map<PetNoteLocalTable, int> _entityDeleteCounts =
+      <PetNoteLocalTable, int>{};
+  final Map<PetNoteLocalTable, int> _entitySliceReadCounts =
       <PetNoteLocalTable, int>{};
 
   static const String _databaseStoreName = 'petnote_local_tables';
@@ -166,6 +173,9 @@ class PetNoteLocalStorage {
   Map<PetNoteLocalTable, int> get debugEntityDeleteCounts =>
       Map<PetNoteLocalTable, int>.unmodifiable(_entityDeleteCounts);
 
+  Map<PetNoteLocalTable, int> get debugEntitySliceReadCounts =>
+      Map<PetNoteLocalTable, int>.unmodifiable(_entitySliceReadCounts);
+
   String? readTable(PetNoteLocalTable table) {
     if (_usesEntityRows(table)) {
       return _readEntityRows(table);
@@ -173,13 +183,80 @@ class PetNoteLocalStorage {
     return _readString(table.storageKey);
   }
 
+  bool usesEntityRows(PetNoteLocalTable table) => _usesEntityRows(table);
+
+  List<Map<String, Object?>>? readEntityTable(PetNoteLocalTable table) {
+    if (!_usesEntityRows(table)) {
+      return null;
+    }
+    final rows = _readEntityRowsAsMaps(table);
+    if (rows != null) {
+      return rows;
+    }
+    final legacyTable = _readString(table.storageKey);
+    if (legacyTable == null || legacyTable.isEmpty) {
+      return const <Map<String, Object?>>[];
+    }
+    final decoded = jsonDecode(legacyTable);
+    if (decoded is! List) {
+      return const <Map<String, Object?>>[];
+    }
+    return decoded
+        .whereType<Map>()
+        .map((item) => Map<String, Object?>.from(item))
+        .toList(growable: false);
+  }
+
+  List<Map<String, Object?>>? readEntityTableSlice(
+    PetNoteLocalTable table, {
+    required Set<String> petIds,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    if (!_usesEntityRows(table) || petIds.isEmpty) {
+      return null;
+    }
+    final dateField = _entityDateFieldFor(table);
+    if (dateField == null) {
+      return null;
+    }
+    final database = _database;
+    final store = _store;
+    if (database == null || store == null) {
+      return null;
+    }
+    _entitySliceReadCounts[table] = (_entitySliceReadCounts[table] ?? 0) + 1;
+    final records = store.findSync(
+      database,
+      finder: _entityRowsFinder(
+        table,
+        petIds: petIds,
+        startMillis: start.millisecondsSinceEpoch,
+        endMillis: end.millisecondsSinceEpoch,
+      ),
+    );
+    return _entityRowsFromRecords(records);
+  }
+
   Future<void> writeTable(PetNoteLocalTable table, String value) async {
     _writeCounts[table] = (_writeCounts[table] ?? 0) + 1;
     if (_usesEntityRows(table)) {
-      await _writeEntityRows(table, value);
+      await _writeEntityRowsFromEncodedTable(table, value);
       return;
     }
     await _writeString(table.storageKey, value);
+  }
+
+  Future<void> writeEntityTable(
+    PetNoteLocalTable table,
+    List<Map<String, Object?>> values,
+  ) async {
+    _writeCounts[table] = (_writeCounts[table] ?? 0) + 1;
+    if (!_usesEntityRows(table)) {
+      await _writeString(table.storageKey, jsonEncode(values));
+      return;
+    }
+    await _writeEntityRows(table, values);
   }
 
   Future<void> removeTable(PetNoteLocalTable table) async {
@@ -244,7 +321,8 @@ class PetNoteLocalStorage {
     final database = _database;
     final store = _store;
     if (database != null && store != null) {
-      return store.record(key).getSync(database);
+      final value = store.record(key).getSync(database);
+      return value is String ? value : null;
     }
     return _preferences?.getString(key);
   }
@@ -284,6 +362,11 @@ class PetNoteLocalStorage {
   }
 
   String? _readEntityRows(PetNoteLocalTable table) {
+    final rows = _readEntityRowsAsMaps(table);
+    return rows == null ? _readString(table.storageKey) : jsonEncode(rows);
+  }
+
+  List<Map<String, Object?>>? _readEntityRowsAsMaps(PetNoteLocalTable table) {
     final database = _database;
     final store = _store;
     if (database == null || store == null) {
@@ -291,50 +374,50 @@ class PetNoteLocalStorage {
     }
     final records = _findEntityRecordsSync(database, store, table);
     if (records.isEmpty) {
-      return _readString(table.storageKey);
+      return null;
     }
-    final rows = <_EntityRow>[];
-    for (final record in records) {
-      final row = _decodeEntityRow(record.value);
-      if (row != null) {
-        rows.add(row);
-      }
-    }
-    rows.sort((left, right) => left.order.compareTo(right.order));
-    return jsonEncode(rows.map((row) => row.data).toList());
+    return _entityRowsFromRecords(records);
   }
 
-  Future<void> _writeEntityRows(PetNoteLocalTable table, String value) async {
-    final database = _database;
-    final store = _store;
-    if (database == null || store == null) {
-      await _writeString(table.storageKey, value);
-      return;
-    }
+  Future<void> _writeEntityRowsFromEncodedTable(
+    PetNoteLocalTable table,
+    String value,
+  ) async {
     final decoded = jsonDecode(value);
     if (decoded is! List) {
       await _writeString(table.storageKey, value);
       return;
     }
-    final nextRows = <String, String>{};
-    for (var index = 0; index < decoded.length; index += 1) {
-      final item = decoded[index];
-      if (item is! Map) {
-        continue;
-      }
-      final json = Map<String, Object?>.from(item);
+    await _writeEntityRows(
+      table,
+      decoded
+          .whereType<Map>()
+          .map((item) => Map<String, Object?>.from(item))
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _writeEntityRows(
+    PetNoteLocalTable table,
+    List<Map<String, Object?>> values,
+  ) async {
+    final database = _database;
+    final store = _store;
+    if (database == null || store == null) {
+      await _writeString(table.storageKey, jsonEncode(values));
+      return;
+    }
+    final nextRows = <String, Map<String, Object?>>{};
+    for (var index = 0; index < values.length; index += 1) {
+      final json = values[index];
       final id = json['id'] as String?;
       final rowKey = id == null || id.trim().isEmpty
           ? '${table.storageKey}/row_$index'
           : '${table.storageKey}/${id.trim()}';
-      final row = <String, Object?>{
-        'order': index,
-        'data': json,
-      };
-      nextRows[rowKey] = jsonEncode(row);
+      nextRows[rowKey] = _buildEntityRow(table, json, index);
     }
     await database.transaction((transaction) async {
-      final pendingRows = Map<String, String>.from(nextRows);
+      final pendingRows = Map<String, Map<String, Object?>>.from(nextRows);
       final existingRecords = await store.find(
         transaction,
         finder: _entityRowsFinder(table),
@@ -346,7 +429,7 @@ class PetNoteLocalStorage {
           _incrementEntityDeleteCount(table);
           continue;
         }
-        if (record.value != nextValue) {
+        if (!_entityRowValuesEqual(record.value, nextValue)) {
           await store.record(record.key).put(transaction, nextValue);
           _incrementEntityPutCount(table);
         }
@@ -374,7 +457,7 @@ class PetNoteLocalStorage {
 
   Future<void> _deleteEntityRows(
     DatabaseClient database,
-    StoreRef<String, String> store,
+    StoreRef<String, Object?> store,
     PetNoteLocalTable table,
   ) async {
     final deletedCount = await store.delete(
@@ -395,27 +478,69 @@ class PetNoteLocalStorage {
     _entityDeleteCounts[table] = (_entityDeleteCounts[table] ?? 0) + 1;
   }
 
-  List<RecordSnapshot<String, String>> _findEntityRecordsSync(
+  bool _entityRowValuesEqual(Object? current, Map<String, Object?> next) {
+    if (current is String) {
+      return current == jsonEncode(next);
+    }
+    if (current is Map) {
+      return jsonEncode(current) == jsonEncode(next);
+    }
+    return false;
+  }
+
+  List<RecordSnapshot<String, Object?>> _findEntityRecordsSync(
     DatabaseClient database,
-    StoreRef<String, String> store,
+    StoreRef<String, Object?> store,
     PetNoteLocalTable table,
   ) {
     return store.findSync(database, finder: _entityRowsFinder(table));
   }
 
-  Finder _entityRowsFinder(PetNoteLocalTable table) {
+  Finder _entityRowsFinder(
+    PetNoteLocalTable table, {
+    Set<String>? petIds,
+    int? startMillis,
+    int? endMillis,
+  }) {
     final prefix = '${table.storageKey}/';
-    return Finder(
-      filter: Filter.custom((record) {
+    final filters = <Filter>[
+      Filter.custom((record) {
         final key = record.key;
         return key is String && key.startsWith(prefix);
       }),
+    ];
+    if (petIds != null && petIds.isNotEmpty) {
+      filters.add(Filter.inList('petId', petIds.toList(growable: false)));
+    }
+    if (startMillis != null) {
+      filters.add(Filter.greaterThanOrEquals('dateMillis', startMillis));
+    }
+    if (endMillis != null) {
+      filters.add(Filter.lessThanOrEquals('dateMillis', endMillis));
+    }
+    return Finder(
+      filter: filters.length == 1 ? filters.single : Filter.and(filters),
+      sortOrders: [SortOrder('order')],
     );
   }
 
-  _EntityRow? _decodeEntityRow(String value) {
+  List<Map<String, Object?>> _entityRowsFromRecords(
+    List<RecordSnapshot<String, Object?>> records,
+  ) {
+    final rows = <_EntityRow>[];
+    for (final record in records) {
+      final row = _decodeEntityRow(record.value);
+      if (row != null) {
+        rows.add(row);
+      }
+    }
+    rows.sort((left, right) => left.order.compareTo(right.order));
+    return rows.map((row) => row.data).toList(growable: false);
+  }
+
+  _EntityRow? _decodeEntityRow(Object? value) {
     try {
-      final decoded = jsonDecode(value);
+      final decoded = value is String ? jsonDecode(value) : value;
       if (decoded is Map) {
         final data = decoded['data'];
         final order = decoded['order'];
@@ -438,6 +563,37 @@ class PetNoteLocalStorage {
     return null;
   }
 
+  Map<String, Object?> _buildEntityRow(
+    PetNoteLocalTable table,
+    Map<String, Object?> data,
+    int order,
+  ) {
+    return <String, Object?>{
+      'order': order,
+      'entityId': data['id'],
+      'petId': data['petId'],
+      'dateMillis': _entityDateMillis(table, data),
+      'data': data,
+    };
+  }
+
+  String? _entityDateFieldFor(PetNoteLocalTable table) {
+    return switch (table) {
+      PetNoteLocalTable.todos => 'dueAt',
+      PetNoteLocalTable.reminders => 'scheduledAt',
+      PetNoteLocalTable.records => 'recordDate',
+      _ => null,
+    };
+  }
+
+  int? _entityDateMillis(PetNoteLocalTable table, Map<String, Object?> data) {
+    final field = _entityDateFieldFor(table);
+    final value = field == null ? null : data[field];
+    return value is String
+        ? DateTime.tryParse(value)?.millisecondsSinceEpoch
+        : null;
+  }
+
   Future<void> _migrateLegacyPreferences(
     Future<SharedPreferences> Function() preferencesLoader,
   ) async {
@@ -445,7 +601,15 @@ class PetNoteLocalStorage {
         _readString(_databaseMigrationMarkerKey) == 'true') {
       return;
     }
-    final preferences = await preferencesLoader();
+    final SharedPreferences preferences;
+    try {
+      preferences = await preferencesLoader();
+    } on FlutterError catch (error) {
+      if (error.toString().contains('Binding has not yet been initialized')) {
+        return;
+      }
+      rethrow;
+    }
     for (final table in PetNoteLocalTable.values) {
       final value = preferences.getString(table.storageKey);
       if (value != null && _readString(table.storageKey) == null) {

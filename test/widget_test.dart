@@ -11,6 +11,7 @@ import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/add_sheet.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/intro_haptics.dart';
+import 'package:petnote/app/android_native_dock.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/me_page.dart' as settings_page;
 import 'package:petnote/app/native_pet_photo_picker.dart';
@@ -23,23 +24,27 @@ import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/app/theme_settings_copy.dart';
 import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
+import 'package:petnote/notifications/notification_platform_adapter.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _petsStorageKey = 'pets_v1';
-const _todosStorageKey = 'todos_v1';
 const _recordsStorageKey = 'records_v1';
 const _firstLaunchIntroAutoEnabledKey = 'first_launch_intro_auto_enabled_v1';
 
 void main() {
   setUp(() {
+    debugDisableAndroidLiquidGlassDock = true;
     SharedPreferences.setMockInitialValues({});
     debugPetPhotoImageBuilder = null;
     debugHasPetPhotoOverride = null;
   });
 
   tearDown(() {
+    debugDisableAndroidLiquidGlassDock = false;
     debugPetPhotoImageBuilder = null;
     debugHasPetPhotoOverride = null;
   });
@@ -47,8 +52,10 @@ void main() {
   testWidgets('intro shows a gray launch paw before first page content appears',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_launch_paw_icon')),
+    );
 
     expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
@@ -756,7 +763,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('todo-detail-page-todo-1')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('todo-detail-page-todo-1')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('todo-detail-edit-button')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -770,7 +778,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('checklist_card_todo-todo-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('checklist_card_todo-todo-1')),
+        findsOneWidget);
   });
 
   testWidgets('checklist reminder card opens detail page and saves edits',
@@ -871,14 +880,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('pet-record-detail-add-photo-button')),
       180,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-add-photo-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-add-photo-button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -886,25 +897,32 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
     await tester.pumpAndSettle();
     expect(store.recordById('record-4')?.photoPaths,
         [existingPhotoPath, addedPhotoPath]);
 
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
+    await tester.tap(
+        find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-cancel-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-cancel-button')));
     await tester.pumpAndSettle();
     expect(store.recordById('record-4')?.photoPaths,
         [existingPhotoPath, addedPhotoPath]);
 
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-edit-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
+    await tester.tap(
+        find.byKey(ValueKey('pet-record-detail-remove-photo-$addedPhotoPath')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
+    await tester
+        .tap(find.byKey(const ValueKey('pet-record-detail-save-button')));
     await tester.pumpAndSettle();
     expect(store.recordById('record-4')?.photoPaths, [existingPhotoPath]);
   });
@@ -932,7 +950,10 @@ void main() {
       'intro-entered onboarding shows a back button that returns to intro',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('first_launch_intro_continue_button')),
+    );
 
     await _enterOnboardingFromIntro(tester);
 
@@ -944,7 +965,10 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+    );
 
     expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
         findsOneWidget);
@@ -1012,7 +1036,10 @@ void main() {
   testWidgets('intro keeps a single paw during launch without a handoff icon',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pump();
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_launch_paw_icon')),
+    );
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 80));
 
@@ -1029,13 +1056,18 @@ void main() {
   testWidgets('intro first page hero keeps using svg before and after reveal',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_launch_paw_icon')),
+    );
 
     expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsOneWidget);
     expect(find.byType(SvgPicture), findsOneWidget);
 
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_page_0_content')),
+    );
 
     expect(
       find.descendant(
@@ -1048,7 +1080,10 @@ void main() {
 
   testWidgets('shows first-launch intro before pet onboarding', (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_page_0_content')),
+    );
 
     expect(find.byKey(const ValueKey('first_launch_intro_overlay')),
         findsOneWidget);
@@ -1069,16 +1104,15 @@ void main() {
       'first page footer chrome waits until intro rows finish before appearing',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
-    await tester.pump();
-    for (var i = 0; i < 20; i++) {
-      if (find
-          .byKey(const ValueKey('intro_launch_paw_icon'))
-          .evaluate()
-          .isEmpty) {
-        break;
-      }
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_launch_paw_icon')),
+    );
+    await _pumpUntilGone(
+      tester,
+      find.byKey(const ValueKey('intro_launch_paw_icon')),
+      step: const Duration(milliseconds: 100),
+    );
     expect(find.byKey(const ValueKey('intro_launch_paw_icon')), findsNothing);
 
     expect(
@@ -2370,7 +2404,8 @@ void main() {
     SharedPreferences.setMockInitialValues({
       _firstLaunchIntroAutoEnabledKey: false,
     });
-    final store = await PetNoteStore.load();
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
 
     await tester.pumpWidget(
       MaterialApp(
@@ -2389,15 +2424,31 @@ void main() {
 
     await tester.tap(find.text('新增记录'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('开始添加宠物'));
-    await tester.pumpAndSettle();
+    final addPetButton = find.widgetWithText(FilledButton, '开始添加宠物');
+    await _pumpUntilFound(tester, addPetButton);
+    await tester.tap(addPetButton);
+    await tester.pump();
 
     expect(driver.events, <String>['button-tap']);
   });
 
   testWidgets('expanded todo form back returns to action grid', (tester) async {
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -2501,12 +2552,27 @@ void main() {
     expect(lastActionCardRect.bottom, lessThanOrEqualTo(shellRect.bottom - 8));
   });
 
-  testWidgets('expanded todo form save returns to actions sheet', (tester) async {
+  testWidgets('expanded todo form save closes sheet and persists todo',
+      (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -2521,12 +2587,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '保存待办'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
 
-    final prefs = await SharedPreferences.getInstance();
-    final todosJson = prefs.getString(_todosStorageKey);
-    expect(todosJson, isNotNull);
-    expect(todosJson, contains('补货主粮'));
+    expect(store.todos.first.title, '补货主粮');
   });
 
   testWidgets(
@@ -2759,8 +2822,21 @@ void main() {
 
   testWidgets('record form persists custom purpose labels when selecting other',
       (tester) async {
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -2792,14 +2868,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '保存记录'));
     await tester.pumpAndSettle();
 
-    final prefs = await SharedPreferences.getInstance();
-    final recordsJson = prefs.getString(_recordsStorageKey);
-    expect(recordsJson, isNotNull);
-    final decodedRecords = (jsonDecode(recordsJson!) as List)
-        .map((item) => Map<String, Object?>.from(item as Map))
-        .toList(growable: false);
-    expect(decodedRecords.first['purpose'], 'other');
-    expect(decodedRecords.first['customPurposeLabel'], '术后观察');
+    final record = store.records.first;
+    expect(record.purpose, RecordPurpose.other);
+    expect(record.customPurposeLabel, '术后观察');
   });
 
   testWidgets(
@@ -2928,8 +2999,22 @@ void main() {
 
   testWidgets('expanded todo form time field opens a picker flow',
       (tester) async {
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -2949,8 +3034,21 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(393, 852));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -3016,13 +3114,27 @@ void main() {
   });
 
   testWidgets(
-      'expanded reminder form save returns to actions and infers reminder kind',
+      'expanded reminder form save closes sheet and infers reminder kind',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    SharedPreferences.setMockInitialValues(_persistedSinglePetPreferences());
-    await tester.pumpWidget(const PetNoteApp());
+    SharedPreferences.setMockInitialValues({});
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+          appLogController: AppLogController.memory(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -3054,21 +3166,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '保存提醒'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('add_sheet_shell')), findsOneWidget);
+    expect(find.byKey(const ValueKey('add_sheet_shell')), findsNothing);
 
-    final prefs = await SharedPreferences.getInstance();
-    final remindersJson = prefs.getString('reminders_v1');
-    expect(remindersJson, isNotNull);
-    final decodedReminders = (jsonDecode(remindersJson!) as List)
-        .map((item) => Map<String, Object?>.from(item as Map))
-        .toList(growable: false);
-    expect(decodedReminders.first['title'], '年度疫苗补打');
-    expect(decodedReminders.first['kind'], 'vaccine');
-    expect(decodedReminders.first['recurrence'], '单次');
-    final semantic =
-        Map<String, Object?>.from(decodedReminders.first['semantic'] as Map);
-    expect(semantic['topicKey'], 'vaccine');
-    expect(semantic['intent'], 'administer');
+    final reminder = store.reminders.first;
+    expect(reminder.title, '年度疫苗补打');
+    expect(reminder.kind, ReminderKind.vaccine);
+    expect(reminder.recurrence, '单次');
+    expect(reminder.semantic?.topicKey, SemanticTopicKey.vaccine);
+    expect(reminder.semantic?.intent, SemanticActionIntent.administer);
   });
 
   testWidgets('expanded reminder form save button stays above the sheet bottom',
@@ -4165,6 +4270,44 @@ double _nearestOpacity(WidgetTester tester, Finder finder) {
   return opacity.opacity;
 }
 
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  Duration timeout = const Duration(seconds: 6),
+  Duration step = const Duration(milliseconds: 40),
+}) async {
+  var elapsed = Duration.zero;
+  while (finder.evaluate().isEmpty && elapsed < timeout) {
+    await tester.pump(step);
+    elapsed += step;
+  }
+  expect(finder, findsOneWidget, reason: _visibleValueKeys(tester));
+}
+
+Future<void> _pumpUntilGone(
+  WidgetTester tester,
+  Finder finder, {
+  Duration timeout = const Duration(seconds: 6),
+  Duration step = const Duration(milliseconds: 40),
+}) async {
+  var elapsed = Duration.zero;
+  while (finder.evaluate().isNotEmpty && elapsed < timeout) {
+    await tester.pump(step);
+    elapsed += step;
+  }
+  expect(finder, findsNothing, reason: _visibleValueKeys(tester));
+}
+
+String _visibleValueKeys(WidgetTester tester) {
+  final keys = tester.allWidgets
+      .map((widget) => widget.key)
+      .whereType<ValueKey<Object?>>()
+      .map((key) => key.value.toString())
+      .take(80)
+      .join(', ');
+  return '当前树上的 ValueKey：$keys';
+}
+
 double _opacityOrOne(WidgetTester tester, Finder finder) {
   if (finder.evaluate().isEmpty) {
     return 0;
@@ -4282,6 +4425,78 @@ class _FakeIntroHapticsDriver implements IntroHapticsDriver {
   }
 }
 
+class _GrantedNotificationPlatformAdapter
+    implements NotificationPlatformAdapter {
+  final List<NotificationJob> scheduledJobs = <NotificationJob>[];
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<NotificationPermissionState> getPermissionState() async =>
+      NotificationPermissionState.authorized;
+
+  @override
+  Future<bool> hasHandledPermissionPrompt() async => true;
+
+  @override
+  Future<PermissionRequestOutcome<NotificationPermissionState>>
+      requestPermission() async {
+    return const PermissionRequestOutcome(
+      state: NotificationPermissionState.authorized,
+      promptHandledSystemDialog: true,
+    );
+  }
+
+  @override
+  Future<void> scheduleLocalNotification(NotificationJob job) async {
+    scheduledJobs.removeWhere((existing) => existing.key == job.key);
+    scheduledJobs.add(job);
+  }
+
+  @override
+  Future<bool> hasScheduledNotification(String key) async =>
+      scheduledJobs.any((job) => job.key == key);
+
+  @override
+  Future<void> cancelNotification(String key) async {
+    scheduledJobs.removeWhere((job) => job.key == key);
+  }
+
+  @override
+  Future<void> resetScheduledNotifications() async {
+    scheduledJobs.clear();
+  }
+
+  @override
+  Future<void> showUpdateNotification({
+    required String title,
+    required String body,
+    required Uri releaseUrl,
+  }) async {}
+
+  @override
+  Future<NotificationLaunchIntent?> getInitialLaunchIntent() async => null;
+
+  @override
+  Future<NotificationLaunchIntent?> consumeForegroundTap() async => null;
+
+  @override
+  Future<String?> registerPushToken() async => null;
+
+  @override
+  Future<NotificationSettingsOpenResult> openNotificationSettings() async =>
+      NotificationSettingsOpenResult.opened;
+
+  @override
+  Future<NotificationSettingsOpenResult> openExactAlarmSettings() async =>
+      NotificationSettingsOpenResult.opened;
+
+  @override
+  Future<NotificationPlatformCapabilities> getCapabilities() async =>
+      const NotificationPlatformCapabilities();
+}
+
 class _FakeNativePetPhotoPicker implements NativePetPhotoPicker {
   _FakeNativePetPhotoPicker(this.batches);
 
@@ -4369,19 +4584,40 @@ IconData _iconDataByKey(WidgetTester tester, ValueKey<String> key) {
 }
 
 Future<void> _advanceIntroToFinalPage(WidgetTester tester) async {
+  await _pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey('intro_page_0_content')),
+  );
+  await tester.pump(const Duration(milliseconds: 1500));
+  await tester.pump();
   for (var i = 0; i < 2; i++) {
-    await tester.tap(
-      find.byKey(const ValueKey('first_launch_intro_continue_button')),
-    );
-    await tester.pumpAndSettle();
+    final continueButton =
+        find.byKey(const ValueKey('first_launch_intro_continue_button'));
+    await _pumpUntilFound(tester, continueButton);
+    await tester.tap(continueButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 360));
   }
+  await _pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey('first_launch_intro_primary_button')),
+  );
+  await tester.pump(const Duration(milliseconds: 2200));
+  await tester.pump();
 }
 
 Future<void> _enterOnboardingFromIntro(WidgetTester tester) async {
   await _advanceIntroToFinalPage(tester);
-  await tester
-      .tap(find.byKey(const ValueKey('first_launch_intro_primary_button')));
-  await tester.pumpAndSettle();
+  final primaryButton =
+      find.byKey(const ValueKey('first_launch_intro_primary_button'));
+  await tester.tap(primaryButton);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 1200));
+  await tester.pump();
+  await _pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey('onboarding_return_to_intro_button')),
+  );
 }
 
 Future<void> _enterBirthdayStep(WidgetTester tester) async {
