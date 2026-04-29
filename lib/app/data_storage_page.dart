@@ -166,10 +166,14 @@ class _DataStoragePageState extends State<DataStoragePage> {
 
   Future<void> _handleExportBackup() async {
     try {
+      final supportsSensitiveSettings =
+          await widget.coordinator.secretStore.isAvailable();
+      if (!mounted) {
+        return;
+      }
       final includeSensitiveSettings = await _confirmExportBackup(
         context,
-        supportsSensitiveSettings:
-            await widget.coordinator.secretStore.isAvailable(),
+        supportsSensitiveSettings: supportsSensitiveSettings,
       );
       if (!mounted || includeSensitiveSettings == null) {
         return;

@@ -85,6 +85,7 @@ void main() {
           'perPetReportCount': report.perPetReports.length,
         };
         results.add(jsonEncode(result));
+        // ignore: avoid_print
         print('[Cloudflare Workers AI live] ${jsonEncode(result)}');
 
         expect(response.statusCode, 200);
@@ -99,11 +100,15 @@ void main() {
     timeout: const Timeout(Duration(minutes: 6)),
   );
 
-  test('live sample care context uses dual pets and high-volume quarterly data', () {
+  test('live sample care context uses dual pets and high-volume quarterly data',
+      () {
     final context = _sampleCareContext();
 
     expect(context.pets, hasLength(2));
-    expect(context.todos.length + context.reminders.length + context.records.length,
+    expect(
+        context.todos.length +
+            context.reminders.length +
+            context.records.length,
         greaterThanOrEqualTo(300));
     expect(
       context.rangeEnd.difference(context.rangeStart).inDays,
@@ -184,8 +189,8 @@ AiGenerationContext _sampleCareContext() {
         petId: pet.id,
         title: '$todoTitle #${index + 1}',
         dueAt: at,
-        notificationLeadTime:
-            NotificationLeadTime.values[index % NotificationLeadTime.values.length],
+        notificationLeadTime: NotificationLeadTime
+            .values[index % NotificationLeadTime.values.length],
         status: TodoStatus.values[index % TodoStatus.values.length],
         note: '${pet.name} 这次任务用于补齐连续观察和护理闭环。',
       ),
@@ -197,8 +202,8 @@ AiGenerationContext _sampleCareContext() {
         kind: ReminderKind.values[index % ReminderKind.values.length],
         title: '$reminderTitle #${index + 1}',
         scheduledAt: at.add(const Duration(hours: 6)),
-        notificationLeadTime:
-            NotificationLeadTime.values[index % NotificationLeadTime.values.length],
+        notificationLeadTime: NotificationLeadTime
+            .values[index % NotificationLeadTime.values.length],
         recurrence: index.isEven ? '每月' : '单次',
         status: ReminderStatus.values[index % ReminderStatus.values.length],
         note: '${pet.name} 需要继续看护理节奏、观察连续性和提醒闭环。',
@@ -257,6 +262,7 @@ class _RecordingAiHttpTransport implements AiHttpTransport {
     responses.add(response);
     final elapsed = DateTime.now().difference(startedAt);
     final summary = _summarizeChatCompletion(response.body);
+    // ignore: avoid_print
     print(
       '[Cloudflare Workers AI live response] '
       '${jsonEncode({

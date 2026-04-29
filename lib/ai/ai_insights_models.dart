@@ -453,9 +453,8 @@ class _TopicAccumulator {
     required this.topicKey,
     required this.signal,
     required this.latestAt,
-    required Set<String> petNames,
-    this.count = 1,
-  }) : petNames = petNames;
+    required this.petNames,
+  });
 
   factory _TopicAccumulator.fromEvent(_SummaryEvent event) {
     return _TopicAccumulator(
@@ -469,7 +468,7 @@ class _TopicAccumulator {
   final SemanticTopicKey topicKey;
   final SemanticSignal signal;
   final Set<String> petNames;
-  int count;
+  int count = 1;
   DateTime latestAt;
 
   _TopicAccumulator add(_SummaryEvent event) {
@@ -487,9 +486,8 @@ class _MeasurementAccumulator {
     required this.key,
     required this.latestValue,
     required this.unit,
-    required Set<String> petNames,
-    this.sampleCount = 1,
-  }) : petNames = petNames;
+    required this.petNames,
+  });
 
   factory _MeasurementAccumulator.seed({
     required String key,
@@ -509,7 +507,7 @@ class _MeasurementAccumulator {
   final Set<String> petNames;
   String latestValue;
   String unit;
-  int sampleCount;
+  int sampleCount = 1;
 
   _MeasurementAccumulator addValue(
     String value,

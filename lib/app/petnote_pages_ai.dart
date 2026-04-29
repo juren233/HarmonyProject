@@ -31,27 +31,6 @@ String _reminderKindLabel(ReminderKind kind) => switch (kind) {
       ReminderKind.custom => '自定义',
     };
 
-String _recordTypeLabel(PetRecordType type) => switch (type) {
-      PetRecordType.medical => '病历',
-      PetRecordType.receipt => '票据',
-      PetRecordType.image => '图片',
-      PetRecordType.testResult => '检查结果',
-      PetRecordType.other => '其他',
-    };
-
-String _recordSubtitle(PetRecord item) {
-  final summary = item.summary.trim();
-  final photoCount = item.photoPaths.length;
-  final photoLabel = photoCount == 0 ? null : '$photoCount 张图片';
-  return [
-    formatDate(item.recordDate, withTime: false),
-    if (summary.isNotEmpty) summary,
-    if (photoLabel != null) photoLabel,
-  ].join(' · ');
-}
-
-enum _VisitSummaryRange { thirtyDays, ninetyDays, custom }
-
 class _AiCareReportOverview extends StatelessWidget {
   const _AiCareReportOverview({
     required this.report,
@@ -343,9 +322,8 @@ class _OverviewHeaderActions extends StatelessWidget {
           onPressed: onOpenAiSettings,
         ),
         FilledButton.icon(
-          onPressed: isLoading || (!canGenerate && !hasReport)
-              ? null
-              : onGenerate,
+          onPressed:
+              isLoading || (!canGenerate && !hasReport) ? null : onGenerate,
           style: FilledButton.styleFrom(
             elevation: 0,
             backgroundColor: accentColor,
@@ -544,6 +522,10 @@ class _OverviewRangeMenuButtonState extends State<_OverviewRangeMenuButton> {
     _busy = true;
     triggerSelectionHaptic();
     await Future<void>.delayed(const Duration(milliseconds: 55));
+    if (!context.mounted) {
+      _busy = false;
+      return;
+    }
     _setPressed(false);
     await _openRangePicker(context);
     _busy = false;
@@ -2415,62 +2397,4 @@ String _aiPetAvatarText(String name) {
     return String.fromCharCodes(trimmed.runes.take(2)).toUpperCase();
   }
   return trimmed.substring(0, 1).toUpperCase();
-}
-
-AiGenerationContext _buildVisitContext(
-  PetNoteStore store,
-  Pet pet,
-  _VisitSummaryRange range, {
-  DateTimeRange? customDateRange,
-}) {
-  final now = store.referenceNow;
-  final start = switch (range) {
-    _VisitSummaryRange.thirtyDays => now.subtract(const Duration(days: 30)),
-    _VisitSummaryRange.ninetyDays => now.subtract(const Duration(days: 90)),
-    _VisitSummaryRange.custom =>
-      customDateRange?.start ?? now.subtract(const Duration(days: 30)),
-  };
-  final end = switch (range) {
-    _VisitSummaryRange.custom => customDateRange?.end ?? now,
-    _ => now,
-  };
-
-  final todos = store.todos
-      .where(
-        (todo) =>
-            todo.petId == pet.id &&
-            !todo.dueAt.isBefore(start) &&
-            !todo.dueAt.isAfter(end),
-      )
-      .toList(growable: false);
-  final reminders = store.reminders
-      .where(
-        (reminder) =>
-            reminder.petId == pet.id &&
-            !reminder.scheduledAt.isBefore(start) &&
-            !reminder.scheduledAt.isAfter(end),
-      )
-      .toList(growable: false);
-  final records = store.records
-      .where(
-        (record) =>
-            record.petId == pet.id &&
-            !record.recordDate.isBefore(start) &&
-            !record.recordDate.isAfter(end),
-      )
-      .toList(growable: false);
-
-  return AiGenerationContext(
-    title: '${pet.name} 的看诊摘要',
-    rangeLabel: range == _VisitSummaryRange.custom
-        ? '自定义区间'
-        : (range == _VisitSummaryRange.thirtyDays ? '最近 30 天' : '最近 90 天'),
-    rangeStart: start,
-    rangeEnd: end,
-    languageTag: 'zh-CN',
-    pets: [pet],
-    todos: todos,
-    reminders: reminders,
-    records: records,
-  );
 }

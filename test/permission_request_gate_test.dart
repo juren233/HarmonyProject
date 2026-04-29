@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum _FakePermissionState { unknown, denied, granted, unsupported }
+enum _FakePermissionState { denied, granted }
 
 void main() {
   setUp(() {

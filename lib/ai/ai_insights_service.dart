@@ -196,7 +196,8 @@ class NetworkAiInsightsService implements AiInsightsService {
     );
     for (var index = 0; index < promptPlans.length; index += 1) {
       final plan = promptPlans[index];
-      final maxAttempts = plan.detailLevel == _CarePromptDetailLevel.full ? 2 : 1;
+      final maxAttempts =
+          plan.detailLevel == _CarePromptDetailLevel.full ? 2 : 1;
       for (var attempt = 0; attempt < maxAttempts; attempt += 1) {
         try {
           final jsonObject = await _generateStructuredJson(
@@ -205,7 +206,8 @@ class NetworkAiInsightsService implements AiInsightsService {
             userPrompt: plan.prompt,
           );
           jsonObject['promptPayloadVersion'] = plan.detailLevel.name;
-          jsonObject['promptPayloadVersionLabel'] = plan.detailLevel.displayLabel;
+          jsonObject['promptPayloadVersionLabel'] =
+              plan.detailLevel.displayLabel;
           return AiCareReport.fromJson(
             jsonObject,
             scorecard: scorecard,
@@ -220,7 +222,8 @@ class NetworkAiInsightsService implements AiInsightsService {
           appLogController?.warning(
             category: AppLogCategory.ai,
             title: 'AI 总览降载重试',
-            message: '当前服务在上下文下未稳定返回，改用上下文重试。',
+            message:
+                '当前服务在上下文下未稳定返回，改用${nextPlan.detailLevel.displayLabel}上下文重试。',
             details: error.message,
           );
           break;
@@ -245,6 +248,7 @@ class NetworkAiInsightsService implements AiInsightsService {
     }
     throw const AiGenerationException('AI 总览生成失败，请稍后重试。');
   }
+
   Future<AiVisitSummary> _generateVisitSummary(
     AiProviderClient client,
     AiGenerationContext context,
@@ -1332,18 +1336,6 @@ Map<String, dynamic> _buildPetPromptSnapshot(
   };
 }
 
-double? _estimatePetAgeYears(DateTime reference, String birthday) {
-  final raw = birthday.trim();
-  if (raw.isEmpty) {
-    return null;
-  }
-  final parsed = DateTime.tryParse(raw);
-  if (parsed == null) {
-    return null;
-  }
-  return reference.difference(parsed).inDays / 365;
-}
-
 Map<String, int> _countByName(Iterable<String> values) {
   final counts = <String, int>{};
   for (final value in values) {
@@ -1439,7 +1431,9 @@ List<T> _selectEvenly<T>(
   final selected = <T>[];
   final usedIndexes = <int>{};
   final priorityCount = targetCount <= 2 ? 1 : 2;
-  for (var index = 0; index < priorityCount && index < items.length; index += 1) {
+  for (var index = 0;
+      index < priorityCount && index < items.length;
+      index += 1) {
     selected.add(items[index]);
     usedIndexes.add(index);
   }

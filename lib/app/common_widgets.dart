@@ -438,13 +438,6 @@ class SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final spaced = <Widget>[];
-    for (var index = 0; index < children.length; index += 1) {
-      spaced.add(children[index]);
-      if (index != children.length - 1) {
-        spaced.add(const SizedBox(height: 12));
-      }
-    }
     return FrostedPanel(
       margin: const EdgeInsets.only(bottom: 14),
       child: Column(
@@ -466,10 +459,21 @@ class SectionCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ...spaced,
+          ..._spacedChildren(children),
         ],
       ),
     );
+  }
+
+  List<Widget> _spacedChildren(List<Widget> children) {
+    final spaced = <Widget>[];
+    for (var index = 0; index < children.length; index += 1) {
+      spaced.add(children[index]);
+      if (index != children.length - 1) {
+        spaced.add(const SizedBox(height: 12));
+      }
+    }
+    return spaced;
   }
 }
 

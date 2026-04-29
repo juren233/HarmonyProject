@@ -10,6 +10,8 @@ void main() {
       File('lib/app/petnote_pages_overview.dart').readAsStringSync();
   final petsPageSource =
       File('lib/app/petnote_pages_pets.dart').readAsStringSync();
+  final petDetailsPageSource =
+      File('lib/app/petnote_pages_pets_details.dart').readAsStringSync();
   final frostedPanelSection = widgetsSource.substring(
     widgetsSource.indexOf('class FrostedPanel'),
     widgetsSource.indexOf('class HeroPanel'),
@@ -72,11 +74,25 @@ void main() {
     expect(widgetsSource, contains('class StatusListRow'));
     expect(pagesSource, contains('PageEmptyStateBlock('));
     expect(overviewPageSource, contains('PageEmptyStateBlock('));
-    expect(File('lib/app/petnote_pages_pets_details.dart').readAsStringSync(),
-        contains('PageEmptyStateBlock('));
-    expect(File('lib/app/petnote_pages_pets_details.dart').readAsStringSync(),
-        contains('StatusListRow('));
+    expect(petDetailsPageSource, contains('PageEmptyStateBlock('));
+    expect(petDetailsPageSource, contains('StatusListRow('));
     expect(File('lib/app/petnote_pages_ai.dart').readAsStringSync(),
         contains('TitledBulletGroup('));
+  });
+
+  test('keeps pet detail records out of build-time filtering and eager rows',
+      () {
+    final petDetailsBuildSection = petDetailsPageSource.substring(
+      petDetailsPageSource.indexOf('  @override\n  Widget build'),
+      petDetailsPageSource.indexOf('class _PetRecordBatchActions'),
+    );
+
+    expect(petDetailsBuildSection, contains('recordsForPet(widget.pet.id)'));
+    expect(petDetailsBuildSection, contains('CustomScrollView('));
+    expect(petDetailsBuildSection, contains('SliverList.separated('));
+    expect(petDetailsBuildSection, isNot(contains('SectionCard.builder(')));
+    expect(petDetailsBuildSection, isNot(contains('.where(')));
+    expect(petDetailsBuildSection, isNot(contains('..sort(')));
+    expect(petDetailsBuildSection, isNot(contains('.map(')));
   });
 }

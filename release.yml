@@ -1,6 +1,6 @@
 enabled: true
 build_if_not_enabled: true
-tag: v1.3.4
+tag: v1.3.5
 
 android:
   enabled: true

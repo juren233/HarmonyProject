@@ -824,8 +824,8 @@ class PetNoteStore extends ChangeNotifier {
   bool _overviewEntityStorageFresh = true;
   String? _remindersForSelectedPetCachePetId;
   List<ReminderItem>? _remindersForSelectedPetCache;
-  String? _recordsForSelectedPetCachePetId;
-  List<PetRecord>? _recordsForSelectedPetCache;
+  final Map<String, List<PetRecord>> _recordsByPetIdCache =
+      <String, List<PetRecord>>{};
   OverviewAiReportState _overviewAiReportState = const OverviewAiReportState();
   int _overviewAiRequestToken = 0;
   int _notificationSyncVersion = 0;
@@ -950,17 +950,19 @@ class PetNoteStore extends ChangeNotifier {
   }
 
   List<PetRecord> get recordsForSelectedPet {
-    final cached = _recordsForSelectedPetCache;
-    if (cached != null && _recordsForSelectedPetCachePetId == _selectedPetId) {
+    return recordsForPet(_selectedPetId);
+  }
+
+  List<PetRecord> recordsForPet(String petId) {
+    final cached = _recordsByPetIdCache[petId];
+    if (cached != null) {
       return cached;
     }
 
-    final results =
-        _records.where((record) => record.petId == _selectedPetId).toList();
+    final results = _records.where((record) => record.petId == petId).toList();
     results.sort((a, b) => b.recordDate.compareTo(a.recordDate));
     final cachedResults = List<PetRecord>.unmodifiable(results);
-    _recordsForSelectedPetCachePetId = _selectedPetId;
-    _recordsForSelectedPetCache = cachedResults;
+    _recordsByPetIdCache[petId] = cachedResults;
     return cachedResults;
   }
 
@@ -1407,7 +1409,7 @@ class PetNoteStore extends ChangeNotifier {
       return;
     }
     _selectedPetId = petId;
-    _invalidateSelectedPetDerivedData();
+    _invalidateSelectedPetViewData();
     notifyListeners();
   }
 
@@ -1617,7 +1619,7 @@ class PetNoteStore extends ChangeNotifier {
     _selectedPetId = petId;
     _activeTab = AppTab.pets;
     _invalidateOverviewDerivedData();
-    _invalidateSelectedPetDerivedData();
+    _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
   }
@@ -1770,7 +1772,7 @@ class PetNoteStore extends ChangeNotifier {
     _selectedPetId = petId;
     _activeTab = AppTab.pets;
     _invalidateOverviewDerivedData();
-    _invalidateSelectedPetDerivedData();
+    _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
   }
@@ -1790,7 +1792,7 @@ class PetNoteStore extends ChangeNotifier {
 
     _activeTab = AppTab.pets;
     _invalidateOverviewDerivedData();
-    _invalidateSelectedPetDerivedData();
+    _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
   }
@@ -2030,7 +2032,8 @@ class PetNoteStore extends ChangeNotifier {
   void _invalidateAllDerivedData() {
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
-    _invalidateSelectedPetDerivedData();
+    _invalidateSelectedPetViewData();
+    _invalidateRecordDerivedData();
   }
 
   void _invalidateChecklistDerivedData() {
@@ -2059,14 +2062,12 @@ class PetNoteStore extends ChangeNotifier {
     _remindersForSelectedPetCache = null;
   }
 
-  void _invalidateSelectedPetRecords() {
-    _recordsForSelectedPetCachePetId = null;
-    _recordsForSelectedPetCache = null;
+  void _invalidateRecordDerivedData() {
+    _recordsByPetIdCache.clear();
   }
 
-  void _invalidateSelectedPetDerivedData() {
+  void _invalidateSelectedPetViewData() {
     _invalidateSelectedPetReminders();
-    _invalidateSelectedPetRecords();
   }
 
   void _invalidateTimeDerivedData() {

@@ -70,7 +70,7 @@ void main() {
     await service.generateCareReport(_sampleCareContext());
 
     expect(systemPrompt, isNotNull);
-    expect(systemPrompt, contains('\"executiveSummary\": \"60-100字'));
+    expect(systemPrompt, contains('"executiveSummary": "60-100字'));
     expect(systemPrompt, contains('"overallAssessment": ["1-3条总体判断"]'));
     expect(systemPrompt, isNot(contains('120-220字')));
     expect(userPrompt, contains('生成 AI 总览'));
@@ -129,11 +129,11 @@ void main() {
     await service.generateCareReport(_sampleCareContext());
 
     expect(userPrompt, isNotNull);
-    expect(userPrompt, contains('\"context\":{'));
-    expect(userPrompt, contains('\"pets\":['));
-    expect(userPrompt, contains('\"todos\":['));
-    expect(userPrompt, contains('\"reminders\":['));
-    expect(userPrompt, contains('\"records\":['));
+    expect(userPrompt, contains('"context":{'));
+    expect(userPrompt, contains('"pets":['));
+    expect(userPrompt, contains('"todos":['));
+    expect(userPrompt, contains('"reminders":['));
+    expect(userPrompt, contains('"records":['));
   });
 }
 

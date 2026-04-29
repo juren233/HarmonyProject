@@ -66,7 +66,7 @@ void main() {
             'private fun onComposeTouch(view: View, event: MotionEvent): Boolean'));
     expect(source, contains('requestParentsDisallowInterceptTouchEvent(true)'));
     expect(source, contains('ViewTreeObserver.OnGlobalLayoutListener'));
-    expect(source, contains('\"prewarmFirstInteraction\" -> {'));
+    expect(source, contains('"prewarmFirstInteraction" -> {'));
     expect(source, contains('DampedDragAnimation('));
     expect(source,
         contains('lateinit var dampedDragAnimation: DampedDragAnimation'));

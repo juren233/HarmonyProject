@@ -1283,7 +1283,6 @@ class _AndroidLiquidGlassToggleHostState
 
 class _AndroidLiquidGlassToggleTestHandle extends StatelessWidget {
   const _AndroidLiquidGlassToggleTestHandle({
-    super.key,
     required this.value,
     required this.onChanged,
   });

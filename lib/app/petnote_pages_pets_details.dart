@@ -79,6 +79,65 @@ class _PetDetailsPageState extends State<PetDetailsPage> {
     _clearSelectionMode();
   }
 
+  void _syncSelectionWithVisibleRecords(List<PetRecord> records) {
+    if (_selectedRecordIds.isEmpty) {
+      return;
+    }
+
+    final visibleRecordIds = records.map((item) => item.id).toSet();
+    _selectedRecordIds.removeWhere((id) => !visibleRecordIds.contains(id));
+  }
+
+  void _selectAllRecords(List<PetRecord> records) {
+    _selectedRecordIds.clear();
+    for (final record in records) {
+      _selectedRecordIds.add(record.id);
+    }
+  }
+
+  StatusListRow _buildRecordRow(BuildContext context, PetRecord item) {
+    final selected = _selectedRecordIds.contains(item.id);
+    return StatusListRow(
+      key: ValueKey('pet-record-row-${item.id}'),
+      title: item.title,
+      subtitle: _petRecordSubtitle(item),
+      leadingIcon: Icons.description_rounded,
+      leadingBackgroundColor: const Color(0xFFE8F7EE),
+      leadingIconColor: const Color(0xFF4FB57C),
+      leading: _RecordListLeading(record: item),
+      trailing: _PetRecordRowTrailing(
+        record: item,
+        selected: selected,
+        selecting: _isSelecting,
+      ),
+      selected: selected,
+      selectedBorderColor: Theme.of(context).colorScheme.primary,
+      selectedBackgroundColor:
+          Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
+      onLongPress: () {
+        if (_isSelecting) {
+          _toggleRecordSelection(item.id);
+          return;
+        }
+        _enterSelectionMode(item.id);
+      },
+      onTap: () {
+        if (_isSelecting) {
+          _toggleRecordSelection(item.id);
+          return;
+        }
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (context) => RecordDetailPage(
+              store: widget.store,
+              recordId: item.id,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const pagePadding = EdgeInsets.fromLTRB(18, 8, 18, 20);
@@ -86,12 +145,8 @@ class _PetDetailsPageState extends State<PetDetailsPage> {
     return AnimatedBuilder(
       animation: widget.store,
       builder: (context, _) {
-        final records = widget.store.records
-            .where((item) => item.petId == widget.pet.id)
-            .toList(growable: false)
-          ..sort((a, b) => b.recordDate.compareTo(a.recordDate));
-        final visibleRecordIds = records.map((item) => item.id).toSet();
-        _selectedRecordIds.removeWhere((id) => !visibleRecordIds.contains(id));
+        final records = widget.store.recordsForPet(widget.pet.id);
+        _syncSelectionWithVisibleRecords(records);
         final allSelected =
             records.isNotEmpty && _selectedRecordIds.length == records.length;
 
@@ -109,94 +164,81 @@ class _PetDetailsPageState extends State<PetDetailsPage> {
               },
             ),
           ),
-          body: ListView(
-            padding: pagePadding,
-            children: [
-              PageHeader(
-                title: widget.pet.name,
-                subtitle:
-                    '${petTypeLabel(widget.pet.type)} · ${widget.pet.breed} · ${widget.pet.ageLabel}',
-                trailing: _isSelecting
-                    ? _PetRecordBatchActions(
-                        allSelected: allSelected,
-                        canDelete: _selectedRecordIds.isNotEmpty,
-                        onToggleSelectAll: () {
-                          setState(() {
-                            if (allSelected) {
-                              _selectedRecordIds.clear();
-                              return;
-                            }
-                            _selectedRecordIds
-                              ..clear()
-                              ..addAll(records.map((item) => item.id));
-                          });
-                        },
-                        onDelete: () => _confirmDeleteRecords(records),
+          body: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: pagePadding,
+                sliver: SliverList.list(
+                  children: [
+                    PageHeader(
+                      title: widget.pet.name,
+                      subtitle:
+                          '${petTypeLabel(widget.pet.type)} · ${widget.pet.breed} · ${widget.pet.ageLabel}',
+                      trailing: _isSelecting
+                          ? _PetRecordBatchActions(
+                              allSelected: allSelected,
+                              canDelete: _selectedRecordIds.isNotEmpty,
+                              onToggleSelectAll: () {
+                                setState(() {
+                                  if (allSelected) {
+                                    _selectedRecordIds.clear();
+                                    return;
+                                  }
+                                  _selectAllRecords(records);
+                                });
+                              },
+                              onDelete: () => _confirmDeleteRecords(records),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                    if (records.isEmpty)
+                      PageEmptyStateBlock(
+                        emptyTitle: '暂无资料记录',
+                        emptySubtitle: '当前宠物暂无任何资料记录。',
+                        actionLabel: '返回',
+                        onAction: () => Navigator.pop(context),
                       )
-                    : null,
+                    else
+                      const _PetRecordSectionHeader(),
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
-              if (records.isEmpty)
-                PageEmptyStateBlock(
-                  emptyTitle: '暂无资料记录',
-                  emptySubtitle: '当前宠物暂无任何资料记录。',
-                  actionLabel: '返回',
-                  onAction: () => Navigator.pop(context),
-                )
-              else
-                SectionCard(
-                  title: '资料记录',
-                  children: records
-                      .map(
-                        (item) => StatusListRow(
-                          key: ValueKey('pet-record-row-${item.id}'),
-                          title: item.title,
-                          subtitle: _petRecordSubtitle(item),
-                          leadingIcon: Icons.description_rounded,
-                          leadingBackgroundColor: const Color(0xFFE8F7EE),
-                          leadingIconColor: const Color(0xFF4FB57C),
-                          leading: _RecordListLeading(record: item),
-                          trailing: _PetRecordRowTrailing(
-                            record: item,
-                            selected: _selectedRecordIds.contains(item.id),
-                            selecting: _isSelecting,
-                          ),
-                          selected: _selectedRecordIds.contains(item.id),
-                          selectedBorderColor:
-                              Theme.of(context).colorScheme.primary,
-                          selectedBackgroundColor: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.10),
-                          onLongPress: () {
-                            if (_isSelecting) {
-                              _toggleRecordSelection(item.id);
-                              return;
-                            }
-                            _enterSelectionMode(item.id);
-                          },
-                          onTap: () {
-                            if (_isSelecting) {
-                              _toggleRecordSelection(item.id);
-                              return;
-                            }
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (context) => RecordDetailPage(
-                                  store: widget.store,
-                                  recordId: item.id,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                      .toList(growable: false),
+              if (records.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+                  sliver: SliverList.separated(
+                    itemCount: records.length,
+                    itemBuilder: (context, index) =>
+                        _buildRecordRow(context, records[index]),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                  ),
                 ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _PetRecordSectionHeader extends StatelessWidget {
+  const _PetRecordSectionHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Text(
+        '资料记录',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: tokens.primaryText,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+      ),
     );
   }
 }
