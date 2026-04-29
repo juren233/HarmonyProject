@@ -600,15 +600,19 @@ class PetNoteStore extends ChangeNotifier {
     if (pets != null) {
       _pets.addAll(pets);
     }
+    _rebuildPetIndex();
     if (todos != null) {
       _todos.addAll(todos);
     }
+    _rebuildTodoIndex();
     if (reminders != null) {
       _reminders.addAll(reminders);
     }
+    _rebuildReminderIndex();
     if (records != null) {
       _records.addAll(records);
     }
+    _rebuildRecordIndex();
     if (overviewAnalysisConfig != null) {
       _overviewRange = overviewAnalysisConfig.range;
       _overviewCustomRangeStart = overviewAnalysisConfig.customRangeStart;
@@ -805,9 +809,13 @@ class PetNoteStore extends ChangeNotifier {
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
 
   final List<Pet> _pets = [];
+  final Map<String, Pet> _petsById = <String, Pet>{};
   final List<TodoItem> _todos = [];
+  final Map<String, TodoItem> _todosById = <String, TodoItem>{};
   final List<ReminderItem> _reminders = [];
+  final Map<String, ReminderItem> _remindersById = <String, ReminderItem>{};
   final List<PetRecord> _records = [];
+  final Map<String, PetRecord> _recordsById = <String, PetRecord>{};
   final DateTime Function() _nowProvider;
   final PetNoteLocalStorage? _storage;
   final Map<PetNoteLocalTable, String?> _persistedTableSnapshots =
@@ -897,40 +905,14 @@ class PetNoteStore extends ChangeNotifier {
   }
 
   Pet? get selectedPet {
-    for (final pet in _pets) {
-      if (pet.id == _selectedPetId) {
-        return pet;
-      }
-    }
-    return null;
+    return _findPet(_selectedPetId);
   }
 
-  TodoItem? todoById(String todoId) {
-    for (final item in _todos) {
-      if (item.id == todoId) {
-        return item;
-      }
-    }
-    return null;
-  }
+  TodoItem? todoById(String todoId) => _todosById[todoId];
 
-  ReminderItem? reminderById(String reminderId) {
-    for (final item in _reminders) {
-      if (item.id == reminderId) {
-        return item;
-      }
-    }
-    return null;
-  }
+  ReminderItem? reminderById(String reminderId) => _remindersById[reminderId];
 
-  PetRecord? recordById(String recordId) {
-    for (final item in _records) {
-      if (item.id == recordId) {
-        return item;
-      }
-    }
-    return null;
-  }
+  PetRecord? recordById(String recordId) => _recordsById[recordId];
 
   List<ReminderItem> get remindersForSelectedPet {
     final cached = _remindersForSelectedPetCache;
@@ -1415,10 +1397,9 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> markChecklistDone(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
-      _todos.firstWhere((item) => item.id == itemId).status = TodoStatus.done;
+      _requireTodo(itemId).status = TodoStatus.done;
     } else {
-      _reminders.firstWhere((item) => item.id == itemId).status =
-          ReminderStatus.done;
+      _requireReminder(itemId).status = ReminderStatus.done;
       _invalidateSelectedPetReminders();
     }
     _invalidateChecklistDerivedData();
@@ -1432,11 +1413,11 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> postponeChecklist(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
-      final todo = _todos.firstWhere((item) => item.id == itemId);
+      final todo = _requireTodo(itemId);
       todo.status = TodoStatus.postponed;
       todo.dueAt = todo.dueAt.add(const Duration(days: 1));
     } else {
-      final reminder = _reminders.firstWhere((item) => item.id == itemId);
+      final reminder = _requireReminder(itemId);
       reminder.status = ReminderStatus.postponed;
       reminder.scheduledAt = reminder.scheduledAt.add(const Duration(days: 1));
       _invalidateSelectedPetReminders();
@@ -1452,11 +1433,9 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> skipChecklist(String sourceType, String itemId) async {
     if (sourceType == 'todo') {
-      _todos.firstWhere((item) => item.id == itemId).status =
-          TodoStatus.skipped;
+      _requireTodo(itemId).status = TodoStatus.skipped;
     } else {
-      _reminders.firstWhere((item) => item.id == itemId).status =
-          ReminderStatus.skipped;
+      _requireReminder(itemId).status = ReminderStatus.skipped;
       _invalidateSelectedPetReminders();
     }
     _invalidateChecklistDerivedData();
@@ -1484,27 +1463,26 @@ class PetNoteStore extends ChangeNotifier {
   }) async {
     final normalizedTitle = title.trim();
     final normalizedNote = note.trim();
-    _todos.insert(
-      0,
-      TodoItem(
-        id: 'todo-${_todos.length + 1}',
-        petId: petId,
-        title: normalizedTitle.isEmpty
-            ? _defaultTodoTitle(semantic, normalizedNote)
-            : normalizedTitle,
-        dueAt: dueAt,
-        notificationLeadTime: notificationLeadTime,
-        status: TodoStatus.open,
-        note: normalizedNote,
-        semantic: semantic ??
-            _inferTodoSemantic(
-              title: normalizedTitle,
-              note: normalizedNote,
-              dueAt: dueAt,
-              status: TodoStatus.open,
-            ),
-      ),
+    final todo = TodoItem(
+      id: 'todo-${_todos.length + 1}',
+      petId: petId,
+      title: normalizedTitle.isEmpty
+          ? _defaultTodoTitle(semantic, normalizedNote)
+          : normalizedTitle,
+      dueAt: dueAt,
+      notificationLeadTime: notificationLeadTime,
+      status: TodoStatus.open,
+      note: normalizedNote,
+      semantic: semantic ??
+          _inferTodoSemantic(
+            title: normalizedTitle,
+            note: normalizedNote,
+            dueAt: dueAt,
+            status: TodoStatus.open,
+          ),
     );
+    _todos.insert(0, todo);
+    _todosById[todo.id] = todo;
     _activeTab = AppTab.checklist;
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
@@ -1524,30 +1502,29 @@ class PetNoteStore extends ChangeNotifier {
   }) async {
     final normalizedTitle = title.trim();
     final normalizedNote = note.trim();
-    _reminders.insert(
-      0,
-      ReminderItem(
-        id: 'reminder-${_reminders.length + 1}',
-        petId: petId,
-        kind: kind,
-        title: normalizedTitle.isEmpty
-            ? _defaultReminderTitle(kind, semantic)
-            : normalizedTitle,
-        scheduledAt: scheduledAt,
-        notificationLeadTime: notificationLeadTime,
-        recurrence: recurrence,
-        status: ReminderStatus.pending,
-        note: normalizedNote,
-        semantic: semantic ??
-            _inferReminderSemantic(
-              kind: kind,
-              title: normalizedTitle,
-              note: normalizedNote,
-              scheduledAt: scheduledAt,
-              status: ReminderStatus.pending,
-            ),
-      ),
+    final reminder = ReminderItem(
+      id: 'reminder-${_reminders.length + 1}',
+      petId: petId,
+      kind: kind,
+      title: normalizedTitle.isEmpty
+          ? _defaultReminderTitle(kind, semantic)
+          : normalizedTitle,
+      scheduledAt: scheduledAt,
+      notificationLeadTime: notificationLeadTime,
+      recurrence: recurrence,
+      status: ReminderStatus.pending,
+      note: normalizedNote,
+      semantic: semantic ??
+          _inferReminderSemantic(
+            kind: kind,
+            title: normalizedTitle,
+            note: normalizedNote,
+            scheduledAt: scheduledAt,
+            status: ReminderStatus.pending,
+          ),
     );
+    _reminders.insert(0, reminder);
+    _remindersById[reminder.id] = reminder;
     _activeTab = AppTab.checklist;
     _invalidateChecklistDerivedData();
     _invalidateOverviewDerivedData();
@@ -1583,39 +1560,38 @@ class PetNoteStore extends ChangeNotifier {
     final resolvedType =
         type ?? _recordTypeForPurpose(purpose ?? RecordPurpose.health);
     final resolvedPurpose = purpose ?? _recordPurposeForType(resolvedType);
-    _records.insert(
-      0,
-      PetRecord(
-        id: 'record-${_records.length + 1}',
-        petId: petId,
-        type: resolvedType,
-        purpose: resolvedPurpose,
-        customPurposeLabel: resolvedPurpose == RecordPurpose.other
-            ? normalizedCustomPurpose
-            : null,
-        title: normalizedTitle.isEmpty
-            ? _defaultRecordTitle(
-                resolvedType,
-                semantic,
-                purpose: resolvedPurpose,
-                customPurposeLabel: normalizedCustomPurpose,
-              )
-            : normalizedTitle,
-        recordDate: recordDate,
-        summary: normalizedSummary,
-        note: normalizedNote,
-        photoPaths: normalizedPhotoPaths,
-        semantic: semantic ??
-            _inferRecordSemantic(
-              type: resolvedType,
+    final record = PetRecord(
+      id: 'record-${_records.length + 1}',
+      petId: petId,
+      type: resolvedType,
+      purpose: resolvedPurpose,
+      customPurposeLabel: resolvedPurpose == RecordPurpose.other
+          ? normalizedCustomPurpose
+          : null,
+      title: normalizedTitle.isEmpty
+          ? _defaultRecordTitle(
+              resolvedType,
+              semantic,
               purpose: resolvedPurpose,
-              title: normalizedTitle,
-              summary: normalizedSummary,
-              note: normalizedNote,
-              recordDate: recordDate,
-            ),
-      ),
+              customPurposeLabel: normalizedCustomPurpose,
+            )
+          : normalizedTitle,
+      recordDate: recordDate,
+      summary: normalizedSummary,
+      note: normalizedNote,
+      photoPaths: normalizedPhotoPaths,
+      semantic: semantic ??
+          _inferRecordSemantic(
+            type: resolvedType,
+            purpose: resolvedPurpose,
+            title: normalizedTitle,
+            summary: normalizedSummary,
+            note: normalizedNote,
+            recordDate: recordDate,
+          ),
     );
+    _records.insert(0, record);
+    _recordsById[record.id] = record;
     _selectedPetId = petId;
     _activeTab = AppTab.pets;
     _invalidateOverviewDerivedData();
@@ -1640,7 +1616,7 @@ class PetNoteStore extends ChangeNotifier {
     final current = _todos[index];
     final normalizedTitle = title.trim();
     final normalizedNote = note.trim();
-    _todos[index] = TodoItem(
+    final updatedTodo = TodoItem(
       id: current.id,
       petId: petId,
       title: normalizedTitle.isEmpty
@@ -1657,6 +1633,8 @@ class PetNoteStore extends ChangeNotifier {
         status: current.status,
       ),
     );
+    _todos[index] = updatedTodo;
+    _todosById[updatedTodo.id] = updatedTodo;
     _selectedPetId = petId;
     _activeTab = AppTab.checklist;
     _invalidateChecklistDerivedData();
@@ -1682,7 +1660,7 @@ class PetNoteStore extends ChangeNotifier {
     final current = _reminders[index];
     final normalizedTitle = title.trim();
     final normalizedNote = note.trim();
-    _reminders[index] = ReminderItem(
+    final updatedReminder = ReminderItem(
       id: current.id,
       petId: petId,
       kind: kind,
@@ -1702,6 +1680,8 @@ class PetNoteStore extends ChangeNotifier {
         status: current.status,
       ),
     );
+    _reminders[index] = updatedReminder;
+    _remindersById[updatedReminder.id] = updatedReminder;
     _selectedPetId = petId;
     _activeTab = AppTab.checklist;
     _invalidateChecklistDerivedData();
@@ -1740,7 +1720,7 @@ class PetNoteStore extends ChangeNotifier {
         .toList(growable: false);
     final resolvedPurpose = purpose ?? current.purpose ?? RecordPurpose.health;
     final resolvedType = _recordTypeForPurpose(resolvedPurpose);
-    _records[index] = PetRecord(
+    final updatedRecord = PetRecord(
       id: current.id,
       petId: petId,
       type: resolvedType,
@@ -1769,6 +1749,8 @@ class PetNoteStore extends ChangeNotifier {
         recordDate: recordDate,
       ),
     );
+    _records[index] = updatedRecord;
+    _recordsById[updatedRecord.id] = updatedRecord;
     _selectedPetId = petId;
     _activeTab = AppTab.pets;
     _invalidateOverviewDerivedData();
@@ -1788,6 +1770,9 @@ class PetNoteStore extends ChangeNotifier {
     _records.removeWhere((item) => ids.contains(item.id));
     if (_records.length == originalLength) {
       return;
+    }
+    for (final id in ids) {
+      _recordsById.remove(id);
     }
 
     _activeTab = AppTab.pets;
@@ -1827,6 +1812,7 @@ class PetNoteStore extends ChangeNotifier {
       note: note,
     );
     _pets.insert(0, pet);
+    _petsById[pet.id] = pet;
     _overviewSelectedPetIds.add(pet.id);
     _selectedPetId = pet.id;
     _activeTab = AppTab.pets;
@@ -1859,7 +1845,7 @@ class PetNoteStore extends ChangeNotifier {
     }
 
     final current = _pets[index];
-    _pets[index] = Pet(
+    final updatedPet = Pet(
       id: current.id,
       name: name,
       avatarText: _avatarTextForName(name),
@@ -1875,6 +1861,8 @@ class PetNoteStore extends ChangeNotifier {
       allergies: allergies,
       note: note,
     );
+    _pets[index] = updatedPet;
+    _petsById[updatedPet.id] = updatedPet;
     _selectedPetId = current.id;
     _activeTab = AppTab.pets;
     _invalidateChecklistDerivedData();
@@ -1904,15 +1892,19 @@ class PetNoteStore extends ChangeNotifier {
     _pets
       ..clear()
       ..addAll(normalizedState.pets);
+    _rebuildPetIndex();
     _todos
       ..clear()
       ..addAll(normalizedState.todos);
+    _rebuildTodoIndex();
     _reminders
       ..clear()
       ..addAll(normalizedState.reminders);
+    _rebuildReminderIndex();
     _records
       ..clear()
       ..addAll(normalizedState.records);
+    _rebuildRecordIndex();
     _overviewSelectedPetIds
       ..clear()
       ..addAll(_pets.map((pet) => pet.id));
@@ -1954,10 +1946,22 @@ class PetNoteStore extends ChangeNotifier {
     );
 
     _pets.addAll(normalizedState.pets);
+    for (final pet in normalizedState.pets) {
+      _petsById[pet.id] = pet;
+    }
     _overviewSelectedPetIds.addAll(normalizedState.pets.map((pet) => pet.id));
     _todos.addAll(normalizedState.todos);
+    for (final item in normalizedState.todos) {
+      _todosById[item.id] = item;
+    }
     _reminders.addAll(normalizedState.reminders);
+    for (final item in normalizedState.reminders) {
+      _remindersById[item.id] = item;
+    }
     _records.addAll(normalizedState.records);
+    for (final item in normalizedState.records) {
+      _recordsById[item.id] = item;
+    }
     if (_selectedPetId.isEmpty && _pets.isNotEmpty) {
       _selectedPetId = _pets.first.id;
     }
@@ -1974,9 +1978,13 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> clearAllData() async {
     _pets.clear();
+    _petsById.clear();
     _todos.clear();
+    _todosById.clear();
     _reminders.clear();
+    _remindersById.clear();
     _records.clear();
+    _recordsById.clear();
     _overviewSelectedPetIds.clear();
     _selectedPetId = '';
     _activeTab = AppTab.checklist;
@@ -2078,6 +2086,30 @@ class PetNoteStore extends ChangeNotifier {
     _overviewDataSliceCacheKey = null;
   }
 
+  void _rebuildPetIndex() {
+    _petsById
+      ..clear()
+      ..addEntries(_pets.map((pet) => MapEntry(pet.id, pet)));
+  }
+
+  void _rebuildTodoIndex() {
+    _todosById
+      ..clear()
+      ..addEntries(_todos.map((item) => MapEntry(item.id, item)));
+  }
+
+  void _rebuildReminderIndex() {
+    _remindersById
+      ..clear()
+      ..addEntries(_reminders.map((item) => MapEntry(item.id, item)));
+  }
+
+  void _rebuildRecordIndex() {
+    _recordsById
+      ..clear()
+      ..addEntries(_records.map((item) => MapEntry(item.id, item)));
+  }
+
   void _scheduleNextTimeDerivedDataRefresh() {
     _timeDerivedDataTimer?.cancel();
     final now = _referenceNow;
@@ -2106,13 +2138,14 @@ class PetNoteStore extends ChangeNotifier {
 
   ChecklistItemViewModel _todoToChecklistItem(TodoItem item) {
     final effectiveStatus = _effectiveTodoStatus(item, _referenceNow);
+    final pet = _findPet(item.petId);
     return ChecklistItemViewModel(
       id: item.id,
       sourceType: 'todo',
       petId: item.petId,
-      petName: _petName(item.petId),
-      petAvatarText: _petAvatar(item.petId),
-      petAvatarPhotoPath: _petPhotoPath(item.petId),
+      petName: pet?.name ?? '未命名爱宠',
+      petAvatarText: pet == null ? 'PA' : petAvatarFallbackForPet(pet),
+      petAvatarPhotoPath: pet?.photoPath,
       title: item.title,
       dueLabel: _formatDate(item.dueAt),
       statusLabel: _todoStatusLabel(effectiveStatus),
@@ -2123,13 +2156,14 @@ class PetNoteStore extends ChangeNotifier {
 
   ChecklistItemViewModel _reminderToChecklistItem(ReminderItem item) {
     final effectiveStatus = _effectiveReminderStatus(item, _referenceNow);
+    final pet = _findPet(item.petId);
     return ChecklistItemViewModel(
       id: item.id,
       sourceType: 'reminder',
       petId: item.petId,
-      petName: _petName(item.petId),
-      petAvatarText: _petAvatar(item.petId),
-      petAvatarPhotoPath: _petPhotoPath(item.petId),
+      petName: pet?.name ?? '未命名爱宠',
+      petAvatarText: pet == null ? 'PA' : petAvatarFallbackForPet(pet),
+      petAvatarPhotoPath: pet?.photoPath,
       title: item.title,
       dueLabel: _formatDate(item.scheduledAt),
       statusLabel: _reminderStatusLabel(effectiveStatus),
@@ -2224,25 +2258,27 @@ class PetNoteStore extends ChangeNotifier {
     return pet?.name ?? '未命名爱宠';
   }
 
-  String _petAvatar(String petId) {
-    final pet = _findPet(petId);
-    return pet == null ? 'PA' : petAvatarFallbackForPet(pet);
-  }
-
-  String? _petPhotoPath(String petId) {
-    return _findPet(petId)?.photoPath;
-  }
-
   Pet? _findPet(String petId) {
-    for (final pet in _pets) {
-      if (pet.id == petId) {
-        return pet;
-      }
-    }
-    return null;
+    return _petsById[petId];
   }
 
   Pet? petById(String petId) => _findPet(petId);
+
+  TodoItem _requireTodo(String todoId) {
+    final item = _todosById[todoId];
+    if (item == null) {
+      throw StateError('No element');
+    }
+    return item;
+  }
+
+  ReminderItem _requireReminder(String reminderId) {
+    final item = _remindersById[reminderId];
+    if (item == null) {
+      throw StateError('No element');
+    }
+    return item;
+  }
 
   Future<void> _saveState({
     bool pets = false,
@@ -2762,6 +2798,9 @@ class PetNoteStore extends ChangeNotifier {
       changed = true;
     }
     if (changed) {
+      _rebuildTodoIndex();
+      _rebuildReminderIndex();
+      _rebuildRecordIndex();
       _invalidateAllDerivedData();
     }
     return changed;

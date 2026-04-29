@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
+import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:sembast/sembast_memory.dart';
@@ -1075,6 +1076,163 @@ void main() {
         contains('分钟边界待办'),
       );
       store.stopTimeDerivedDataRefresh();
+    });
+
+    test('entity id indexes stay aligned across store mutations', () async {
+      final store = await PetNoteStore.load(
+        storage: PetNoteLocalStorage.memory(),
+        nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+      );
+
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      final petId = store.pets.single.id;
+      await store.addTodo(
+        title: '补充主粮',
+        petId: petId,
+        dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+        note: '低敏',
+      );
+      await store.addReminder(
+        title: '耳道复查',
+        petId: petId,
+        scheduledAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+        kind: ReminderKind.review,
+        recurrence: '单次',
+        note: '带记录',
+      );
+      await store.addRecord(
+        petId: petId,
+        title: '初诊记录',
+        recordDate: DateTime.parse('2026-03-27T12:00:00+08:00'),
+        summary: '状态稳定',
+        note: '继续观察',
+      );
+
+      expect(store.petById(petId)?.name, 'Mochi');
+      expect(store.todoById('todo-1')?.title, '补充主粮');
+      expect(store.reminderById('reminder-1')?.title, '耳道复查');
+      expect(store.recordById('record-1')?.title, '初诊记录');
+
+      await store.updateTodo(
+        todoId: 'todo-1',
+        petId: petId,
+        title: '补充湿粮',
+        dueAt: DateTime.parse('2026-03-28T18:00:00+08:00'),
+        notificationLeadTime: NotificationLeadTime.oneHour,
+        note: '鸡肉避开',
+      );
+      await store.updateReminder(
+        reminderId: 'reminder-1',
+        petId: petId,
+        kind: ReminderKind.review,
+        title: '皮肤复查',
+        scheduledAt: DateTime.parse('2026-03-30T12:00:00+08:00'),
+        notificationLeadTime: NotificationLeadTime.oneDay,
+        note: '拍照对比',
+      );
+      await store.updateRecord(
+        recordId: 'record-1',
+        petId: petId,
+        recordDate: DateTime.parse('2026-03-28T12:00:00+08:00'),
+        purpose: RecordPurpose.health,
+        title: '复诊记录',
+        summary: '恢复良好',
+        note: '减少刺激',
+      );
+
+      expect(store.todoById('todo-1')?.title, '补充湿粮');
+      expect(store.reminderById('reminder-1')?.title, '皮肤复查');
+      expect(store.recordById('record-1')?.title, '复诊记录');
+
+      final replacement = PetNoteStore.seeded(
+        nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+      );
+      await replacement.replaceAllData(store.exportDataState());
+      expect(replacement.todoById('todo-1')?.title, '补充湿粮');
+      expect(replacement.reminderById('reminder-1')?.title, '皮肤复查');
+      expect(replacement.recordById('record-1')?.title, '复诊记录');
+
+      final appended = PetNoteStore.seeded(
+        nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+      );
+      await appended.appendData(
+        PetNoteDataState(
+          pets: [
+            Pet(
+              id: 'pet-extra',
+              name: 'Nori',
+              avatarText: 'NO',
+              type: PetType.dog,
+              breed: '柯基',
+              sex: '公',
+              birthday: '2023-01-01',
+              ageLabel: '3岁',
+              weightKg: 9.8,
+              neuterStatus: PetNeuterStatus.notNeutered,
+              feedingPreferences: '少量多餐',
+              allergies: '无',
+              note: '活泼',
+            ),
+          ],
+          todos: [
+            TodoItem(
+              id: 'todo-extra',
+              petId: 'pet-extra',
+              title: '追加待办',
+              dueAt: DateTime.parse('2026-03-31T12:00:00+08:00'),
+              notificationLeadTime: NotificationLeadTime.none,
+              status: TodoStatus.open,
+              note: '',
+            ),
+          ],
+          reminders: [
+            ReminderItem(
+              id: 'reminder-extra',
+              petId: 'pet-extra',
+              kind: ReminderKind.custom,
+              title: '追加提醒',
+              scheduledAt: DateTime.parse('2026-04-01T12:00:00+08:00'),
+              notificationLeadTime: NotificationLeadTime.none,
+              recurrence: '单次',
+              status: ReminderStatus.pending,
+              note: '',
+            ),
+          ],
+          records: [
+            PetRecord(
+              id: 'record-extra',
+              petId: 'pet-extra',
+              type: PetRecordType.other,
+              title: '追加记录',
+              recordDate: DateTime.parse('2026-03-30T12:00:00+08:00'),
+              summary: '追加数据',
+              note: '',
+            ),
+          ],
+        ),
+      );
+      expect(appended.petById('pet-extra')?.name, 'Nori');
+      expect(appended.todoById('todo-extra')?.title, '追加待办');
+      expect(appended.reminderById('reminder-extra')?.title, '追加提醒');
+      expect(appended.recordById('record-extra')?.title, '追加记录');
+
+      await appended.deleteRecords(['record-extra']);
+      expect(appended.recordById('record-extra'), isNull);
+      await appended.clearAllData();
+      expect(appended.petById('pet-extra'), isNull);
+      expect(appended.todoById('todo-extra'), isNull);
+      expect(appended.reminderById('reminder-extra'), isNull);
     });
   });
 }

@@ -89,6 +89,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   Future<void>? _notificationInitializationTask;
   Future<void>? _notificationCoordinatorReadyTask;
   bool _isNotificationSyncScheduled = false;
+  bool _pendingNotificationSyncShouldVerifyPlatformState = false;
 
   @override
   void initState() {
@@ -201,7 +202,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     }
 
     try {
-      await coordinator.syncFromStore(store);
+      await coordinator.syncFromStore(store, verifyPlatformState: true);
       if (mounted && identical(_store, store)) {
         _lastNotificationSyncVersion = store.notificationSyncVersion;
       }
@@ -668,15 +669,22 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     if (stateChanged && coordinator.hasGrantedPermission) {
-      await _flushNotificationSync(store);
+      await _flushNotificationSync(store, verifyPlatformState: true);
     }
     await _consumeForegroundNotificationTap(store);
   }
 
-  Future<void> _flushNotificationSync(PetNoteStore store) {
+  Future<void> _flushNotificationSync(
+    PetNoteStore store, {
+    bool verifyPlatformState = false,
+  }) {
+    if (verifyPlatformState) {
+      _pendingNotificationSyncShouldVerifyPlatformState = true;
+    }
     if (_isNotificationSyncScheduled) {
       return _pendingNotificationSync;
     }
+    _pendingNotificationSyncShouldVerifyPlatformState = verifyPlatformState;
     _isNotificationSyncScheduled = true;
     _pendingNotificationSync = _pendingNotificationSync
         .catchError((Object _, StackTrace __) {})
@@ -694,7 +702,13 @@ class _PetNoteRootState extends State<PetNoteRoot>
           return;
         }
         final targetVersion = currentStore.notificationSyncVersion;
-        await coordinator.syncFromStore(currentStore);
+        final shouldVerifyPlatformState =
+            _pendingNotificationSyncShouldVerifyPlatformState;
+        _pendingNotificationSyncShouldVerifyPlatformState = false;
+        await coordinator.syncFromStore(
+          currentStore,
+          verifyPlatformState: shouldVerifyPlatformState,
+        );
         if (_lastNotificationSyncVersion == null ||
             _lastNotificationSyncVersion! < targetVersion) {
           _lastNotificationSyncVersion = targetVersion;
@@ -706,7 +720,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
         if (!identical(latestStore, store) || latestStore == null) {
           return;
         }
-        if (latestStore.notificationSyncVersion == targetVersion) {
+        if (latestStore.notificationSyncVersion == targetVersion &&
+            !_pendingNotificationSyncShouldVerifyPlatformState) {
           return;
         }
       }
@@ -719,6 +734,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       );
     }).whenComplete(() {
       _isNotificationSyncScheduled = false;
+      _pendingNotificationSyncShouldVerifyPlatformState = false;
     });
     return _pendingNotificationSync;
   }
@@ -1147,8 +1163,10 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                             .requestPermission();
                         if (state == NotificationPermissionState.authorized ||
                             state == NotificationPermissionState.provisional) {
-                          await widget.notificationCoordinator!
-                              .syncFromStore(widget.store);
+                          await widget.notificationCoordinator!.syncFromStore(
+                            widget.store,
+                            verifyPlatformState: true,
+                          );
                         }
                       },
                 onOpenNotificationSettings: widget.notificationCoordinator ==
@@ -1162,8 +1180,10 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                         if (changed &&
                             widget.notificationCoordinator!
                                 .hasGrantedPermission) {
-                          await widget.notificationCoordinator!
-                              .syncFromStore(widget.store);
+                          await widget.notificationCoordinator!.syncFromStore(
+                            widget.store,
+                            verifyPlatformState: true,
+                          );
                         }
                       },
                 shouldOpenNotificationSettingsForRequest: widget

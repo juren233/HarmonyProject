@@ -14,6 +14,7 @@ class NotificationCoordinator extends ChangeNotifier {
   static const String permissionPromptHandledStorageKey =
       'notification_permission_prompt_handled_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
+  static const int _platformOperationConcurrency = 4;
 
   NotificationCoordinator({
     required NotificationPlatformAdapter adapter,
@@ -146,27 +147,37 @@ class NotificationCoordinator extends ChangeNotifier {
     return _permissionState;
   }
 
-  Future<void> syncFromStore(PetNoteStore store) async {
+  Future<void> syncFromStore(
+    PetNoteStore store, {
+    bool verifyPlatformState = false,
+  }) async {
     final builtSnapshots = _buildJobsFromStore(store);
     final snapshots = _limitJobsToPlatformCapacity(builtSnapshots);
     final nextKeys = snapshots.keys.toSet();
     final staleKeys = _scheduledSnapshots.keys.toSet().difference(nextKeys);
     final skippedForCapacity = builtSnapshots.length - snapshots.length;
 
-    for (final key in staleKeys) {
-      await _adapter.cancelNotification(key);
-    }
-    for (final entry in snapshots.entries) {
-      final previous = _scheduledSnapshots[entry.key];
-      final next = entry.value;
-      if (previous == next && await _hasPlatformNotification(entry.key)) {
-        continue;
-      }
-      if (previous != null) {
-        await _adapter.cancelNotification(entry.key);
-      }
-      await _adapter.scheduleLocalNotification(next.toNotificationJob());
-    }
+    await _runWithConcurrency<String>(
+      staleKeys,
+      (key) => _adapter.cancelNotification(key),
+    );
+    await _runWithConcurrency<
+        MapEntry<String, _PersistedNotificationJobSnapshot>>(
+      snapshots.entries,
+      (entry) async {
+        final previous = _scheduledSnapshots[entry.key];
+        final next = entry.value;
+        if (previous == next &&
+            (!verifyPlatformState ||
+                await _hasPlatformNotification(entry.key))) {
+          return;
+        }
+        if (previous != null) {
+          await _adapter.cancelNotification(entry.key);
+        }
+        await _adapter.scheduleLocalNotification(next.toNotificationJob());
+      },
+    );
 
     _scheduledSnapshots
       ..clear()
@@ -192,6 +203,31 @@ class NotificationCoordinator extends ChangeNotifier {
       );
       return false;
     }
+  }
+
+  Future<void> _runWithConcurrency<T>(
+    Iterable<T> items,
+    Future<void> Function(T item) action,
+  ) async {
+    final iterator = items.iterator;
+    Future<void> worker() async {
+      while (iterator.moveNext()) {
+        await action(iterator.current);
+      }
+    }
+
+    final workers = <Future<void>>[];
+    for (var index = 0; index < _platformOperationConcurrency; index += 1) {
+      if (!iterator.moveNext()) {
+        break;
+      }
+      final item = iterator.current;
+      workers.add(() async {
+        await action(item);
+        await worker();
+      }());
+    }
+    await Future.wait(workers);
   }
 
   Future<NotificationLaunchIntent?> consumeLaunchIntent() {

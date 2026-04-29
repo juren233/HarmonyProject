@@ -205,6 +205,26 @@ void main() {
   });
 
   test(
+      'syncFromStore skips platform verification for unchanged jobs by default',
+      () async {
+    final adapter = _FakeNotificationPlatformAdapter();
+    final coordinator = NotificationCoordinator(
+      adapter: adapter,
+      nowProvider: () => DateTime.parse('2026-03-24T12:00:00+08:00'),
+    );
+    final store = PetNoteStore.seeded();
+
+    await coordinator.init();
+    await coordinator.syncFromStore(store);
+    adapter.hasCallCount = 0;
+
+    await coordinator.syncFromStore(store);
+
+    expect(adapter.hasCallCount, 0);
+    expect(adapter.cancelCallCount, 0);
+  });
+
+  test(
       'syncFromStore reschedules when persisted snapshot is missing on platform',
       () async {
     final adapter = _FakeNotificationPlatformAdapter();
@@ -219,7 +239,7 @@ void main() {
     final firstScheduleCount = adapter.scheduleCallCount;
     adapter.currentScheduled.remove('todo:todo-1');
 
-    await coordinator.syncFromStore(store);
+    await coordinator.syncFromStore(store, verifyPlatformState: true);
 
     expect(adapter.scheduleCallCount, firstScheduleCount + 1);
     expect(adapter.cancelled, contains('todo:todo-1'));
@@ -524,6 +544,7 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
   int resetCallCount = 0;
   int requestPermissionCallCount = 0;
   int openSettingsCallCount = 0;
+  int hasCallCount = 0;
 
   @override
   Future<NotificationPermissionState> getPermissionState() async {
@@ -574,6 +595,7 @@ class _FakeNotificationPlatformAdapter implements NotificationPlatformAdapter {
 
   @override
   Future<bool> hasScheduledNotification(String key) async {
+    hasCallCount += 1;
     return currentScheduled.containsKey(key);
   }
 
