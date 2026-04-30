@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import org.json.JSONArray
 
 data class PetNoteScheduledNotification(
@@ -19,7 +18,6 @@ data class PetNoteScheduledNotification(
 )
 
 object PetNoteNotificationScheduler {
-    private const val LOG_TAG = "PetNoteNotification"
     private const val FLUTTER_SHARED_PREFERENCES = "FlutterSharedPreferences"
     private const val SNAPSHOT_STORAGE_KEY = "flutter.notification_jobs_snapshot_v1"
 
@@ -78,17 +76,9 @@ object PetNoteNotificationScheduler {
                     AlarmClockInfo(triggerAtMillis, showPendingIntent),
                     pendingIntent,
                 )
-                Log.i(
-                    LOG_TAG,
-                    "Scheduled alarm-clock notification ${notification.key} at $triggerAtMillis, delay=${delayMillis}ms.",
-                )
             }
             else -> {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                Log.i(
-                    LOG_TAG,
-                    "Scheduled legacy notification ${notification.key} at $triggerAtMillis, delay=${delayMillis}ms.",
-                )
             }
         }
     }
@@ -120,7 +110,6 @@ object PetNoteNotificationScheduler {
                 scheduleNotification(context, notification)
             }
             .count()
-        Log.i(LOG_TAG, "Restored $restored notifications after $reason.")
     }
 
     private fun loadPersistedNotifications(context: Context): List<PetNoteScheduledNotification> {
@@ -157,7 +146,6 @@ object PetNoteNotificationScheduler {
                 }
             }
         } catch (error: Throwable) {
-            Log.e(LOG_TAG, "Failed to parse persisted notification snapshot.", error)
             emptyList()
         }
     }

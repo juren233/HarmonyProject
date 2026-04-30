@@ -24,13 +24,13 @@ void main() {
     expect(source, contains("import { calendarManager } from '@kit.CalendarKit';"));
     expect(source, contains('requestPermissionsFromUser(ability.context, permissions)'));
     expect(source, contains('requestPermissionOnSetting(ability.context, permissions)'));
-    expect(source, contains('const grantStatuses = await atManager.requestPermissionOnSetting(ability.context, permissions);'));
+    expect(source, contains('await atManager.requestPermissionOnSetting(ability.context, permissions);'));
     expect(source, contains('calendarManager.getCalendarManager(ability.context)'));
     expect(source, contains('const defaultCalendar = await manager.getCalendar();'));
-    expect(source, contains('命中系统默认日历账户'));
+    expect(source, contains('return defaultCalendar;'));
     expect(source, contains('availableCalendars = await manager.getAllCalendars();'));
     expect(source, contains('const existingPetNoteCalendar = this.pickPetNoteCalendar(availableCalendars);'));
-    expect(source, contains('命中宠记本地日历账户'));
+    expect(source, contains('return existingPetNoteCalendar;'));
     expect(source, contains('const localCalendar = await manager.getCalendar(this.petNoteCalendarAccount());'));
     expect(source, contains('const localCalendar = await manager.createCalendar(this.petNoteCalendarAccount());'));
     expect(source, contains('private pickPetNoteCalendar('));
@@ -72,9 +72,8 @@ void main() {
 
     expect(source, contains("const state = readGranted && writeGranted ? 'authorized' : 'denied';"));
     expect(source, contains('return state;'));
-    expect(source, contains('日历权限尚未授权，准备在写入提醒前请求授权'));
-    expect(source, contains('requestResult.dialogShownResults'));
-    expect(source, contains('requestResult.errorReasons'));
+    expect(source, contains("if (permissionState !== 'authorized')"));
+    expect(source, contains('requestResult.dialogShownResults ?? []'));
     expect(source, contains('const promptHandled = this.didShowPermissionDialog(requestResult);'));
     expect(source, contains('const granted = authResults.length > 0 &&'));
     expect(source, contains('const afterState = await this.confirmCalendarPermissionState();'));

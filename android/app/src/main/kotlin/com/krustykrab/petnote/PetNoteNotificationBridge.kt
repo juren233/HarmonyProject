@@ -12,7 +12,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -34,7 +33,6 @@ class PetNoteNotificationBridge(
         const val EXTRA_NOTIFICATION_TITLE = "petnote_notification_title"
         const val EXTRA_NOTIFICATION_BODY = "petnote_notification_body"
         const val EXTRA_NOTIFICATION_PAYLOAD = "petnote_notification_payload"
-        private const val LOG_TAG = "PetNoteNotification"
     }
 
     private val context: Context = activity.applicationContext
@@ -245,9 +243,7 @@ class PetNoteNotificationBridge(
         try {
             manager.notify(releaseUrl.hashCode(), notification)
         } catch (error: SecurityException) {
-            Log.e(LOG_TAG, "Failed to post update notification because permission was rejected.", error)
         } catch (error: Throwable) {
-            Log.e(LOG_TAG, "Failed to post update notification.", error)
         }
     }
 

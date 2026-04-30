@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/ai/ai_url_utils.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 
 class AiConnectionTestResult {
   const AiConnectionTestResult({
@@ -576,14 +575,12 @@ Object? tryDecodeAiJson(String value) {
 class AiConnectionTester {
   AiConnectionTester({
     AiHttpTransport? transport,
-    this.appLogController,
   }) : _transport = transport ?? HttpClientAiHttpTransport();
 
   static const String _probeSystemPrompt = '只返回一个 JSON object，不要输出任何额外文字。';
   static const String _probeUserPrompt = '请返回 {"ok":true}。';
 
   final AiHttpTransport _transport;
-  final AppLogController? appLogController;
 
   Future<AiConnectionTestResult> testConnection({
     required AiProviderType providerType,
@@ -592,18 +589,7 @@ class AiConnectionTester {
     required String apiKey,
   }) async {
     final normalizedBaseUrl = normalizeAiBaseUrl(baseUrl);
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '开始测试 AI 连接',
-      message:
-          'provider=${providerType.name}, baseUrl=$normalizedBaseUrl, model=$model',
-    );
     if (!isValidAiBaseUrl(normalizedBaseUrl)) {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 连接测试失败',
-        message: 'Base URL 格式不正确。',
-      );
       return const AiConnectionTestResult(
         status: AiConnectionStatus.unreachable,
         message: 'Base URL 格式不正确，请检查完整的 http(s) 地址。',
@@ -623,7 +609,6 @@ class AiConnectionTester {
         fallbackInvalidResponse ??= attempt;
         continue;
       }
-      _logConnectionResult(attempt);
       return attempt;
     }
 
@@ -632,7 +617,6 @@ class AiConnectionTester {
           status: AiConnectionStatus.unreachable,
           message: '连接失败，请检查网络和服务地址。',
         );
-    _logConnectionResult(result);
     return result;
   }
 
@@ -646,20 +630,8 @@ class AiConnectionTester {
       providerType: providerType,
       baseUrl: baseUrl,
     );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 连接测试能力画像',
-      message: 'profile=${profile.id}',
-      details: 'baseUrl=$baseUrl',
-    );
 
     if (profile.modelDiscoveryPolicy == AiModelDiscoveryPolicy.skip) {
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: 'AI 连接测试跳过模型列表探测',
-        message: '当前服务按兼容聊天接口直接探活。',
-        details: 'profile=${profile.id}',
-      );
       return _probeStrictStructuredOutput(
         profile: profile,
         baseUrl: baseUrl,
@@ -675,13 +647,6 @@ class AiConnectionTester {
         apiKey: apiKey,
       );
       final response = await _transport.send(request);
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: 'AI 测试接口返回',
-        message:
-            '${request.method} ${request.uri} -> ${response.statusCode} (profile=${profile.id})',
-        details: _previewResponseBody(response.body),
-      );
 
       final discoveryOutcome = _evaluateModelDiscovery(
         profile: profile,
@@ -699,31 +664,16 @@ class AiConnectionTester {
         apiKey: apiKey,
       );
     } on TimeoutException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 连接测试超时',
-        message: '连接超时，请稍后重试。',
-      );
       return const AiConnectionTestResult(
         status: AiConnectionStatus.timeout,
         message: '连接超时，请稍后重试。',
       );
     } on SocketException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 服务不可达',
-        message: '服务地址不可达，请检查 Base URL。',
-      );
       return const AiConnectionTestResult(
         status: AiConnectionStatus.unreachable,
         message: '服务地址不可达，请检查 Base URL。',
       );
     } catch (_) {
-      appLogController?.error(
-        category: AppLogCategory.ai,
-        title: 'AI 连接测试异常',
-        message: '连接失败，请检查网络和服务地址。',
-      );
       return const AiConnectionTestResult(
         status: AiConnectionStatus.unreachable,
         message: '连接失败，请检查网络和服务地址。',
@@ -875,12 +825,6 @@ class AiConnectionTester {
       } on TimeoutException {
         if (!hasRetriedTransientFailure) {
           hasRetriedTransientFailure = true;
-          appLogController?.warning(
-            category: AppLogCategory.ai,
-            title: 'AI 连接测试重试',
-            message: '结构化探活请求超时，正在重试一次。',
-            details: 'profile=${profile.id}',
-          );
           continue;
         }
         return const AiConnectionTestResult(
@@ -889,35 +833,15 @@ class AiConnectionTester {
         );
       }
 
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: 'AI 结构化探活返回',
-        message:
-            '${request.method} ${request.uri} -> ${response.statusCode} (profile=${profile.id})',
-        details: _previewResponseBody(response.body),
-      );
-
       if (useStructuredOutput &&
           aiProviderSupportsResponseFormat(profile.providerType) &&
           looksLikeStructuredOutputUnsupportedResponse(response)) {
         useStructuredOutput = false;
-        appLogController?.warning(
-          category: AppLogCategory.ai,
-          title: 'AI 连接测试降级重试',
-          message: '当前服务不支持 response_format，改用普通 JSON 提示词重试。',
-          details: 'profile=${profile.id}',
-        );
         continue;
       }
 
       if (_isRetryableProbeResponse(response) && !hasRetriedTransientFailure) {
         hasRetriedTransientFailure = true;
-        appLogController?.warning(
-          category: AppLogCategory.ai,
-          title: 'AI 连接测试重试',
-          message: '结构化探活遇到临时过载，正在重试一次。',
-          details: 'status=${response.statusCode}, profile=${profile.id}',
-        );
         continue;
       }
 
@@ -927,12 +851,6 @@ class AiConnectionTester {
             response: response,
           )) {
         useStream = true;
-        appLogController?.warning(
-          category: AppLogCategory.ai,
-          title: 'AI 连接测试流式重试',
-          message: '兼容服务非流式返回缺少正文，改用 stream=true 再探活一次。',
-          details: 'profile=${profile.id}',
-        );
         continue;
       }
 
@@ -1026,27 +944,6 @@ class AiConnectionTester {
         response.statusCode == 502 ||
         response.statusCode == 503 ||
         response.statusCode == 504;
-  }
-
-  void _logConnectionResult(AiConnectionTestResult result) {
-    final level = switch (result.status) {
-      AiConnectionStatus.success => AppLogLevel.info,
-      AiConnectionStatus.invalidKey ||
-      AiConnectionStatus.modelUnavailable ||
-      AiConnectionStatus.timeout ||
-      AiConnectionStatus.unreachable ||
-      AiConnectionStatus.invalidResponse ||
-      AiConnectionStatus.unavailable ||
-      AiConnectionStatus.unknown =>
-        AppLogLevel.warning,
-    };
-    appLogController?.log(
-      level,
-      category: AppLogCategory.ai,
-      title: 'AI 连接测试结果',
-      message: result.message,
-      details: 'status=${result.status.name}',
-    );
   }
 
   String _previewResponseBody(String value) {

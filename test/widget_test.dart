@@ -22,7 +22,6 @@ import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
 import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/app/theme_settings_copy.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
 import 'package:petnote/permissions/permission_request_gate.dart';
@@ -2445,7 +2444,6 @@ void main() {
         home: PetNoteRoot(
           storeLoader: () async => store,
           notificationAdapter: _GrantedNotificationPlatformAdapter(),
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -2507,7 +2505,6 @@ void main() {
         home: PetNoteRoot(
           storeLoader: () async => store,
           notificationAdapter: _GrantedNotificationPlatformAdapter(),
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -2628,7 +2625,6 @@ void main() {
         home: PetNoteRoot(
           storeLoader: () async => store,
           notificationAdapter: _GrantedNotificationPlatformAdapter(),
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -2892,7 +2888,6 @@ void main() {
         theme: buildPetNoteTheme(Brightness.light),
         home: PetNoteRoot(
           storeLoader: () async => store,
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -3070,7 +3065,6 @@ void main() {
         home: PetNoteRoot(
           storeLoader: () async => store,
           notificationAdapter: _GrantedNotificationPlatformAdapter(),
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -3104,7 +3098,6 @@ void main() {
         theme: buildPetNoteTheme(Brightness.light),
         home: PetNoteRoot(
           storeLoader: () async => store,
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -3190,7 +3183,6 @@ void main() {
         home: PetNoteRoot(
           storeLoader: () async => store,
           notificationAdapter: _GrantedNotificationPlatformAdapter(),
-          appLogController: AppLogController.memory(),
         ),
       ),
     );
@@ -3891,7 +3883,6 @@ void main() {
     await tester.pumpWidget(
       PetNoteApp(
         settingsController: settingsController,
-        appLogController: AppLogController.memory(),
       ),
     );
     await tester.pumpAndSettle();
@@ -3950,7 +3941,6 @@ void main() {
     await tester.pumpWidget(
       PetNoteApp(
         settingsController: settingsController,
-        appLogController: AppLogController.memory(),
       ),
     );
     await tester.pumpAndSettle();
@@ -4032,7 +4022,6 @@ void main() {
     await tester.pumpWidget(
       PetNoteApp(
         settingsController: settingsController,
-        appLogController: AppLogController.memory(),
       ),
     );
     await tester.pumpAndSettle();

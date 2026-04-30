@@ -9,7 +9,6 @@ import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/ai/ai_url_utils.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 abstract class AiInsightsService {
@@ -36,12 +35,10 @@ class NetworkAiInsightsService implements AiInsightsService {
   NetworkAiInsightsService({
     required this.clientFactory,
     AiHttpTransport? transport,
-    this.appLogController,
   }) : _transport = transport ?? HttpClientAiHttpTransport();
 
   final AiClientFactory clientFactory;
   final AiHttpTransport _transport;
-  final AppLogController? appLogController;
   final Map<String, AiCareReport> _careReportCache = <String, AiCareReport>{};
   final Map<String, AiVisitSummary> _visitSummaryCache =
       <String, AiVisitSummary>{};
@@ -65,12 +62,6 @@ class NetworkAiInsightsService implements AiInsightsService {
     AiGenerationContext context, {
     bool forceRefresh = false,
   }) async {
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '开始生成 AI 总览',
-      message:
-          '${context.rangeLabel} · pets=${context.pets.length}, todos=${context.todos.length}, reminders=${context.reminders.length}, records=${context.records.length}',
-    );
     final client = await _requireClient();
     final cacheKey = '${client.configId}:care:${context.cacheKey}';
     if (!forceRefresh && _careReportCache.containsKey(cacheKey)) {
@@ -85,19 +76,7 @@ class NetworkAiInsightsService implements AiInsightsService {
     try {
       final result = await future;
       _careReportCache[cacheKey] = result;
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: 'AI 总览生成成功',
-        message: result.summary,
-      );
       return result;
-    } catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.ai,
-        title: 'AI 总览生成失败',
-        message: error.toString(),
-      );
-      rethrow;
     } finally {
       _careReportInFlight.remove(cacheKey);
     }
@@ -108,18 +87,7 @@ class NetworkAiInsightsService implements AiInsightsService {
     AiGenerationContext context, {
     bool forceRefresh = false,
   }) async {
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '开始生成看诊摘要',
-      message:
-          '${context.rangeLabel} · pets=${context.pets.length}, todos=${context.todos.length}, reminders=${context.reminders.length}, records=${context.records.length}',
-    );
     if (_hasNoVisitSummarySourceData(context)) {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: '看诊摘要跳过远端请求',
-        message: '当前区间没有足够数据，直接返回保守摘要。',
-      );
       return _buildEmptyVisitSummary(context);
     }
 
@@ -137,19 +105,7 @@ class NetworkAiInsightsService implements AiInsightsService {
     try {
       final result = await future;
       _visitSummaryCache[cacheKey] = result;
-      appLogController?.info(
-        category: AppLogCategory.ai,
-        title: '看诊摘要生成成功',
-        message: result.visitReason,
-      );
       return result;
-    } catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.ai,
-        title: '看诊摘要生成失败',
-        message: error.toString(),
-      );
-      rethrow;
     } finally {
       _visitSummaryInFlight.remove(cacheKey);
     }
@@ -212,20 +168,12 @@ class NetworkAiInsightsService implements AiInsightsService {
             jsonObject,
             scorecard: scorecard,
           );
-        } on _AiRetryableGenerationException catch (error) {
+        } on _AiRetryableGenerationException catch (_) {
           if (index == promptPlans.length - 1) {
             throw AiGenerationException(
               ' 已经尝试使用更轻量的上下文重试，但当前模型仍无法稳定完成总览生成。请先切换到较短时间范围，或更换更稳定的模型/供应商后再试。',
             );
           }
-          final nextPlan = promptPlans[index + 1];
-          appLogController?.warning(
-            category: AppLogCategory.ai,
-            title: 'AI 总览降载重试',
-            message:
-                '当前服务在上下文下未稳定返回，改用${nextPlan.detailLevel.displayLabel}上下文重试。',
-            details: error.message,
-          );
           break;
         } on AiGenerationException catch (error) {
           if (_looksLikeRetryableSchemaGap(error) &&
@@ -234,12 +182,6 @@ class NetworkAiInsightsService implements AiInsightsService {
                 attempt: attempt,
                 maxAttempts: maxAttempts,
               )) {
-            appLogController?.warning(
-              category: AppLogCategory.ai,
-              title: 'AI 总览缺字段同档重试',
-              message: '当前服务在上下文下漏了必填字段，先保持当前数据版重试。',
-              details: error.message,
-            );
             continue;
           }
           rethrow;
@@ -274,12 +216,6 @@ class NetworkAiInsightsService implements AiInsightsService {
     final content = _extractTextContent(
       providerType: client.providerType,
       response: response,
-    );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 返回原始内容摘要',
-      message: '已收到 ${client.providerType.name} 的文本响应。',
-      details: _previewText(content),
     );
     final jsonObject = _extractJsonObject(content);
     if (jsonObject == null) {
@@ -331,46 +267,16 @@ class NetworkAiInsightsService implements AiInsightsService {
           ),
       };
     } on TimeoutException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 请求超时',
-        message: 'AI 请求超时，请稍后重试。',
-      );
       throw const _AiRetryableGenerationException('AI 请求超时，请稍后重试。');
     } on FormatException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 服务地址格式错误',
-        message: 'AI 服务地址格式不正确，请检查 Base URL。',
-      );
       throw const AiGenerationException('AI 服务地址格式不正确，请检查 Base URL。');
     } on ArgumentError {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 服务地址参数错误',
-        message: 'AI 服务地址格式不正确，请检查 Base URL。',
-      );
       throw const AiGenerationException('AI 服务地址格式不正确，请检查 Base URL。');
     } on HandshakeException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 证书校验失败',
-        message: 'AI 服务证书校验失败，请检查 HTTPS 证书或系统时间。',
-      );
       throw const AiGenerationException('AI 服务证书校验失败，请检查 HTTPS 证书或系统时间。');
     } on SocketException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 服务连接失败',
-        message: 'AI 服务连接失败，请检查网络或服务地址。',
-      );
       throw const AiGenerationException('AI 服务连接失败，请检查网络或服务地址。');
     } on HttpException {
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 服务连接异常',
-        message: 'AI 服务连接异常，请稍后重试。',
-      );
       throw const AiGenerationException('AI 服务连接异常，请稍后重试。');
     }
   }
@@ -387,19 +293,7 @@ class NetworkAiInsightsService implements AiInsightsService {
       userPrompt: userPrompt,
       useStructuredOutput: useStructuredOutput,
     );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '发送 AI 请求',
-      message: '${request.method} ${request.uri}',
-      details: 'timeout=${request.timeout?.inSeconds ?? 10}s',
-    );
     final response = await _transport.send(request);
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 请求返回',
-      message: 'OpenAI 接口返回 ${response.statusCode}',
-      details: _previewText(response.body),
-    );
     _throwIfFailure(response);
     return response;
   }
@@ -417,12 +311,6 @@ class NetworkAiInsightsService implements AiInsightsService {
       useStructuredOutput: useStructuredOutput,
       stream: false,
     );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '发送 AI 请求',
-      message: '${request.method} ${request.uri}',
-      details: 'timeout=${request.timeout?.inSeconds ?? 10}s',
-    );
     var response = await _transport.send(request);
     if (_looksLikeStructuredOutputUnsupportedResponse(response)) {
       useStructuredOutput = false;
@@ -432,12 +320,6 @@ class NetworkAiInsightsService implements AiInsightsService {
         userPrompt: userPrompt,
         useStructuredOutput: useStructuredOutput,
         stream: false,
-      );
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 请求降级重试',
-        message: '当前兼容服务不支持 response_format，改用普通 JSON 提示词重试。',
-        details: '${request.method} ${request.uri}',
       );
       response = await _transport.send(request);
     }
@@ -452,20 +334,8 @@ class NetworkAiInsightsService implements AiInsightsService {
         useStructuredOutput: useStructuredOutput,
         stream: true,
       );
-      appLogController?.warning(
-        category: AppLogCategory.ai,
-        title: 'AI 请求流式重试',
-        message: '兼容服务非流式返回缺少正文，改用 stream=true 重试。',
-        details: '${request.method} ${request.uri}',
-      );
       response = await _transport.send(request);
     }
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 请求返回',
-      message: '兼容 OpenAI 接口返回 ${response.statusCode}',
-      details: _previewText(response.body),
-    );
     _throwIfFailure(response);
     return response;
   }
@@ -498,19 +368,7 @@ class NetworkAiInsightsService implements AiInsightsService {
       }),
       timeout: _generationRequestTimeoutFor(client),
     );
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: '发送 AI 请求',
-      message: '${request.method} ${request.uri}',
-      details: 'timeout=${request.timeout?.inSeconds ?? 10}s',
-    );
     final response = await _transport.send(request);
-    appLogController?.info(
-      category: AppLogCategory.ai,
-      title: 'AI 请求返回',
-      message: 'Anthropic 接口返回 ${response.statusCode}',
-      details: _previewText(response.body),
-    );
     _throwIfFailure(response);
     return response;
   }

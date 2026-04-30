@@ -5,7 +5,6 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -16,7 +15,6 @@ class PetNoteIntroHapticsBridge(
 ) : MethodChannel.MethodCallHandler {
     companion object {
         const val CHANNEL_NAME = "petnote/intro_haptics"
-        private const val TAG = "PetNoteIntroHaptics"
 
         private const val LAUNCH_SLOW_RISE_SCALE = 0.34f
         private const val LAUNCH_QUICK_FALL_SCALE = 0.20f
@@ -54,36 +52,30 @@ class PetNoteIntroHapticsBridge(
     ) {
         when (call.method) {
             "prepareIntroLaunchHaptics" -> {
-                Log.d(TAG, "Received prepareIntroLaunchHaptics")
                 result.success(null)
             }
 
             "playIntroLaunchContinuous" -> {
-                Log.d(TAG, "Received playIntroLaunchContinuous")
                 playLaunchHaptics()
                 result.success(null)
             }
 
             "stopIntroLaunchContinuous" -> {
-                Log.d(TAG, "Received stopIntroLaunchContinuous")
                 stopActivePlayback()
                 result.success(null)
             }
 
             "playIntroToOnboardingContinuous" -> {
-                Log.d(TAG, "Received playIntroToOnboardingContinuous")
                 playOnboardingHaptics()
                 result.success(null)
             }
 
             "stopIntroToOnboardingContinuous" -> {
-                Log.d(TAG, "Received stopIntroToOnboardingContinuous")
                 stopActivePlayback()
                 result.success(null)
             }
 
             "playIntroPrimaryButtonTap" -> {
-                Log.d(TAG, "Received playIntroPrimaryButtonTap")
                 playPrimaryButtonTapHaptics()
                 result.success(null)
             }
@@ -115,14 +107,12 @@ class PetNoteIntroHapticsBridge(
     private fun playPrimaryButtonTapHaptics() {
         val vibrator = vibrator
         if (vibrator == null || !vibrator.hasVibrator()) {
-            Log.d(TAG, "Skip button-tap haptics: vibrator unavailable")
             return
         }
 
         val effect =
             when {
                 supportsButtonTapPrimitive(vibrator) -> {
-                    Log.d(TAG, "Playing button-tap haptics via click primitive")
                     VibrationEffect
                         .startComposition()
                         .addPrimitive(
@@ -132,7 +122,6 @@ class PetNoteIntroHapticsBridge(
                 }
 
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
-                    Log.d(TAG, "Playing button-tap haptics via one-shot fallback")
                     VibrationEffect.createOneShot(
                         BUTTON_TAP_ONE_SHOT_DURATION_MS,
                         BUTTON_TAP_ONE_SHOT_AMPLITUDE,
@@ -140,7 +129,6 @@ class PetNoteIntroHapticsBridge(
                 }
 
                 else -> {
-                    Log.d(TAG, "Skip button-tap haptics: one-shot fallback unavailable")
                     return
                 }
             }
@@ -157,7 +145,6 @@ class PetNoteIntroHapticsBridge(
     ) {
         val vibrator = vibrator
         if (vibrator == null || !vibrator.hasVibrator()) {
-            Log.d(TAG, "Skip $label haptics: vibrator unavailable")
             return
         }
 
@@ -166,7 +153,6 @@ class PetNoteIntroHapticsBridge(
         val effect =
             when {
                 supportsRichHaptics(vibrator) -> {
-                    Log.d(TAG, "Playing $label haptics via composition primitives")
                     VibrationEffect
                         .startComposition()
                         .addPrimitive(VibrationEffect.Composition.PRIMITIVE_SLOW_RISE, slowRiseScale)
@@ -177,12 +163,10 @@ class PetNoteIntroHapticsBridge(
                 }
 
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
-                    Log.d(TAG, "Playing $label haptics via waveform fallback")
                     VibrationEffect.createWaveform(fallbackTimings, fallbackAmplitudes, -1)
                 }
 
                 else -> {
-                    Log.d(TAG, "Skip $label haptics: waveform fallback unavailable")
                     return
                 }
             }
@@ -195,7 +179,6 @@ class PetNoteIntroHapticsBridge(
         if (!hasActivePlayback) {
             return
         }
-        Log.d(TAG, "Stopping active intro haptics playback")
         vibrator?.cancel()
         hasActivePlayback = false
     }
@@ -210,7 +193,6 @@ class PetNoteIntroHapticsBridge(
                 VibrationEffect.Composition.PRIMITIVE_SLOW_RISE,
                 VibrationEffect.Composition.PRIMITIVE_QUICK_FALL,
             ).all { it }
-        Log.d(TAG, "Primitive support available: $primitivesSupported")
         return primitivesSupported
     }
 
@@ -223,7 +205,6 @@ class PetNoteIntroHapticsBridge(
                 .arePrimitivesSupported(
                     VibrationEffect.Composition.PRIMITIVE_CLICK,
                 ).all { it }
-        Log.d(TAG, "Button tap primitive support available: $primitiveSupported")
         return primitiveSupported
     }
 }

@@ -35,7 +35,7 @@ void main() {
     expect(source.contains('VibrationEffect.createWaveform'), isTrue);
     expect(source.contains('arePrimitivesSupported'), isTrue);
     expect(source.contains('vibrator?.cancel()'), isTrue);
-    expect(source.contains('Log.d(TAG,'), isTrue);
+    expect(source.contains('Log.'), isFalse);
   });
 
   test('Android manifest declares vibrate permission for intro haptics', () {

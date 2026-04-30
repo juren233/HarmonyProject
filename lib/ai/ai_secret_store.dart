@@ -1,5 +1,4 @@
 import 'package:flutter/services.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 
 abstract class AiSecretStore {
   Future<bool> isAvailable();
@@ -23,13 +22,11 @@ abstract class AiSecretStore {
 class MethodChannelAiSecretStore implements AiSecretStore {
   MethodChannelAiSecretStore({
     MethodChannel? channel,
-    this.appLogController,
   }) : _channel = channel ?? const MethodChannel(_channelName);
 
   static const String _channelName = 'petnote/ai_secret_store';
 
   final MethodChannel _channel;
-  final AppLogController? appLogController;
   bool? _availabilityCache;
 
   @override
@@ -42,29 +39,12 @@ class MethodChannelAiSecretStore implements AiSecretStore {
       final available =
           (await _channel.invokeMethod<bool>('isAvailable')) ?? false;
       _availabilityCache = available;
-      if (!available) {
-        appLogController?.warning(
-          category: AppLogCategory.nativeBridge,
-          title: '安全存储不可用',
-          message: '原生安全存储返回不可用状态。',
-        );
-      }
+      if (!available) {}
       return available;
-    } on PlatformException catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '安全存储检查失败',
-        message: error.message ?? '安全存储可用性检查失败。',
-        details: error.details?.toString(),
-      );
+    } on PlatformException {
       _availabilityCache = false;
       return false;
     } on MissingPluginException {
-      appLogController?.warning(
-        category: AppLogCategory.nativeBridge,
-        title: '安全存储插件缺失',
-        message: '当前平台未接入 AI 安全存储插件。',
-      );
       _availabilityCache = false;
       return false;
     }
@@ -80,20 +60,8 @@ class MethodChannelAiSecretStore implements AiSecretStore {
     try {
       final value = await _channel
           .invokeMethod<String>('readKey', {'configId': configId});
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '读取安全存储',
-        message: '已读取配置 $configId 的 API Key 状态。',
-        details: value == null || value.isEmpty ? '结果：空' : '结果：已保存',
-      );
       return value;
-    } on PlatformException catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '读取安全存储失败',
-        message: error.message ?? '读取 API Key 失败。',
-        details: 'configId: $configId\n${error.details ?? ''}',
-      );
+    } on PlatformException {
       rethrow;
     }
   }
@@ -120,12 +88,6 @@ class MethodChannelAiSecretStore implements AiSecretStore {
           error.code == 'notImplemented') {
         return _hasKeysByReading(ids);
       }
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '批量读取安全存储失败',
-        message: error.message ?? '批量读取 API Key 状态失败。',
-        details: error.details?.toString(),
-      );
       rethrow;
     }
   }
@@ -147,18 +109,7 @@ class MethodChannelAiSecretStore implements AiSecretStore {
         'configId': configId,
         'value': value,
       });
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '写入安全存储',
-        message: '已写入配置 $configId 的 API Key。',
-      );
-    } on PlatformException catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '写入安全存储失败',
-        message: error.message ?? '写入 API Key 失败。',
-        details: 'configId: $configId\n${error.details ?? ''}',
-      );
+    } on PlatformException {
       rethrow;
     }
   }
@@ -168,18 +119,7 @@ class MethodChannelAiSecretStore implements AiSecretStore {
     await _ensureAvailable();
     try {
       await _channel.invokeMethod<void>('deleteKey', {'configId': configId});
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '删除安全存储',
-        message: '已删除配置 $configId 的 API Key。',
-      );
-    } on PlatformException catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '删除安全存储失败',
-        message: error.message ?? '删除 API Key 失败。',
-        details: 'configId: $configId\n${error.details ?? ''}',
-      );
+    } on PlatformException {
       rethrow;
     }
   }

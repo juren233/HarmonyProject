@@ -14,11 +14,10 @@ class PetNoteAppDirectory {
       if (error.toString().contains('Binding has not yet been initialized')) {
         return null;
       }
-      debugPrint('PetNote app directory channel failed: $error');
-    } on MissingPluginException catch (error) {
-      debugPrint('PetNote app directory channel is missing: $error');
-    } on PlatformException catch (error) {
-      debugPrint('PetNote app directory channel failed: ${error.message}');
+    } on MissingPluginException {
+      // Platforms without the native directory bridge fall back to defaults.
+    } on PlatformException {
+      // Directory lookup failures fall back to defaults.
     }
     return null;
   }

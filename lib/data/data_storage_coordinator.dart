@@ -4,7 +4,6 @@ import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:flutter/foundation.dart';
 import 'package:petnote/ai/ai_secret_store.dart';
 import 'package:petnote/data/data_storage_models.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -12,14 +11,11 @@ class DataStorageCoordinator extends ChangeNotifier {
   DataStorageCoordinator({
     required this.store,
     required this.settingsController,
-    this.appLogController,
     AiSecretStore? secretStore,
-  }) : secretStore = secretStore ??
-            MethodChannelAiSecretStore(appLogController: appLogController);
+  }) : secretStore = secretStore ?? MethodChannelAiSecretStore();
 
   final PetNoteStore store;
   final AppSettingsController settingsController;
-  final AppLogController? appLogController;
   final AiSecretStore secretStore;
 
   PetNoteDataPackage? _latestSnapshotPackage;
@@ -60,13 +56,6 @@ class DataStorageCoordinator extends ChangeNotifier {
       restoredSettings: false,
       isSuccess: true,
     );
-    appLogController?.info(
-      category: AppLogCategory.dataStorage,
-      title: '生成完整备份',
-      message: '完整备份包已生成。',
-      details:
-          'pets=${package.data.pets.length}, todos=${package.data.todos.length}, reminders=${package.data.reminders.length}, records=${package.data.records.length}',
-    );
     notifyListeners();
     return package;
   }
@@ -87,12 +76,6 @@ class DataStorageCoordinator extends ChangeNotifier {
       remindersCount: store.reminders.length,
       recordsCount: store.records.length,
     );
-    appLogController?.info(
-      category: AppLogCategory.dataStorage,
-      title: '生成 AI 摘要',
-      message: 'AI 摘要数据包已生成。',
-      details: jsonEncode(package.globalStats),
-    );
     notifyListeners();
     return package;
   }
@@ -103,12 +86,6 @@ class DataStorageCoordinator extends ChangeNotifier {
   }) async {
     final validationError = validatePackage(package);
     if (validationError != null) {
-      appLogController?.warning(
-        category: AppLogCategory.dataStorage,
-        title: '数据包校验失败',
-        message: validationError,
-        details: 'package=${package.packageName}',
-      );
       return _setOperation(
         DataOperationResult(
           kind: DataOperationKind.validationFailed,
@@ -142,13 +119,6 @@ class DataStorageCoordinator extends ChangeNotifier {
         restoredSettings: restoredSettings,
         restoredSensitiveSettings: restoredSensitiveSettings,
       );
-      appLogController?.info(
-        category: AppLogCategory.dataStorage,
-        title: '备份恢复完成',
-        message: successMessage,
-        details:
-            'package=${package.packageName}\nrestoreSettings=$restoredSettings\nrestoreSensitiveSettings=$restoredSensitiveSettings',
-      );
       return _setOperation(
         _resultForPackage(
           kind: DataOperationKind.importedReplace,
@@ -160,12 +130,6 @@ class DataStorageCoordinator extends ChangeNotifier {
         ),
       );
     } on StateError catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.dataStorage,
-        title: '导入失败',
-        message: error.message,
-        details: 'package=${package.packageName}',
-      );
       return _setOperation(
         _resultForPackage(
           kind: DataOperationKind.validationFailed,
@@ -183,12 +147,6 @@ class DataStorageCoordinator extends ChangeNotifier {
     final snapshot = await _captureSnapshot();
     await store.clearAllData();
     await settingsController.resetNonSensitiveSettings();
-    appLogController?.warning(
-      category: AppLogCategory.dataStorage,
-      title: '清空本地数据',
-      message: '本地业务数据和普通设置已清空。',
-      details: snapshot == null ? '未执行内部保护' : '已执行内部保护',
-    );
     return _setOperation(
       DataOperationResult(
         kind: DataOperationKind.cleared,
@@ -208,28 +166,12 @@ class DataStorageCoordinator extends ChangeNotifier {
   PetNoteDataPackage parsePackageJson(String rawValue) {
     final decoded = jsonDecode(rawValue);
     if (decoded is! Map<String, dynamic>) {
-      appLogController?.warning(
-        category: AppLogCategory.dataStorage,
-        title: '解析数据包失败',
-        message: 'JSON 顶层结构不是对象。',
-      );
       throw const FormatException('JSON 顶层结构必须是对象。');
     }
     final rawPackageType = decoded['packageType'] as String?;
     if (rawPackageType != null && rawPackageType != 'backup') {
-      appLogController?.warning(
-        category: AppLogCategory.dataStorage,
-        title: '解析数据包失败',
-        message: '当前仅支持完整备份文件。',
-        details: 'packageType=$rawPackageType',
-      );
       throw const FormatException('当前仅支持完整备份文件。');
     }
-    appLogController?.info(
-      category: AppLogCategory.dataStorage,
-      title: '解析数据包成功',
-      message: '文件内容已解析为数据包对象。',
-    );
     return PetNoteDataPackage.fromJson(decoded);
   }
 

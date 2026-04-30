@@ -12,7 +12,6 @@ import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec';
 import Any from '@ohos/flutter_ohos/src/main/ets/plugin/common/Any';
-import Log from '@ohos/flutter_ohos/src/main/ets/util/Log';
 
 const TAG = 'PetNoteNotificationPlugin';
 const CHANNEL_NAME = 'petnote/notifications';
@@ -107,7 +106,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
-    Log.i(TAG, '收到通知通道调用 method=' + call.method);
     switch (call.method) {
       case 'initialize':
         result.success(null);
@@ -160,7 +158,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(state);
       })
       .catch((error: BusinessError) => {
-        Log.e(TAG, '读取日历权限失败：' + this.describeError(error));
         result.success('unknown');
       });
   }
@@ -170,7 +167,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     try {
       result.success(this.hasHandledCalendarPermissionPrompt());
     } catch (error) {
-      Log.e(TAG, '读取日历权限弹窗操作状态失败：' + this.describeError(error));
       result.success(false);
     }
   }
@@ -186,7 +182,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success('opened');
       })
       .catch((error: BusinessError) => {
-        Log.e(TAG, '打开日历权限设置失败：' + this.describeError(error));
         result.success('failed');
       });
   }
@@ -202,7 +197,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(requestResult);
       })
       .catch((error: BusinessError) => {
-        Log.e(TAG, '请求日历权限失败：' + this.describeError(error));
         result.success({ state: 'unknown', promptHandled: false });
       });
   }
@@ -210,7 +204,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
   private replyScheduleLocalNotification(call: MethodCall, result: MethodResult): void {
     const job = this.parseNotificationJob(call);
     if (job == null) {
-      Log.e(TAG, '通知任务参数无效 args=' + this.describeValue(call.args));
       result.error('invalid_notification_job', '通知任务参数无效', null);
       return;
     }
@@ -219,7 +212,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(null);
       })
       .catch((error: Error) => {
-        Log.e(TAG, '调度本地通知失败：' + this.describeError(error));
         result.error('schedule_notification_failed', '调度本地通知失败', null);
       });
   }
@@ -235,7 +227,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(exists);
       })
       .catch((error: Error) => {
-        Log.e(TAG, '回查本地通知失败：' + this.describeError(error));
         result.success(false);
       });
   }
@@ -251,7 +242,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(null);
       })
       .catch((error: Error) => {
-        Log.e(TAG, '取消本地通知失败：' + this.describeError(error));
         result.error('cancel_notification_failed', '取消本地通知失败', null);
       });
   }
@@ -262,7 +252,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         result.success(null);
       })
       .catch((error: Error) => {
-        Log.e(TAG, '重置本地通知失败：' + this.describeError(error));
         result.error('reset_notification_failed', '重置本地通知失败', null);
       });
   }
@@ -277,7 +266,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     const readGranted = atManager.checkAccessTokenSync(tokenId, PERMISSION_READ_CALENDAR) === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
     const writeGranted = atManager.checkAccessTokenSync(tokenId, PERMISSION_WRITE_CALENDAR) === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
     const state = readGranted && writeGranted ? 'authorized' : 'denied';
-    Log.i(TAG, '当前日历权限状态 state=' + state + ', readGranted=' + readGranted + ', writeGranted=' + writeGranted);
     return state;
   }
 
@@ -300,20 +288,16 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
   private async openCalendarPermissionSettings(ability: UIAbility): Promise<void> {
     const permissions: Array<Permissions> = [PERMISSION_READ_CALENDAR, PERMISSION_WRITE_CALENDAR];
     const atManager = abilityAccessCtrl.createAtManager();
-    const grantStatuses = await atManager.requestPermissionOnSetting(ability.context, permissions);
-    Log.i(TAG, '日历权限设置页返回 grantStatuses=' + JSON.stringify(grantStatuses));
+    await atManager.requestPermissionOnSetting(ability.context, permissions);
     this.calendar = null;
     this.calendarMgr = null;
   }
 
   private async requestCalendarPermissions(ability: UIAbility): Promise<PetNotePermissionRequestResult> {
     const permissions: Array<Permissions> = [PERMISSION_READ_CALENDAR, PERMISSION_WRITE_CALENDAR];
-    const beforeState = await this.calendarPermissionState();
     const atManager = abilityAccessCtrl.createAtManager();
     const requestResult = await atManager.requestPermissionsFromUser(ability.context, permissions) as PermissionRequestResult;
     const authResults = requestResult.authResults ?? [];
-    const dialogShownResults = requestResult.dialogShownResults ?? [];
-    const errorReasons = requestResult.errorReasons ?? [];
     const granted = authResults.length > 0 &&
       authResults.every((item: number) => item === CALENDAR_PERMISSION_GRANTED);
     this.calendar = null;
@@ -321,14 +305,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     const afterState = await this.confirmCalendarPermissionState();
     const promptHandled = this.didShowPermissionDialog(requestResult);
     const state = afterState === 'authorized' || granted ? 'authorized' : 'denied';
-    Log.i(TAG, '日历权限请求完成 beforeState=' + beforeState +
-      ', afterState=' + afterState +
-      ', granted=' + granted +
-      ', promptHandled=' + promptHandled +
-      ', permissions=' + JSON.stringify(requestResult.permissions ?? []) +
-      ', authResults=' + JSON.stringify(authResults) +
-      ', dialogShownResults=' + JSON.stringify(dialogShownResults) +
-      ', errorReasons=' + JSON.stringify(errorReasons));
     return {
       state: state,
       promptHandled: promptHandled,
@@ -341,8 +317,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
   }
 
   private async scheduleLocalNotification(job: PetNoteNotificationJob): Promise<void> {
-    Log.i(TAG, '开始写入系统日历提醒 key=' + job.key + ', scheduledAtEpochMs=' + job.scheduledAtEpochMs +
-      ', eventScheduledAtEpochMs=' + job.eventScheduledAtEpochMs + ', reminderLeadTimeMinutes=' + job.reminderLeadTimeMinutes);
     const calendar = await this.ensureCalendarReady();
     await this.cancelNotification(job.key);
     const startTime = this.resolveEventStartTime(job);
@@ -363,7 +337,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     };
     const eventId = await calendar.addEvent(event);
     await this.assertEventPersisted(calendar, eventId, identifier, startTime);
-    Log.i(TAG, '写入系统日历提醒成功 key=' + job.key + ', eventId=' + eventId + ', startTime=' + startTime);
   }
 
   private async cancelNotification(key: string): Promise<void> {
@@ -371,11 +344,9 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     const identifier = this.eventIdentifier(key);
     const eventId = await this.findEventIdByIdentifier(calendar, identifier);
     if (eventId == null) {
-      Log.i(TAG, '未查询到需要删除的日历提醒 identifier=' + identifier);
       return;
     }
     await calendar.deleteEvent(eventId);
-    Log.i(TAG, '删除系统日历提醒成功 identifier=' + identifier + ', eventId=' + eventId);
   }
 
   private async hasScheduledNotification(key: string): Promise<boolean> {
@@ -383,8 +354,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     const identifier = this.eventIdentifier(key);
     const eventId = await this.findEventIdByIdentifier(calendar, identifier);
     const exists = eventId != null;
-    Log.i(TAG, '回查系统日历提醒 identifier=' + identifier + ', exists=' + exists +
-      (eventId == null ? '' : ', eventId=' + eventId));
     return exists;
   }
 
@@ -400,7 +369,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
         continue;
       }
       await calendar.deleteEvent(event.id);
-      Log.i(TAG, '已删除历史宠记日历提醒 identifier=' + event.identifier + ', eventId=' + event.id);
     }
   }
 
@@ -411,7 +379,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     }
     const permissionState = await this.calendarPermissionState();
     if (permissionState !== 'authorized') {
-      Log.i(TAG, '日历权限尚未授权，准备在写入提醒前请求授权 state=' + permissionState);
       const requestedResult = await this.requestCalendarPermissions(ability);
       if (requestedResult.state !== 'authorized') {
         throw new Error('当前未授予日历读写权限，无法创建系统日历提醒，state=' + requestedResult.state);
@@ -426,10 +393,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     await this.calendar.setConfig({
       enableReminder: true,
     });
-    const activeAccount = this.calendar.getAccount();
-    Log.i(TAG, '当前写入日历提醒账户已启用提醒 name=' + activeAccount.name +
-      ', displayName=' + (activeAccount.displayName ?? '') +
-      ', type=' + activeAccount.type);
     return this.calendar as calendarManager.Calendar;
   }
 
@@ -438,42 +401,28 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
   ): Promise<calendarManager.Calendar> {
     try {
       const defaultCalendar = await manager.getCalendar();
-      const defaultAccount = defaultCalendar.getAccount();
-      Log.i(TAG, '命中系统默认日历账户 name=' + defaultAccount.name +
-        ', displayName=' + (defaultAccount.displayName ?? '') +
-        ', type=' + defaultAccount.type);
       return defaultCalendar;
     } catch (error) {
-      Log.i(TAG, '读取系统默认日历账户失败，准备回退宠记本地日历。error=' + this.describeError(error));
     }
 
     let availableCalendars: Array<calendarManager.Calendar> = [];
     try {
       availableCalendars = await manager.getAllCalendars();
-      Log.i(TAG, '当前系统日历账户列表=' + this.describeCalendars(availableCalendars));
     } catch (error) {
-      Log.i(TAG, '读取系统日历账户列表失败，继续尝试宠记本地日历。error=' + this.describeError(error));
     }
 
     const existingPetNoteCalendar = this.pickPetNoteCalendar(availableCalendars);
     if (existingPetNoteCalendar != null) {
-      const existingAccount = existingPetNoteCalendar.getAccount();
-      Log.i(TAG, '命中宠记本地日历账户 name=' + existingAccount.name +
-        ', displayName=' + (existingAccount.displayName ?? '') +
-        ', type=' + existingAccount.type);
       return existingPetNoteCalendar;
     }
 
     try {
       const localCalendar = await manager.getCalendar(this.petNoteCalendarAccount());
-      Log.i(TAG, '宠记本地日历账户已存在 name=' + CALENDAR_ACCOUNT_NAME);
       return localCalendar;
     } catch (error) {
-      Log.i(TAG, '宠记本地日历账户不存在，准备创建。error=' + this.describeError(error));
     }
 
     const localCalendar = await manager.createCalendar(this.petNoteCalendarAccount());
-    Log.i(TAG, '宠记本地日历账户创建成功 name=' + CALENDAR_ACCOUNT_NAME);
     return localCalendar;
   }
 
@@ -555,8 +504,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
       if (event.id === eventId || event.identifier === identifier) {
-        Log.i(TAG, '日历事件回查成功 eventId=' + eventId + ', identifier=' + identifier +
-          ', eventStartTime=' + event.startTime + ', timeZone=' + (event.timeZone ?? ''));
         return;
       }
     }
@@ -607,7 +554,6 @@ export default class PetNoteNotificationPlugin implements FlutterPlugin, MethodC
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       return typeof timeZone === 'string' && timeZone.length > 0 ? timeZone : undefined;
     } catch (error) {
-      Log.i(TAG, '读取当前时区失败，继续使用系统默认时区。error=' + this.describeError(error));
       return undefined;
     }
   }

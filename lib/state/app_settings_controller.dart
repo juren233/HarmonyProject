@@ -223,11 +223,10 @@ class AppSettingsController extends ChangeNotifier {
     final loader = preferencesLoader ?? SharedPreferences.getInstance;
     try {
       return await loader().timeout(_preferencesLoadTimeout);
-    } on TimeoutException catch (error) {
-      debugPrint(
-          'SharedPreferences timed out during app settings load: $error');
-    } catch (error) {
-      debugPrint('SharedPreferences unavailable for app settings: $error');
+    } on TimeoutException {
+      // App settings can fall back to defaults when preferences time out.
+    } catch (_) {
+      // App settings can fall back to defaults when preferences are unavailable.
     }
     return null;
   }

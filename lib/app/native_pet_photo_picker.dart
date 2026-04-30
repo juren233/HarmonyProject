@@ -1,5 +1,4 @@
 import 'package:flutter/services.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 
 enum NativePetPhotoPickerStatus {
   success,
@@ -97,22 +96,15 @@ abstract class NativePetPhotoPicker {
 class MethodChannelNativePetPhotoPicker implements NativePetPhotoPicker {
   MethodChannelNativePetPhotoPicker({
     MethodChannel? channel,
-    this.appLogController,
   }) : _channel = channel ?? const MethodChannel(_channelName);
 
   static const String _channelName = 'petnote/native_pet_photo_picker';
 
   final MethodChannel _channel;
-  final AppLogController? appLogController;
 
   @override
   Future<NativePetPhotoPickerResult> pickPetPhoto() async {
     try {
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '调用原生宠物图片选择器',
-        message: '开始打开系统相册选择宠物图片。',
-      );
       final rawResponse = await _channel.invokeMethod<Object?>('pickPetPhoto');
       if (rawResponse is! Map<Object?, Object?>) {
         return const NativePetPhotoPickerResult.error(
@@ -130,31 +122,14 @@ class MethodChannelNativePetPhotoPicker implements NativePetPhotoPicker {
               errorMessage: '原生宠物图片选择器没有返回有效的本地路径。',
             );
           }
-          appLogController?.info(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片选择成功',
-            message: '已返回本地图片路径。',
-            details: localPath,
-          );
           return NativePetPhotoPickerResult.success(localPath: localPath);
         case 'cancelled':
-          appLogController?.warning(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片选择取消',
-            message: '用户取消了系统相册选择。',
-          );
           return const NativePetPhotoPickerResult.cancelled();
         case 'error':
           final errorCode =
               _parseErrorCode(rawResponse['errorCode'] as String?);
           final errorMessage =
               rawResponse['errorMessage'] as String? ?? '原生宠物图片选择器当前不可用。';
-          appLogController?.error(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片选择失败',
-            message: errorMessage,
-            details: 'code: ${rawResponse['errorCode'] ?? ''}',
-          );
           return NativePetPhotoPickerResult.error(
             errorCode: errorCode,
             errorMessage: errorMessage,
@@ -181,11 +156,6 @@ class MethodChannelNativePetPhotoPicker implements NativePetPhotoPicker {
   @override
   Future<NativePetPhotoPickerBatchResult> pickPetPhotos() async {
     try {
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '调用原生宠物图片多选器',
-        message: '开始打开系统相册批量选择记录图片。',
-      );
       final rawResponse = await _channel.invokeMethod<Object?>('pickPetPhotos');
       if (rawResponse is! Map<Object?, Object?>) {
         return const NativePetPhotoPickerBatchResult.error(
@@ -206,32 +176,16 @@ class MethodChannelNativePetPhotoPicker implements NativePetPhotoPicker {
             );
           }
           final parsedPaths = localPaths.cast<String>();
-          appLogController?.info(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片多选成功',
-            message: '已返回 ${parsedPaths.length} 张本地图片路径。',
-          );
           return NativePetPhotoPickerBatchResult.success(
             localPaths: parsedPaths,
           );
         case 'cancelled':
-          appLogController?.warning(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片多选取消',
-            message: '用户取消了系统相册选择。',
-          );
           return const NativePetPhotoPickerBatchResult.cancelled();
         case 'error':
           final errorCode =
               _parseErrorCode(rawResponse['errorCode'] as String?);
           final errorMessage =
               rawResponse['errorMessage'] as String? ?? '原生宠物图片选择器当前不可用。';
-          appLogController?.error(
-            category: AppLogCategory.nativeBridge,
-            title: '原生宠物图片多选失败',
-            message: errorMessage,
-            details: 'code: ${rawResponse['errorCode'] ?? ''}',
-          );
           return NativePetPhotoPickerBatchResult.error(
             errorCode: errorCode,
             errorMessage: errorMessage,

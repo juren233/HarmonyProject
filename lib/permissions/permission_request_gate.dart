@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PermissionRequestOutcome<T> {
@@ -86,10 +85,10 @@ class PermissionRequestGate<T> {
   Future<SharedPreferences?> _loadPreferences() async {
     try {
       return await _preferencesLoader().timeout(_preferencesLoadTimeout);
-    } on TimeoutException catch (error) {
-      debugPrint('PermissionRequestGate SharedPreferences timed out: $error');
-    } catch (error) {
-      debugPrint('PermissionRequestGate SharedPreferences unavailable: $error');
+    } on TimeoutException {
+      // Permission prompt persistence is optional; fall back to in-memory state.
+    } catch (_) {
+      // Permission prompt persistence is optional; fall back to in-memory state.
     }
     return null;
   }

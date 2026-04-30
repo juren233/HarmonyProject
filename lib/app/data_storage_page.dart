@@ -6,18 +6,15 @@ import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/data/data_package_file_access.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
 import 'package:petnote/data/data_storage_models.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 
 class DataStoragePage extends StatefulWidget {
   const DataStoragePage({
     super.key,
     required this.coordinator,
-    this.appLogController,
     this.fileAccess,
   });
 
   final DataStorageCoordinator coordinator;
-  final AppLogController? appLogController;
   final DataPackageFileAccess? fileAccess;
 
   @override
@@ -29,10 +26,8 @@ class _DataStoragePageState extends State<DataStoragePage> {
   _PageFeedbackState? _feedbackState;
   Timer? _feedbackDismissTimer;
 
-  late final DataPackageFileAccess _fileAccess = widget.fileAccess ??
-      MethodChannelDataPackageFileAccess(
-        appLogController: widget.appLogController,
-      );
+  late final DataPackageFileAccess _fileAccess =
+      widget.fileAccess ?? MethodChannelDataPackageFileAccess();
 
   @override
   void dispose() {

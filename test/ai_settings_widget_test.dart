@@ -14,7 +14,6 @@ import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/me_page.dart';
 import 'package:petnote/app/native_option_picker.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -30,12 +29,6 @@ void main() {
 
   testWidgets('me page shows AI settings section', (tester) async {
     final settingsController = await AppSettingsController.load();
-    final appLogController = AppLogController.memory();
-    appLogController.info(
-      category: AppLogCategory.ai,
-      title: 'AI 测试',
-      message: '最近一次 API 测试成功。',
-    );
     final coordinator = AiSettingsCoordinator(
       settingsController: settingsController,
       secretStore: InMemoryAiSecretStore(),
@@ -72,7 +65,6 @@ void main() {
             settingsController: settingsController,
             aiSettingsCoordinator: coordinator,
             dataStorageCoordinator: dataStorageCoordinator,
-            appLogController: appLogController,
           ),
         ),
       ),
@@ -88,7 +80,6 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final settingsController = await AppSettingsController.load();
-    final appLogController = AppLogController.memory();
     final coordinator = AiSettingsCoordinator(
       settingsController: settingsController,
       secretStore: InMemoryAiSecretStore(),
@@ -125,7 +116,6 @@ void main() {
             settingsController: settingsController,
             aiSettingsCoordinator: coordinator,
             dataStorageCoordinator: dataStorageCoordinator,
-            appLogController: appLogController,
           ),
         ),
       ),

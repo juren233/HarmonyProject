@@ -2,7 +2,6 @@ import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec';
-import Log from '@ohos/flutter_ohos/src/main/ets/util/Log';
 
 const TAG = 'PetNoteAppDirectoryPlugin';
 const CHANNEL_NAME = 'petnote/app_directory';
@@ -45,7 +44,6 @@ export default class PetNoteAppDirectoryPlugin implements FlutterPlugin, MethodC
       }
       result.success(context.filesDir);
     } catch (error) {
-      Log.e(TAG, '读取应用私有目录失败：' + this.describeError(error));
       result.error('app_directory_error', '读取应用私有目录失败', null);
     }
   }

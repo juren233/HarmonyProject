@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/notifications/notification_platform_adapter.dart';
 import 'package:petnote/permissions/permission_request_gate.dart';
@@ -19,13 +18,11 @@ class NotificationCoordinator extends ChangeNotifier {
   NotificationCoordinator({
     required NotificationPlatformAdapter adapter,
     DateTime Function()? nowProvider,
-    this.appLogController,
   })  : _adapter = adapter,
         _nowProvider = nowProvider ?? DateTime.now;
 
   final NotificationPlatformAdapter _adapter;
   final DateTime Function() _nowProvider;
-  final AppLogController? appLogController;
   final Map<String, _PersistedNotificationJobSnapshot> _scheduledSnapshots =
       <String, _PersistedNotificationJobSnapshot>{};
 
@@ -59,25 +56,14 @@ class NotificationCoordinator extends ChangeNotifier {
     }
     try {
       await _adapter.initialize();
-    } catch (error, stackTrace) {
-      appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '通知桥接初始化失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      // Unsupported or failing notification bridges keep the app usable.
     }
     await _permissionRequestGate.load();
     await _refreshPlatformState(notify: false, includeCapabilities: true);
     try {
       _pushToken = await _adapter.registerPushToken();
-    } catch (error, stackTrace) {
-      appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '注册推送 Token 失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
       _pushToken = null;
     }
     var shouldDiscardPersistedSnapshots = false;
@@ -85,13 +71,8 @@ class NotificationCoordinator extends ChangeNotifier {
       try {
         await _adapter.resetScheduledNotifications();
         shouldDiscardPersistedSnapshots = true;
-      } catch (error, stackTrace) {
-        appLogController?.error(
-          category: AppLogCategory.notifications,
-          title: '重置系统通知失败',
-          message: error.toString(),
-          details: stackTrace.toString(),
-        );
+      } catch (_) {
+        // Notification snapshots remain authoritative if platform reset fails.
       }
     }
     List<_PersistedNotificationJobSnapshot> persistedSnapshots;
@@ -100,13 +81,7 @@ class NotificationCoordinator extends ChangeNotifier {
     } else {
       try {
         persistedSnapshots = await _loadPersistedSnapshots();
-      } catch (error, stackTrace) {
-        appLogController?.error(
-          category: AppLogCategory.notifications,
-          title: '恢复通知快照失败',
-          message: error.toString(),
-          details: stackTrace.toString(),
-        );
+      } catch (_) {
         persistedSnapshots = const <_PersistedNotificationJobSnapshot>[];
       }
     }
@@ -116,16 +91,6 @@ class NotificationCoordinator extends ChangeNotifier {
         persistedSnapshots.map((snapshot) => MapEntry(snapshot.key, snapshot)),
       );
     _initialized = true;
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '通知中心初始化',
-      message: '通知初始化完成，权限状态：${_permissionState.name}',
-      details: [
-        if (_pushToken != null) 'pushToken: 已注册',
-        if (_capabilities.supportsExactAlarms)
-          'exactAlarm: ${_capabilities.exactAlarmStatus.name}',
-      ].join('，').ifEmptyAsNull(),
-    );
     notifyListeners();
   }
 
@@ -134,12 +99,6 @@ class NotificationCoordinator extends ChangeNotifier {
     final previousHandledPrompt = hasHandledPermissionPrompt;
     _permissionState =
         await _permissionRequestGate.requestOrOpenSettings(_permissionState);
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '通知权限更新',
-      message: '通知权限请求结果：${_permissionState.name}',
-      details: hasHandledPermissionPrompt ? 'systemPromptHandled: true' : null,
-    );
     if (_permissionState != previousState ||
         hasHandledPermissionPrompt != previousHandledPrompt) {
       notifyListeners();
@@ -155,8 +114,6 @@ class NotificationCoordinator extends ChangeNotifier {
     final snapshots = _limitJobsToPlatformCapacity(builtSnapshots);
     final nextKeys = snapshots.keys.toSet();
     final staleKeys = _scheduledSnapshots.keys.toSet().difference(nextKeys);
-    final skippedForCapacity = builtSnapshots.length - snapshots.length;
-
     await _runWithConcurrency<String>(
       staleKeys,
       (key) => _adapter.cancelNotification(key),
@@ -183,24 +140,12 @@ class NotificationCoordinator extends ChangeNotifier {
       ..clear()
       ..addAll(snapshots);
     await _persistSnapshots(_scheduledSnapshots.values);
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '同步通知任务',
-      message: '已同步 ${snapshots.length} 条通知任务，取消 ${staleKeys.length} 条旧任务。'
-          '${skippedForCapacity > 0 ? '因系统上限暂缓 $skippedForCapacity 条较远提醒。' : ''}',
-    );
   }
 
   Future<bool> _hasPlatformNotification(String key) async {
     try {
       return await _adapter.hasScheduledNotification(key);
-    } catch (error, stackTrace) {
-      appLogController?.warning(
-        category: AppLogCategory.notifications,
-        title: '回查系统通知失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
       return false;
     }
   }
@@ -250,20 +195,10 @@ class NotificationCoordinator extends ChangeNotifier {
   }
 
   Future<NotificationSettingsOpenResult> openNotificationSettings() {
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '打开通知设置',
-      message: '准备打开系统通知设置。',
-    );
     return _adapter.openNotificationSettings();
   }
 
   Future<NotificationSettingsOpenResult> openExactAlarmSettings() {
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '打开精确闹钟设置',
-      message: '准备打开系统精确闹钟设置。',
-    );
     return _adapter.openExactAlarmSettings();
   }
 
@@ -407,25 +342,15 @@ class NotificationCoordinator extends ChangeNotifier {
 
     try {
       nextPermissionState = await _adapter.getPermissionState();
-    } catch (error, stackTrace) {
-      appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '读取通知权限失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      // Keep the previous permission state if the platform read fails.
     }
 
     if (includeCapabilities) {
       try {
         nextCapabilities = await _adapter.getCapabilities();
-      } catch (error, stackTrace) {
-        appLogController?.error(
-          category: AppLogCategory.notifications,
-          title: '读取通知能力失败',
-          message: error.toString(),
-          details: stackTrace.toString(),
-        );
+      } catch (_) {
+        // Keep the previous capability snapshot if the platform read fails.
       }
     }
 
@@ -434,13 +359,8 @@ class NotificationCoordinator extends ChangeNotifier {
       final platformHandledPrompt = await _adapter.hasHandledPermissionPrompt();
       promptHandledChanged = await _permissionRequestGate
           .rememberHandledPromptFromSystem(platformHandledPrompt);
-    } catch (error, stackTrace) {
-      appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '读取权限弹窗操作状态失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      // Permission prompt bookkeeping is best effort.
     }
 
     final changed = nextPermissionState != _permissionState ||
@@ -451,12 +371,6 @@ class NotificationCoordinator extends ChangeNotifier {
     }
     _permissionState = nextPermissionState;
     _capabilities = nextCapabilities;
-    appLogController?.info(
-      category: AppLogCategory.notifications,
-      title: '通知平台状态刷新',
-      message:
-          '权限：${_permissionState.name}，exact alarm：${_capabilities.exactAlarmStatus.name}',
-    );
     if (notify) {
       notifyListeners();
     }
@@ -505,19 +419,10 @@ class NotificationCoordinator extends ChangeNotifier {
     try {
       return await SharedPreferences.getInstance()
           .timeout(_preferencesLoadTimeout);
-    } on TimeoutException catch (error) {
-      appLogController?.warning(
-        category: AppLogCategory.notifications,
-        title: '通知偏好读取超时',
-        message: error.toString(),
-      );
-    } catch (error, stackTrace) {
-      appLogController?.warning(
-        category: AppLogCategory.notifications,
-        title: '通知偏好不可用',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } on TimeoutException {
+      // Persisted notification snapshots are optional startup state.
+    } catch (_) {
+      // Persisted notification snapshots are optional startup state.
     }
     return null;
   }
@@ -614,12 +519,6 @@ class _PersistedNotificationJobSnapshot {
         title,
         body,
       );
-}
-
-extension on String {
-  String? ifEmptyAsNull() {
-    return isEmpty ? null : this;
-  }
 }
 
 NotificationLeadTime _leadTimeFromName(String? value) {

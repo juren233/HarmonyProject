@@ -1,5 +1,4 @@
 import 'package:flutter/services.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 
 enum NativeOptionPickerStatus {
   success,
@@ -96,24 +95,17 @@ abstract class NativeOptionPicker {
 class MethodChannelNativeOptionPicker implements NativeOptionPicker {
   MethodChannelNativeOptionPicker({
     MethodChannel? channel,
-    this.appLogController,
   }) : _channel = channel ?? const MethodChannel(_channelName);
 
   static const String _channelName = 'petnote/native_option_picker';
 
   final MethodChannel _channel;
-  final AppLogController? appLogController;
 
   @override
   Future<NativeOptionPickerResult> pickSingleOption(
     NativeOptionPickerRequest request,
   ) async {
     try {
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '调用原生选项选择器',
-        message: '开始打开原生单选面板：${request.title}',
-      );
       final rawResponse = await _channel.invokeMethod<Object?>(
         'pickSingleOption',
         request.toJson(),
@@ -134,31 +126,16 @@ class MethodChannelNativeOptionPicker implements NativeOptionPicker {
               errorMessage: '原生选项选择器没有返回有效的选项值。',
             );
           }
-          appLogController?.info(
-            category: AppLogCategory.nativeBridge,
-            title: '原生选项选择成功',
-            message: '已选择：$selectedValue',
-          );
           return NativeOptionPickerResult.success(
             selectedValue: selectedValue,
           );
         case 'cancelled':
-          appLogController?.warning(
-            category: AppLogCategory.nativeBridge,
-            title: '原生选项选择取消',
-            message: '用户取消了原生单选面板：${request.title}',
-          );
           return const NativeOptionPickerResult.cancelled();
         case 'error':
-          final errorCode = _parseErrorCode(rawResponse['errorCode'] as String?);
+          final errorCode =
+              _parseErrorCode(rawResponse['errorCode'] as String?);
           final errorMessage =
               rawResponse['errorMessage'] as String? ?? '原生选项选择器当前不可用。';
-          appLogController?.error(
-            category: AppLogCategory.nativeBridge,
-            title: '原生选项选择失败',
-            message: errorMessage,
-            details: 'code: ${rawResponse['errorCode'] ?? ''}',
-          );
           return NativeOptionPickerResult.error(
             errorCode: errorCode,
             errorMessage: errorMessage,

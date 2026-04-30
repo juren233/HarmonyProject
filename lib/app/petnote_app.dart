@@ -9,9 +9,8 @@ import 'package:petnote/app/app_version_info.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/petnote_root.dart';
-import 'package:petnote/logging/app_crash_diagnostics.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/state/petnote_store.dart';
 
 const String _appTaskTitle = '宠记';
 
@@ -22,18 +21,18 @@ class PetNoteApp extends StatefulWidget {
     this.aiSecretStore,
     this.aiConnectionTester,
     this.aiInsightsService,
-    this.appLogController,
     this.nativePetPhotoPicker,
     this.appVersionInfo = AppVersionInfo.empty,
+    this.storeLoader,
   });
 
   final AppSettingsController? settingsController;
   final AiSecretStore? aiSecretStore;
   final AiConnectionTester? aiConnectionTester;
   final AiInsightsService? aiInsightsService;
-  final AppLogController? appLogController;
   final NativePetPhotoPicker? nativePetPhotoPicker;
   final AppVersionInfo appVersionInfo;
+  final Future<PetNoteStore> Function()? storeLoader;
 
   @override
   State<PetNoteApp> createState() => _PetNoteAppState();
@@ -41,7 +40,6 @@ class PetNoteApp extends StatefulWidget {
 
 class _PetNoteAppState extends State<PetNoteApp> {
   AppSettingsController? _settingsController;
-  AppLogController? _appLogController;
   late AppVersionInfo _appVersionInfo;
 
   @override
@@ -50,8 +48,6 @@ class _PetNoteAppState extends State<PetNoteApp> {
     _appVersionInfo = widget.appVersionInfo;
     if (widget.settingsController != null) {
       _settingsController = widget.settingsController;
-      _appLogController = widget.appLogController ?? AppLogController.memory();
-      _activateCrashDiagnostics(_appLogController!);
       if (_appVersionInfo == AppVersionInfo.empty) {
         _loadAppVersionInfo();
       }
@@ -63,23 +59,17 @@ class _PetNoteAppState extends State<PetNoteApp> {
   Future<void> _loadControllers() async {
     final results = await Future.wait<Object>([
       AppSettingsController.load(),
-      widget.appLogController == null
-          ? AppLogController.load()
-          : Future<AppLogController>.value(widget.appLogController!),
       _appVersionInfo == AppVersionInfo.empty
           ? AppVersionInfo.load()
           : Future<AppVersionInfo>.value(_appVersionInfo),
     ]);
     final controller = results[0] as AppSettingsController;
-    final appLogController = results[1] as AppLogController;
-    final appVersionInfo = results[2] as AppVersionInfo;
+    final appVersionInfo = results[1] as AppVersionInfo;
     if (!mounted) {
       return;
     }
-    _activateCrashDiagnostics(appLogController);
     setState(() {
       _settingsController = controller;
-      _appLogController = appLogController;
       _appVersionInfo = appVersionInfo;
     });
   }
@@ -95,24 +85,9 @@ class _PetNoteAppState extends State<PetNoteApp> {
   }
 
   @override
-  void dispose() {
-    final appLogController = _appLogController;
-    if (appLogController != null) {
-      AppCrashDiagnosticsBinding.instance.detachController(appLogController);
-    }
-    super.dispose();
-  }
-
-  void _activateCrashDiagnostics(AppLogController controller) {
-    AppCrashDiagnosticsBinding.instance.attachController(controller);
-    controller.beginCrashMonitoringSession();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final settingsController = _settingsController;
-    final appLogController = _appLogController;
-    if (settingsController == null || appLogController == null) {
+    if (settingsController == null) {
       return MaterialApp(
         title: _appTaskTitle,
         debugShowCheckedModeBanner: false,
@@ -130,21 +105,17 @@ class _PetNoteAppState extends State<PetNoteApp> {
         darkTheme: buildPetNoteTheme(Brightness.dark),
         themeMode: ThemeMode.system,
         home: PetNoteRoot(
-          appLogController: appLogController,
           appVersionInfo: _appVersionInfo,
           nativePetPhotoPicker: widget.nativePetPhotoPicker,
+          storeLoader: widget.storeLoader,
           aiSettingsCoordinator: _settingsController == null
               ? null
               : AiSettingsCoordinator(
                   settingsController: _settingsController!,
-                  secretStore: widget.aiSecretStore ??
-                      MethodChannelAiSecretStore(
-                        appLogController: appLogController,
-                      ),
-                  connectionTester: widget.aiConnectionTester ??
-                      AiConnectionTester(
-                        appLogController: appLogController,
-                      ),
+                  secretStore:
+                      widget.aiSecretStore ?? MethodChannelAiSecretStore(),
+                  connectionTester:
+                      widget.aiConnectionTester ?? AiConnectionTester(),
                 ),
           aiInsightsService: widget.aiInsightsService,
         ),
@@ -154,10 +125,8 @@ class _PetNoteAppState extends State<PetNoteApp> {
     return AnimatedBuilder(
       animation: settingsController,
       builder: (context, _) {
-        final secretStore = widget.aiSecretStore ??
-            MethodChannelAiSecretStore(
-              appLogController: appLogController,
-            );
+        final secretStore =
+            widget.aiSecretStore ?? MethodChannelAiSecretStore();
         return MaterialApp(
           title: _appTaskTitle,
           debugShowCheckedModeBanner: false,
@@ -175,17 +144,15 @@ class _PetNoteAppState extends State<PetNoteApp> {
           darkTheme: buildPetNoteTheme(Brightness.dark),
           themeMode: settingsController.themeMode,
           home: PetNoteRoot(
-            appLogController: appLogController,
             appVersionInfo: _appVersionInfo,
             settingsController: settingsController,
             nativePetPhotoPicker: widget.nativePetPhotoPicker,
+            storeLoader: widget.storeLoader,
             aiSettingsCoordinator: AiSettingsCoordinator(
               settingsController: settingsController,
               secretStore: secretStore,
-              connectionTester: widget.aiConnectionTester ??
-                  AiConnectionTester(
-                    appLogController: appLogController,
-                  ),
+              connectionTester:
+                  widget.aiConnectionTester ?? AiConnectionTester(),
             ),
             aiInsightsService: widget.aiInsightsService ??
                 NetworkAiInsightsService(
@@ -193,7 +160,6 @@ class _PetNoteAppState extends State<PetNoteApp> {
                     settingsController: settingsController,
                     secretStore: secretStore,
                   ),
-                  appLogController: appLogController,
                 ),
           ),
         );

@@ -71,10 +71,10 @@ class PetNoteLocalStorage {
     try {
       final preferences = await loader().timeout(timeout);
       return PetNoteLocalStorage._(preferences: preferences);
-    } on TimeoutException catch (error) {
-      debugPrint('SharedPreferences timed out during startup: $error');
-    } catch (error) {
-      debugPrint('SharedPreferences unavailable on this platform: $error');
+    } on TimeoutException {
+      // Startup can continue with in-memory state if preferences time out.
+    } catch (_) {
+      // Startup can continue with in-memory state if preferences are unavailable.
     }
     return null;
   }
@@ -105,10 +105,10 @@ class PetNoteLocalStorage {
         legacyPreferencesLoader ?? SharedPreferences.getInstance,
       );
       return storage;
-    } on TimeoutException catch (error) {
-      debugPrint('PetNote local database timed out during startup: $error');
-    } catch (error) {
-      debugPrint('PetNote local database unavailable on this platform: $error');
+    } on TimeoutException {
+      // Startup can continue with in-memory state if the local database times out.
+    } catch (_) {
+      // Startup can continue with in-memory state if the local database is unavailable.
     }
     return null;
   }
@@ -557,8 +557,8 @@ class PetNoteLocalStorage {
           );
         }
       }
-    } catch (error) {
-      debugPrint('PetNote local database row decode failed: $error');
+    } catch (_) {
+      // Startup can continue with in-memory state if preferences are unavailable.
     }
     return null;
   }

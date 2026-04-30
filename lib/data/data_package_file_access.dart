@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/platform/petnote_app_directory.dart';
 
 enum DataPackageFileErrorCode {
@@ -60,13 +59,11 @@ abstract class DataPackageFileAccess {
 class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
   MethodChannelDataPackageFileAccess({
     MethodChannel? channel,
-    this.appLogController,
   }) : _channel = channel ?? const MethodChannel(_channelName);
 
   static const String _channelName = 'petnote/data_package_file_access';
 
   final MethodChannel _channel;
-  final AppLogController? appLogController;
 
   @override
   Future<PickedDataPackageFile?> pickBackupFile() async {
@@ -120,11 +117,6 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
     Map<String, Object?>? arguments,
   }) async {
     try {
-      appLogController?.info(
-        category: AppLogCategory.nativeBridge,
-        title: '调用系统文件接口',
-        message: '开始执行原生文件操作：$method',
-      );
       final rawResponse =
           await _channel.invokeMethod<Object?>(method, arguments);
       if (rawResponse is! Map<Object?, Object?>) {
@@ -136,26 +128,10 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
       final status = rawResponse['status'] as String?;
       switch (status) {
         case 'success':
-          appLogController?.info(
-            category: AppLogCategory.nativeBridge,
-            title: '系统文件接口成功',
-            message: '原生文件操作 $method 已完成。',
-          );
           return rawResponse;
         case 'cancelled':
-          appLogController?.warning(
-            category: AppLogCategory.nativeBridge,
-            title: '系统文件接口取消',
-            message: '原生文件操作 $method 被用户取消。',
-          );
           return null;
         case 'error':
-          appLogController?.error(
-            category: AppLogCategory.nativeBridge,
-            title: '系统文件接口失败',
-            message: rawResponse['errorMessage'] as String? ?? '文件操作失败。',
-            details: 'method: $method\ncode: ${rawResponse['errorCode'] ?? ''}',
-          );
           throw DataPackageFileException(
             _parseErrorCode(rawResponse['errorCode'] as String?),
             rawResponse['errorMessage'] as String? ?? '文件操作失败。',
@@ -167,23 +143,11 @@ class MethodChannelDataPackageFileAccess implements DataPackageFileAccess {
           );
       }
     } on MissingPluginException {
-      appLogController?.warning(
-        category: AppLogCategory.nativeBridge,
-        title: '系统文件接口缺失',
-        message: '当前平台暂未接入系统文件管理器。',
-        details: 'method: $method',
-      );
       throw const DataPackageFileException(
         DataPackageFileErrorCode.unavailable,
         '当前平台暂未接入系统文件管理器。',
       );
     } on PlatformException catch (error) {
-      appLogController?.error(
-        category: AppLogCategory.nativeBridge,
-        title: '系统文件接口异常',
-        message: error.message ?? '系统文件管理器当前不可用。',
-        details: 'method: $method\n${error.details ?? ''}',
-      );
       throw DataPackageFileException(
         DataPackageFileErrorCode.unavailable,
         error.message ?? '系统文件管理器当前不可用。',

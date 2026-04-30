@@ -3,7 +3,6 @@ import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec';
-import Log from '@ohos/flutter_ohos/src/main/ets/util/Log';
 
 const TAG = 'SharedPreferencesPlugin';
 const CHANNEL_NAME = 'plugins.flutter.io/shared_preferences';
@@ -92,7 +91,6 @@ export default class SharedPreferencesPlugin
           break;
       }
     } catch (error) {
-      Log.e(TAG, '处理共享偏好调用失败：' + this.describeError(error));
       result.error('shared_preferences_error', '共享偏好处理失败', null);
     }
   }

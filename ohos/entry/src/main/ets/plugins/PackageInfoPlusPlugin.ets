@@ -4,7 +4,6 @@ import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec';
-import Log from '@ohos/flutter_ohos/src/main/ets/util/Log';
 
 const TAG = 'PackageInfoPlusPlugin';
 const CHANNEL_NAME = 'dev.fluttercommunity.plus/package_info';
@@ -76,7 +75,6 @@ export default class PackageInfoPlusPlugin implements FlutterPlugin, MethodCallH
     try {
       result.success(this.buildPackageInfo());
     } catch (error) {
-      Log.e(TAG, 'Failed to collect package info: ' + JSON.stringify(error));
       result.error('package_info_error', '读取应用信息失败', null);
     }
   }
@@ -114,7 +112,6 @@ export default class PackageInfoPlusPlugin implements FlutterPlugin, MethodCallH
       try {
         return resourceManagerInstance.getStringSync(labelId);
       } catch (error) {
-        Log.w(TAG, 'Failed to resolve app label from resources: ' + JSON.stringify(error));
       }
     }
 
@@ -122,7 +119,6 @@ export default class PackageInfoPlusPlugin implements FlutterPlugin, MethodCallH
       try {
         return resourceManagerInstance.getStringByNameSync('EntryAbility_label');
       } catch (error) {
-        Log.w(TAG, 'Failed to resolve EntryAbility_label: ' + JSON.stringify(error));
       }
     }
 

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
@@ -21,33 +20,6 @@ void main() {
       expect(store.pets, isEmpty);
       expect(store.shouldAutoShowFirstLaunchIntro, isTrue);
       expect(store.checklistSections.length, 5);
-    });
-
-    test('load skips database warning when Flutter binding is unavailable',
-        () async {
-      final messages = <String>[];
-      final previousDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {
-        if (message != null) {
-          messages.add(message);
-        }
-      };
-      addTearDown(() {
-        debugPrint = previousDebugPrint;
-      });
-
-      await PetNoteStore.load();
-
-      expect(
-        messages.where((message) => message.contains('Binding has not yet')),
-        isEmpty,
-      );
-      expect(
-        messages.where(
-          (message) => message.contains('PetNote local database unavailable'),
-        ),
-        isEmpty,
-      );
     });
 
     test('adding a pet persists its typed profile fields', () async {
@@ -716,29 +688,12 @@ void main() {
 
     test('load falls back to in-memory mode when preferences are unavailable',
         () async {
-      final messages = <String>[];
-      final previousDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {
-        if (message != null) {
-          messages.add(message);
-        }
-      };
-      addTearDown(() {
-        debugPrint = previousDebugPrint;
-      });
-
       final store = await PetNoteStore.load(
         preferencesLoader: () async => throw Exception('plugin unavailable'),
       );
 
       expect(store.pets, isEmpty);
       expect(store.shouldAutoShowFirstLaunchIntro, isTrue);
-      expect(
-        messages.where(
-          (message) => message.contains('SharedPreferences unavailable'),
-        ),
-        hasLength(1),
-      );
     });
 
     test('seeded store exposes five checklist sections', () {

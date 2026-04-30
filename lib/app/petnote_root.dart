@@ -21,7 +21,6 @@ import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/app/overview_bottom_cta.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/method_channel_notification_adapter.dart';
 import 'package:petnote/notifications/notification_coordinator.dart';
 import 'package:petnote/notifications/notification_models.dart';
@@ -39,7 +38,6 @@ class PetNoteRoot extends StatefulWidget {
     this.settingsController,
     this.aiSettingsCoordinator,
     this.aiInsightsService,
-    this.appLogController,
     this.appVersionInfo = AppVersionInfo.empty,
     this.appUpdateChecker = const GitHubAppUpdateChecker(),
     this.platformNameOverride,
@@ -52,7 +50,6 @@ class PetNoteRoot extends StatefulWidget {
   final AppSettingsController? settingsController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
   final AiInsightsService? aiInsightsService;
-  final AppLogController? appLogController;
   final AppVersionInfo appVersionInfo;
   final AppUpdateChecker appUpdateChecker;
   final String? platformNameOverride;
@@ -120,7 +117,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
           : DataStorageCoordinator(
               store: store,
               settingsController: widget.settingsController!,
-              appLogController: widget.appLogController,
             );
     }
   }
@@ -142,7 +138,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
           : DataStorageCoordinator(
               store: store,
               settingsController: widget.settingsController!,
-              appLogController: widget.appLogController,
             );
       _notificationCoordinator = null;
       _notificationCoordinatorReadyTask = null;
@@ -165,10 +160,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   Future<void> _initializeNotifications(PetNoteStore store) async {
     final coordinator = NotificationCoordinator(
       adapter: widget.notificationAdapter ??
-          MethodChannelNotificationPlatformAdapter(
-            appLogController: widget.appLogController,
-          ),
-      appLogController: widget.appLogController,
+          MethodChannelNotificationPlatformAdapter(),
     );
     if (!mounted || !identical(_store, store)) {
       coordinator.dispose();
@@ -192,13 +184,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
     NotificationLaunchIntent? launchIntent;
     try {
       launchIntent = await coordinator.consumeLaunchIntent();
-    } catch (error, stackTrace) {
-      widget.appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '读取通知启动意图失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      launchIntent = null;
     }
 
     try {
@@ -206,13 +193,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
       if (mounted && identical(_store, store)) {
         _lastNotificationSyncVersion = store.notificationSyncVersion;
       }
-    } catch (error, stackTrace) {
-      widget.appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '通知初始化同步失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      // 初始化阶段同步失败不阻塞进入应用，后续数据变更会再次触发同步。
     }
     if (launchIntent != null) {
       _applyNotificationIntent(store, launchIntent);
@@ -251,21 +233,14 @@ class _PetNoteRootState extends State<PetNoteRoot>
         versionLabel: update.versionLabel,
         releaseUrl: update.releaseUrl,
       );
-    } catch (error, stackTrace) {
-      widget.appLogController?.warning(
-        category: AppLogCategory.notifications,
-        title: '更新提醒检测失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
+    } catch (_) {
+      // 更新提醒失败不影响主流程。
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final appLogController = widget.appLogController;
     if (state == AppLifecycleState.resumed) {
-      appLogController?.updateCrashMonitoringHeartbeat(reason: 'resumed');
       _store?.startTimeDerivedDataRefresh();
       if (mounted) {
         setState(() {});
@@ -274,12 +249,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     if (state == AppLifecycleState.inactive) {
-      appLogController?.updateCrashMonitoringHeartbeat(reason: 'inactive');
       return;
     }
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      appLogController?.updateCrashMonitoringHeartbeat(reason: 'paused');
       final store = _store;
       if (store != null) {
         store.stopTimeDerivedDataRefresh();
@@ -287,7 +260,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
       }
       return;
     }
-    appLogController?.endCrashMonitoringSession(reason: 'detached');
   }
 
   @override
@@ -366,7 +338,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
           settingsController: widget.settingsController,
           aiSettingsCoordinator: widget.aiSettingsCoordinator,
           aiInsightsService: widget.aiInsightsService,
-          appLogController: widget.appLogController,
           appVersionInfo: widget.appVersionInfo,
           appUpdateChecker: widget.appUpdateChecker,
           notificationCoordinator: _notificationCoordinator,
@@ -689,53 +660,48 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _pendingNotificationSync = _pendingNotificationSync
         .catchError((Object _, StackTrace __) {})
         .then((_) async {
-      final initializationTask = _notificationInitializationTask;
-      if (initializationTask != null) {
-        await initializationTask;
-      }
-      while (mounted) {
-        final currentStore = _store;
-        final coordinator = _notificationCoordinator;
-        if (!identical(currentStore, store) ||
-            currentStore == null ||
-            coordinator == null) {
-          return;
-        }
-        final targetVersion = currentStore.notificationSyncVersion;
-        final shouldVerifyPlatformState =
-            _pendingNotificationSyncShouldVerifyPlatformState;
-        _pendingNotificationSyncShouldVerifyPlatformState = false;
-        await coordinator.syncFromStore(
-          currentStore,
-          verifyPlatformState: shouldVerifyPlatformState,
-        );
-        if (_lastNotificationSyncVersion == null ||
-            _lastNotificationSyncVersion! < targetVersion) {
-          _lastNotificationSyncVersion = targetVersion;
-        }
-        if (!mounted) {
-          return;
-        }
-        final latestStore = _store;
-        if (!identical(latestStore, store) || latestStore == null) {
-          return;
-        }
-        if (latestStore.notificationSyncVersion == targetVersion &&
-            !_pendingNotificationSyncShouldVerifyPlatformState) {
-          return;
-        }
-      }
-    }).catchError((Object error, StackTrace stackTrace) {
-      widget.appLogController?.error(
-        category: AppLogCategory.notifications,
-        title: '通知同步失败',
-        message: error.toString(),
-        details: stackTrace.toString(),
-      );
-    }).whenComplete(() {
-      _isNotificationSyncScheduled = false;
-      _pendingNotificationSyncShouldVerifyPlatformState = false;
-    });
+          final initializationTask = _notificationInitializationTask;
+          if (initializationTask != null) {
+            await initializationTask;
+          }
+          while (mounted) {
+            final currentStore = _store;
+            final coordinator = _notificationCoordinator;
+            if (!identical(currentStore, store) ||
+                currentStore == null ||
+                coordinator == null) {
+              return;
+            }
+            final targetVersion = currentStore.notificationSyncVersion;
+            final shouldVerifyPlatformState =
+                _pendingNotificationSyncShouldVerifyPlatformState;
+            _pendingNotificationSyncShouldVerifyPlatformState = false;
+            await coordinator.syncFromStore(
+              currentStore,
+              verifyPlatformState: shouldVerifyPlatformState,
+            );
+            if (_lastNotificationSyncVersion == null ||
+                _lastNotificationSyncVersion! < targetVersion) {
+              _lastNotificationSyncVersion = targetVersion;
+            }
+            if (!mounted) {
+              return;
+            }
+            final latestStore = _store;
+            if (!identical(latestStore, store) || latestStore == null) {
+              return;
+            }
+            if (latestStore.notificationSyncVersion == targetVersion &&
+                !_pendingNotificationSyncShouldVerifyPlatformState) {
+              return;
+            }
+          }
+        })
+        .catchError((Object error, StackTrace stackTrace) {})
+        .whenComplete(() {
+          _isNotificationSyncScheduled = false;
+          _pendingNotificationSyncShouldVerifyPlatformState = false;
+        });
     return _pendingNotificationSync;
   }
 
@@ -786,7 +752,6 @@ class _PetNoteRootState extends State<PetNoteRoot>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    widget.appLogController?.endCrashMonitoringSession(reason: 'dispose');
     _store?.removeListener(_handleStoreChanged);
     _store?.setNotificationSyncHandler(null);
     _store?.stopTimeDerivedDataRefresh();
@@ -818,7 +783,6 @@ class _PetNoteBody extends StatefulWidget {
     required this.settingsController,
     required this.aiSettingsCoordinator,
     required this.aiInsightsService,
-    required this.appLogController,
     required this.appVersionInfo,
     required this.appUpdateChecker,
     required this.notificationCoordinator,
@@ -848,7 +812,6 @@ class _PetNoteBody extends StatefulWidget {
   final AppSettingsController? settingsController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
   final AiInsightsService? aiInsightsService;
-  final AppLogController? appLogController;
   final AppVersionInfo appVersionInfo;
   final AppUpdateChecker appUpdateChecker;
   final NotificationCoordinator? notificationCoordinator;
@@ -1140,7 +1103,6 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                 onThemePreferenceChanged: (value) =>
                     widget.settingsController?.setThemePreference(value),
                 settingsController: widget.settingsController,
-                appLogController: widget.appLogController,
                 appVersionInfo: widget.appVersionInfo,
                 appUpdateChecker: widget.appUpdateChecker,
                 platformNameOverride: widget.platformNameOverride,

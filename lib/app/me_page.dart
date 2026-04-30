@@ -19,7 +19,6 @@ import 'package:petnote/app/ios_native_update_reminder_switch.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/data/data_storage_coordinator.dart';
-import 'package:petnote/logging/app_log_controller.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -52,7 +51,6 @@ class MePage extends StatelessWidget {
     required this.dataStorageCoordinator,
     this.appVersionInfo = AppVersionInfo.empty,
     this.notificationCapabilities = const NotificationPlatformCapabilities(),
-    this.appLogController,
     this.appUpdateChecker = const GitHubAppUpdateChecker(),
     this.platformNameOverride,
   });
@@ -67,7 +65,6 @@ class MePage extends StatelessWidget {
   final Future<void> Function()? onOpenExactAlarmSettings;
   final bool shouldOpenNotificationSettingsForRequest;
   final AppSettingsController? settingsController;
-  final AppLogController? appLogController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
   final DataStorageCoordinator? dataStorageCoordinator;
   final AppVersionInfo appVersionInfo;
@@ -146,7 +143,6 @@ class MePage extends StatelessWidget {
                         MaterialPageRoute<void>(
                           builder: (context) => DataStoragePage(
                             coordinator: dataStorageCoordinator!,
-                            appLogController: appLogController,
                           ),
                         ),
                       ),
