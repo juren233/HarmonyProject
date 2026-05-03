@@ -1,6 +1,41 @@
-# 宠记 PetNote
+<p align="center">
+  <img src="icon/PetNote%20Exports/PetNote-iOS-Default-1024x1024@1x.png" alt="PetNote icon" width="120">
+</p>
 
-宠物照护管理应用，当前仓库同时维护三端：
+<h1 align="center">PetNote</h1>
+
+<p align="center">
+  宠物日常照护记录 App：把宠物档案、待办清单、周期提醒、健康记录、AI 总览和数据备份收进同一个移动端工作流。
+</p>
+
+<p align="center">
+  <strong>Android</strong> · <strong>iOS</strong> · <strong>HarmonyOS / OpenHarmony</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/juren233/PetNote/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/juren233/PetNote/release.yml?branch=main&label=Release" alt="Release workflow"></a>
+  <img src="https://img.shields.io/badge/version-1.3.7%2B21-orange" alt="Version 1.3.7+21">
+  <img src="https://img.shields.io/badge/platforms-Android%20%7C%20iOS%20%7C%20HarmonyOS-brightgreen" alt="Platforms">
+  <img src="https://img.shields.io/badge/stack-Flutter%20%2B%20OHOS%20Flutter-blue" alt="Flutter and OHOS Flutter">
+</p>
+
+<p align="center">
+  <a href="#功能亮点">功能亮点</a>
+  ·
+  <a href="#界面预览">界面预览</a>
+  ·
+  <a href="#快速开始">快速开始</a>
+  ·
+  <a href="#工程协作与运行说明">工程协作与运行说明</a>
+</p>
+
+---
+
+## 概览
+
+PetNote 面向多宠家庭的日常照护场景，核心目标是把“今天要做什么”“最近状态如何”“宠物基础档案在哪里”“AI 能不能基于历史给建议”这些问题放到一个清晰的移动端体验里。
+
+当前仓库同时维护三端：
 
 - Android
 - iOS
@@ -11,7 +46,101 @@
 - Android + iOS 固定使用官方 Flutter
 - HarmonyOS 固定使用项目内 OHOS Flutter
 
-这份 README 重点说明“怎么开工程、怎么跑三端、哪些文件该提交、哪些不要提交”。
+README 前半部分用于 GitHub 首页展示，后半部分保留工程协作手册，说明“怎么开工程、怎么跑三端、哪些文件该提交、哪些不要提交”。
+
+## 功能亮点
+
+- **多宠档案**：维护宠物类型、品种、生日、体重、绝育状态、喂养偏好、过敏禁忌、备注和头像。
+- **照护清单**：按今日、即将到期、逾期、已延后、已跳过组织待办和提醒，支持完成、延后、跳过。
+- **提醒与通知**：疫苗、驱虫、用药、复诊、洗护和自定义事项可进入平台通知同步链路。
+- **记录沉淀**：支持医疗、票据、图片、检查结果和其他记录，沉淀为每只宠物的照护历史。
+- **AI 总览**：基于最近 7 天到 1 年或自定义时间范围生成照护评分、风险候选、重点证据和行动建议。
+- **自带 AI 配置入口**：支持 OpenAI、Anthropic、Cloudflare Workers AI 和兼容 OpenAI 的服务；API Key 走平台安全存储，PetNote 不托管密钥。
+- **数据备份**：宠物、待办、提醒、记录和 AI 配置可通过数据包导入导出，便于换机、联调和样本复现。
+- **三端同仓维护**：Android / iOS 走官方 Flutter，HarmonyOS 走项目内 OHOS Flutter 与 `ohos` 工程，工程边界在 README 中明确约束。
+
+## 界面预览
+
+下面的预览图来自 `docs/软件应用与开发作品提交要求/演示`，用于 GitHub 首页快速展示主要体验。
+
+<table>
+  <tr>
+    <th>爱宠档案</th>
+    <th>我的设置</th>
+    <th>AI 配置</th>
+  </tr>
+  <tr>
+    <td><img src="docs/软件应用与开发作品提交要求/演示/IMG_1101.PNG" alt="爱宠档案" width="240"></td>
+    <td><img src="docs/软件应用与开发作品提交要求/演示/IMG_1104.PNG" alt="我的设置" width="240"></td>
+    <td><img src="docs/软件应用与开发作品提交要求/演示/IMG_1106.PNG" alt="AI 配置" width="240"></td>
+  </tr>
+  <tr>
+    <th>首次建档</th>
+    <th>AI 总览</th>
+    <th>核心信息流</th>
+  </tr>
+  <tr>
+    <td><img src="docs/软件应用与开发作品提交要求/演示/IMG_1107.PNG" alt="首次建档" width="240"></td>
+    <td><img src="docs/软件应用与开发作品提交要求/演示/IMG_1108.PNG" alt="AI 总览" width="240"></td>
+    <td>
+      <strong>建档</strong> → <strong>清单</strong> → <strong>提醒</strong> → <strong>记录</strong> → <strong>AI 总览</strong><br><br>
+      数据先留在本地，AI 能力由用户自己的服务配置驱动。
+    </td>
+  </tr>
+</table>
+
+## 技术栈
+
+| 模块 | 技术与职责 |
+| --- | --- |
+| 共享业务层 | Flutter / Dart，集中在 `lib` 与 `test` |
+| Android / iOS | 官方 Flutter SDK，平台壳位于 `android` 与 `ios` |
+| HarmonyOS / OpenHarmony | 项目内 OHOS Flutter 子模块，平台工程位于 `ohos` |
+| 本地数据 | `sembast`、`shared_preferences` 与平台文件访问桥接 |
+| AI 能力 | 可配置 provider、平台安全密钥存储、结构化照护总览 |
+| 通知能力 | Flutter 业务层协调，平台 MethodChannel 适配通知状态 |
+| Release | GitHub Actions 构建 Android arm64 APK 与 iOS unsigned IPA |
+
+## 快速开始
+
+```bash
+git clone --recursive https://github.com/juren233/PetNote.git
+cd PetNote
+flutter pub get
+```
+
+Android / iOS 日常开发使用官方 Flutter；HarmonyOS / OpenHarmony 开发请打开 `ohos` 并按下方工程协作说明使用项目内 OHOS Flutter。
+
+常用入口：
+
+- Android release arm64：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`
+- iOS simulator：`flutter build ios --simulator --debug`
+- iOS unsigned release：`flutter build ios --release --no-codesign`
+- Harmony 初始化：`powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
+- Harmony x64 HAP：`powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode build -TargetPlatform x64`
+
+> 完整命令、签名规则、SDK 状态切换、Release 产物和提交边界见下面的“工程协作与运行说明”。本仓库不要混用官方 Flutter 与 OHOS Flutter 状态。
+
+## CI 与发布
+
+当前版本来自 `pubspec.yaml`：`1.3.7+21`。
+
+Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 控制：
+
+- `main` 分支在 `enabled=true` 时创建正式 Release。
+- `beta` 分支在 `enabled=true` 时创建 pre-release。
+- 其他分支只上传 Actions artifacts。
+- Android 当前配置产出 `arm64-v8a` APK。
+- iOS 当前配置产出 unsigned IPA，仍需自行签名后才能安装到真机或分发。
+
+## 项目边界
+
+- PetNote 是移动端宠物照护应用，不维护 Web / 桌面端产品目录。
+- Android / iOS 与 HarmonyOS 共用业务层，但 SDK、平台工程、签名链路分开管理。
+- AI 能力依赖用户自行配置的 provider 与 API Key；仓库不托管任何用户密钥。
+- README 后半部分是协作基线，任何会影响运行方式、签名流程、SDK 状态、目录归属或提交边界的改动都要同步检查这里。
+
+## 工程协作与运行说明
 
 ## 分支约定
 
