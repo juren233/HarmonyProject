@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -32,14 +33,30 @@ class HarmonyNativeDockHost extends StatefulWidget {
 
 class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   MethodChannel? _channel;
+  // Track the last tab we pushed to native side to suppress redundant echoes.
+  // The OpenHarmony native dock echoes `tabSelected` back in response to
+  // `setSelectedTab`, which can arrive during Flutter's build phase and cause
+  // assertion failures (owner!._debugCurrentBuildTarget == this).
+  AppTab? _lastSyncedTab;
 
   @override
   void didUpdateWidget(covariant HarmonyNativeDockHost oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedTab != widget.selectedTab) {
-      _syncSelectedTab();
+      // Defer _syncSelectedTab to a post-frame callback. Sending the platform
+      // channel message during build can cause the OpenHarmony native dock to
+      // echo `tabSelected` back mid-build, which triggers setState → assertion.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _syncSelectedTab();
+        }
+      });
     }
-    _syncBrightness();
+    // Capture brightness synchronously BEFORE the async call to avoid
+    // registering InheritedWidget dependencies inside a fire-and-forget
+    // async body (which can cause _depends.isEmpty assertion failures).
+    final brightness = Theme.of(context).brightness;
+    _syncBrightness(brightness);
   }
 
   @override
@@ -51,20 +68,31 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   @override
   Widget build(BuildContext context) {
     final viewPadding = MediaQuery.viewPaddingOf(context);
-    final dockHeight = 96 + viewPadding.bottom;
-    return SizedBox(
-      key: const ValueKey('harmony_native_dock_host'),
-      height: dockHeight,
-      child: _HarmonyOhosView(
-        viewType: _harmonyNativeDockViewType,
-        layoutDirection: Directionality.of(context),
-        creationParams: <String, Object?>{
-          'selectedTab': widget.selectedTab.name,
-          'brightness': Theme.of(context).brightness.name,
-          'bottomInset': viewPadding.bottom,
-        },
-        creationParamsCodec: const StandardMessageCodec(),
-        onPlatformViewCreated: _onPlatformViewCreated,
+    // [PetNote] Ensure at least 56 logical pixels of bottom inset so the
+    // native dock doesn't overlap with the 3-button system navigation bar
+    // (back / home / recent-apps).  On full-screen devices the system may
+    // report a small or zero viewPadding.bottom; math.max guarantees a
+    // safe minimum regardless.
+    final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
+    debugPrint('[PetNote] viewPadding.bottom=${viewPadding.bottom}, '
+        'effectiveBottomInset=$effectiveBottomInset');
+    final dockHeight = 96 + effectiveBottomInset;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 17),
+      child: SizedBox(
+        key: const ValueKey('harmony_native_dock_host'),
+        height: dockHeight,
+        child: _HarmonyOhosView(
+          viewType: _harmonyNativeDockViewType,
+          layoutDirection: Directionality.of(context),
+          creationParams: <String, Object?>{
+            'selectedTab': widget.selectedTab.name,
+            'brightness': Theme.of(context).brightness.name,
+            'bottomInset': effectiveBottomInset,
+          },
+          creationParamsCodec: const StandardMessageCodec(),
+          onPlatformViewCreated: _onPlatformViewCreated,
+        ),
       ),
     );
   }
@@ -73,8 +101,15 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     final channel = MethodChannel('petnote/harmony_native_dock_$viewId');
     _channel = channel;
     channel.setMethodCallHandler(_handleMethodCall);
-    _syncSelectedTab();
-    _syncBrightness();
+    // Defer all sync calls to a post-frame callback to avoid triggering
+    // platform channel messages during the platform view creation build phase.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncSelectedTab();
+        final brightness = Theme.of(context).brightness;
+        _syncBrightness(brightness);
+      }
+    });
   }
 
   Future<void> _syncSelectedTab() async {
@@ -82,6 +117,7 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     if (channel == null) {
       return;
     }
+    _lastSyncedTab = widget.selectedTab;
     try {
       await channel.invokeMethod<void>(
         'setSelectedTab',
@@ -92,7 +128,7 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     }
   }
 
-  Future<void> _syncBrightness() async {
+  Future<void> _syncBrightness(Brightness brightness) async {
     final channel = _channel;
     if (channel == null || !mounted) {
       return;
@@ -100,7 +136,7 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     try {
       await channel.invokeMethod<void>(
         'setBrightness',
-        Theme.of(context).brightness.name,
+        brightness.name,
       );
     } on PlatformException {
       // 忽略原生视图初始化早期的瞬时同步失败。
@@ -111,8 +147,11 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     switch (call.method) {
       case 'tabSelected':
         final tab = _appTabFromName(call.arguments as String?);
-        if (tab != null) {
-          widget.onTabSelected(tab);
+        if (tab != null && tab != _lastSyncedTab) {
+          _lastSyncedTab = tab;
+          if (mounted) {
+            widget.onTabSelected(tab);
+          }
         }
         return;
       case 'addTapped':

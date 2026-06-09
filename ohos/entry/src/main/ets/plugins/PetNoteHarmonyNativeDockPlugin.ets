@@ -1,6 +1,5 @@
 import common from '@ohos.app.ability.common';
-import { hdsMaterial } from '@hms.hds.hdsMaterial';
-import { HdsTabs, HdsTabsController } from '@kit.UIDesignKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
 import Any from '@ohos/flutter_ohos/src/main/ets/plugin/common/Any';
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
@@ -33,6 +32,7 @@ const TAB_BAR_HEIGHT = 78;
 const TAB_BAR_BOTTOM_MARGIN = 17;
 const ADD_BUTTON_SIZE = 52;
 const LABEL_FONT_SIZE = 12;
+const DOCK_BORDER_RADIUS = 28;
 
 interface HarmonyDockCreationParams {
   selectedTab?: string;
@@ -189,11 +189,9 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
 
 @Observed
 class HarmonyNativeDockState {
-  tabsController: HdsTabsController = new HdsTabsController();
   selectedTab: string = 'checklist';
   brightness: string = 'light';
   bottomInset: number = 0;
-  materialLevel: hdsMaterial.MaterialLevel = hdsMaterial.MaterialLevel.EXQUISITE;
   private channel: MethodChannel | null = null;
 
   setChannel(channel: MethodChannel | null): void {
@@ -210,16 +208,11 @@ class HarmonyNativeDockState {
   }
 
   updateBottomInset(bottomInset: number): void {
-    this.bottomInset = bottomInset;
-  }
-
-  syncMaterialEffectByCapability(): void {
-    const materialTypes: Array<hdsMaterial.MaterialType> = hdsMaterial.getSystemMaterialTypes();
-    if (materialTypes.indexOf(hdsMaterial.MaterialType.IMMERSIVE) < 0) {
-      this.materialLevel = hdsMaterial.MaterialLevel.SMOOTH;
-      return;
-    }
-    this.materialLevel = hdsMaterial.MaterialLevel.EXQUISITE;
+    // [PetNote] Ensure at least 56 vp of bottom inset so the dock doesn't
+    // overlap with the 3-button system navigation bar.
+    const effective = Math.max(bottomInset, 56);
+    hilog.info(0x0000, TAG, 'updateBottomInset: raw=%{public}d, effective=%{public}d', bottomInset, effective);
+    this.bottomInset = effective;
   }
 
   handleNativeTabChange(index: number): void {
@@ -229,7 +222,10 @@ class HarmonyNativeDockState {
     }
     if (tab.isAddSlot) {
       this.handleAddTapped();
-      this.syncControllerIndex();
+      return;
+    }
+    if (tab.name === this.selectedTab) {
+      // Already on this tab — skip redundant notification to Flutter.
       return;
     }
     this.selectedTab = tab.name;
@@ -256,8 +252,24 @@ class HarmonyNativeDockState {
     return this.isDarkMode() ? '#33528F63' : '#336AB57A';
   }
 
+  currentBackgroundColor(): string {
+    return this.isDarkMode() ? '#CC2C2C2E' : '#CCF5F5F7';
+  }
+
+  currentBorderColor(): string {
+    return this.isDarkMode() ? '#33FFFFFF' : '#22000000';
+  }
+
+  currentDockShadowColor(): string {
+    return this.isDarkMode() ? '#66000000' : '#33000000';
+  }
+
+  currentScaffoldBackgroundColor(): string {
+    return this.isDarkMode() ? '#FF020304' : '#FFF5F2EC';
+  }
+
   private syncControllerIndex(): void {
-    this.tabsController.changeIndex(this.currentTabIndex());
+    // No-op: custom tab bar updates visually via @ObjectLink state.
   }
 
   private currentTabIndex(): number {
@@ -285,40 +297,57 @@ function HarmonyNativeDockBuilder(params: Params): void {
 struct HarmonyNativeDockView {
   @ObjectLink state: HarmonyNativeDockState;
 
-  aboutToAppear(): void {
-    this.state.syncMaterialEffectByCapability();
-  }
-
   build() {
     Column() {
       Stack({ alignContent: Alignment.Bottom }) {
-        HdsTabs({ controller: this.state.tabsController }) {
-          ForEach(HARMONY_DOCK_TABS, (tab: HarmonyDockTabConfig) => {
-            TabContent() {
+        // Transparent spacer — replaces the Tabs component.
+        // The actual tab bar is rendered below as a Row of clickable buttons.
+        Column() {}
+          .width('100%')
+          .height('100%')
+
+        // Custom tab bar: Row of icon+label buttons with explicit onClick.
+        // This avoids relying on the ArkTS Tabs.onChange callback, which
+        // can fail to fire after programmatic changeIndex() calls.
+        Row() {
+          ForEach(HARMONY_DOCK_TABS, (tab: HarmonyDockTabConfig, index: number) => {
+            if (tab.isAddSlot) {
+              // Placeholder column to reserve space for the floating add button.
               Column() {}
-                .width('100%')
-                .height('100%')
+                .layoutWeight(1)
+                .height(TAB_BAR_HEIGHT)
+            } else {
+              Column() {
+                Image(this.tabIconResource(tab))
+                  .width(24)
+                  .height(24)
+                  .fillColor(this.tabIconColor(tab))
+                Text(tab.label)
+                  .fontSize(LABEL_FONT_SIZE)
+                  .fontColor(this.tabIconColor(tab))
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .height(TAB_BAR_HEIGHT)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+              .onClick(() => {
+                this.state.handleNativeTabChange(index);
+              })
             }
-            .tabBar(this.tabBarStyle(tab))
-          }, (tab: HarmonyDockTabConfig) => tab.name)
+          }, (tab: HarmonyDockTabConfig, index: number) => tab.name + '_' + index)
         }
-        .barOverlap(true)
-        .barPosition(BarPosition.End)
-        .vertical(false)
-        .barHeight(TAB_BAR_HEIGHT)
-        .barBackgroundColor(Color.Transparent)
-        .animationDuration(0)
-        .onChange((index: number) => {
-          this.state.handleNativeTabChange(index);
-        })
-        .barFloatingStyle({
-          barWidth: { smallWidth: TAB_BAR_WIDTH, mediumWidth: TAB_BAR_WIDTH, largeWidth: TAB_BAR_WIDTH },
-          barBottomMargin: TAB_BAR_BOTTOM_MARGIN + this.state.bottomInset,
-          gradientMask: { maskColor: '#66F1F3F5', maskHeight: 92 },
-          systemMaterialEffect: {
-            materialType: hdsMaterial.MaterialType.ADAPTIVE,
-            materialLevel: this.state.materialLevel
-          }
+        .width('100%')
+        .height(TAB_BAR_HEIGHT)
+        .margin({ bottom: TAB_BAR_BOTTOM_MARGIN + this.state.bottomInset })
+        .borderRadius(DOCK_BORDER_RADIUS)
+        .backgroundColor(this.state.currentBackgroundColor())
+        .border({ width: 1.1, color: this.state.currentBorderColor() })
+        .shadow({
+          radius: 26,
+          color: this.state.currentDockShadowColor(),
+          offsetX: 0,
+          offsetY: 10
         })
 
         this.buildCenteredAddButton()
@@ -329,54 +358,22 @@ struct HarmonyNativeDockView {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.End)
+    .backgroundColor(Color.Transparent)
   }
 
-  tabBarStyle(tab: HarmonyDockTabConfig): BottomTabBarStyle {
-    if (tab.name === 'checklist') {
-      return this.visibleTabBarStyle($r('app.media.ic_tab_checklist'), tab);
-    }
-    if (tab.name === 'overview') {
-      return this.visibleTabBarStyle($r('app.media.ic_tab_overview'), tab);
-    }
-    if (tab.name === 'pets') {
-      return this.visibleTabBarStyle($r('app.media.ic_tab_pets'), tab);
-    }
-    if (tab.name === 'me') {
-      return this.visibleTabBarStyle($r('app.media.ic_tab_me'), tab);
-    }
-    return this.addPlaceholderTabBarStyle();
+  tabIconResource(tab: HarmonyDockTabConfig): ResourceStr {
+    if (tab.name === 'checklist') return $r('app.media.ic_tab_checklist');
+    if (tab.name === 'overview') return $r('app.media.ic_tab_overview');
+    if (tab.name === 'pets') return $r('app.media.ic_tab_pets');
+    if (tab.name === 'me') return $r('app.media.ic_tab_me');
+    return $r('app.media.ic_tab_add_placeholder');
   }
 
-  visibleTabBarStyle(icon: ResourceStr, tab: HarmonyDockTabConfig): BottomTabBarStyle {
-    return new BottomTabBarStyle(icon, tab.label)
-      .labelStyle({
-        selectedColor: tab.accentColor,
-        unselectedColor: this.state.currentInactiveColor(),
-        font: { size: LABEL_FONT_SIZE }
-      })
-      .iconStyle({
-        selectedColor: tab.accentColor,
-        unselectedColor: this.state.currentInactiveColor(),
-      })
-      .layoutMode(LayoutMode.VERTICAL)
-      .verticalAlign(VerticalAlign.Center)
-      .symmetricExtensible(true);
-  }
-
-  addPlaceholderTabBarStyle(): BottomTabBarStyle {
-    return new BottomTabBarStyle($r('app.media.ic_tab_add_placeholder'), '')
-      .labelStyle({
-        selectedColor: HIDDEN_TABBAR_COLOR,
-        unselectedColor: HIDDEN_TABBAR_COLOR,
-        font: { size: LABEL_FONT_SIZE }
-      })
-      .iconStyle({
-        selectedColor: HIDDEN_TABBAR_COLOR,
-        unselectedColor: HIDDEN_TABBAR_COLOR,
-      })
-      .layoutMode(LayoutMode.VERTICAL)
-      .verticalAlign(VerticalAlign.Center)
-      .symmetricExtensible(true);
+  tabIconColor(tab: HarmonyDockTabConfig): string {
+    if (this.state.selectedTab === tab.name) {
+      return tab.accentColor;
+    }
+    return this.state.currentInactiveColor();
   }
 
   @Builder
