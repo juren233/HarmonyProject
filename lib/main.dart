@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,10 @@ import 'package:flutter/widgets.dart';
 import 'package:petnote/app/app_version_info.dart';
 import 'package:petnote/app/petnote_app.dart';
 import 'package:petnote/app/system_ui_policy.dart';
+
+/// Whether the current platform is OpenHarmony (where 32-bit ARM stack
+/// overflow workarounds are relevant).
+final bool _isOhos = Platform.operatingSystem == 'ohos';
 
 /// Global key used by [_OhosRecoveryGuard] to rebuild the app after a
 /// StackOverflowError on 32-bit ARM OHOS.
@@ -22,7 +27,9 @@ void main() {
   // (Material, Navigator, Scaffold, etc.) are already initialised and cached,
   // so the second build succeeds without overflowing.
   FlutterError.onError = (FlutterErrorDetails details) {
-    if (details.exception is StackOverflowError) {
+    // Only intercept StackOverflowError on OpenHarmony — on other platforms
+    // it typically indicates a genuine bug that should not be silently masked.
+    if (_isOhos && details.exception is StackOverflowError) {
       debugPrint(
         'OHOS-WORKAROUND: StackOverflowError caught in '
         '${details.library ?? "unknown"} — '
@@ -65,6 +72,8 @@ void main() {
         ));
       },
       onError: (Object error, StackTrace stackTrace) {
+        debugPrint('PetNote: AppVersionInfo.load() failed: $error');
+        debugPrint('$stackTrace');
         runApp(_OhosRecoveryGuard(key: _recoveryKey));
       },
     );
@@ -94,6 +103,7 @@ class _OhosRecoveryGuardState extends State<_OhosRecoveryGuard> {
   bool _recoveryScheduled = false;
   static const int _maxRecoveries = 3;
   int _recoveryCount = 0;
+  Timer? _recoveryTimer;
 
   void _scheduleRecovery() {
     if (_recoveryScheduled || _recoveryCount >= _maxRecoveries) return;
@@ -102,7 +112,9 @@ class _OhosRecoveryGuardState extends State<_OhosRecoveryGuard> {
       'OHOS-WORKAROUND: Scheduling recovery rebuild '
       '(${_recoveryCount + 1}/$_maxRecoveries) in 500ms…',
     );
-    Future<void>.delayed(const Duration(milliseconds: 500)).then((_) {
+    // Use a cancellable Timer instead of Future.delayed so we can
+    // clean up in dispose() and avoid side effects on a dead State.
+    _recoveryTimer = Timer(const Duration(milliseconds: 500), () {
       _recoveryScheduled = false;
       if (mounted) {
         _recoveryCount += 1;
@@ -115,6 +127,12 @@ class _OhosRecoveryGuardState extends State<_OhosRecoveryGuard> {
         });
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _recoveryTimer?.cancel();
+    super.dispose();
   }
 
   @override

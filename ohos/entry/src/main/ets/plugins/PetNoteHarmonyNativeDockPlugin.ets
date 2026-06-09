@@ -150,6 +150,10 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
         this.updateBrightness(call.args);
         result.success(null);
         break;
+      case 'setBottomInset':
+        this.updateBottomInset(call.args);
+        result.success(null);
+        break;
       default:
         result.notImplemented();
         break;
@@ -185,6 +189,13 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
     }
     this.state.updateBrightness(rawBrightness);
   }
+
+  private updateBottomInset(rawInset: Any): void {
+    if (typeof rawInset !== 'number') {
+      return;
+    }
+    this.state.updateBottomInset(rawInset);
+  }
 }
 
 @Observed
@@ -200,7 +211,6 @@ class HarmonyNativeDockState {
 
   updateSelectedTab(tab: string): void {
     this.selectedTab = tab;
-    this.syncControllerIndex();
   }
 
   updateBrightness(brightness: string): void {
@@ -268,19 +278,6 @@ class HarmonyNativeDockState {
     return this.isDarkMode() ? '#FF020304' : '#FFF5F2EC';
   }
 
-  private syncControllerIndex(): void {
-    // No-op: custom tab bar updates visually via @ObjectLink state.
-  }
-
-  private currentTabIndex(): number {
-    for (let index = 0; index < HARMONY_DOCK_TABS.length; index++) {
-      if (HARMONY_DOCK_TABS[index].name === this.selectedTab) {
-        return index;
-      }
-    }
-    return 0;
-  }
-
   private isDarkMode(): boolean {
     return this.brightness === 'dark';
   }
@@ -334,6 +331,7 @@ struct HarmonyNativeDockView {
               .onClick(() => {
                 this.state.handleNativeTabChange(index);
               })
+              .stateEffect(true)
             }
           }, (tab: HarmonyDockTabConfig, index: number) => tab.name + '_' + index)
         }

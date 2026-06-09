@@ -21,7 +21,7 @@
 | 9 | oh_modules `NavigationChannel.ets` | **补丁** | instanceof Map 安全守卫 | 否 (通用修复) |
 | 10 | oh_modules `FlutterPage.ets` | **补丁** | XComponent 底色 Black→White | 否 |
 | 11 | oh_modules `PlatformPlugin.ets` | **补丁** | 强制导航栏颜色 #FFF5F2EC | 否 |
-| 12 | `ohos/.../ets/patches/*.petnote-api12-bak` | **新增** | 补丁备份 (3个文件) | 否 |
+| 12 | `ohos/.../ets/patches/*.petnote-api12-bak` | **新增** | 补丁备份 (5个文件) | 否 |
 | 13 | `PetNoteAiSecretStorePlugin.ets` | **新增** | AI 密钥持久存储插件 | 否 |
 | 14 | `PetNoteDataPackageFileAccessPlugin.ets` | **新增** | 备份导入/导出插件 | 否 |
 | 15 | `PetNotePhotoPickerPlugin.ets` | **新增** | 照片选择器 (替换旧实现) | 否 |
@@ -86,9 +86,11 @@ cp ohos/entry/src/main/ets/patches/FlutterAbility.ets.petnote-api12-bak "$OHMOD/
 cp ohos/entry/src/main/ets/patches/FlutterView.ets.petnote-api12-bak "$OHMOD/view/FlutterView.ets"
 cp ohos/entry/src/main/ets/patches/NavigationChannel.ets.petnote-api12-bak "$OHMOD/embedding/engine/systemchannels/NavigationChannel.ets"
 ```
-FlutterPage.ets 和 PlatformPlugin.ets 没有备份文件，需手动修改:
-- FlutterPage.ets 第 248 行: `Color.Black` → `Color.White`
-- PlatformPlugin.ets: 在 `setSystemChromeSystemUIOverlayStyle` 的 `systemBarProperties` 构建前，添加 `navigationBarColorValue = '#FFF5F2EC';`
+FlutterPage.ets 和 PlatformPlugin.ets 的备份也已保存，同样可直接复制:
+```bash
+cp ohos/entry/src/main/ets/patches/FlutterPage.ets.petnote-api12-bak "$OHMOD/embedding/ohos/FlutterPage.ets"
+cp ohos/entry/src/main/ets/patches/PlatformPlugin.ets.petnote-api12-bak "$OHMOD/embedding/engine/plugins/PlatformPlugin.ets"
+```
 
 **建议**: 将此流程写成脚本 `scripts/apply-ohos-patches.sh`。
 
@@ -377,6 +379,6 @@ feat(plugins): 新增 AI 密钥存储、备份导入导出、照片选择器原�
 
 4. **GeneratedPluginRegistrant.ets**: 此文件是 Flutter 构建工具自动生成的，通常在 `.gitignore` 中。确认是否需要提交。
 
-5. **FlutterPage.ets 的 Color.White 修改**: 此修改在 oh_modules 中，没有 `.petnote-api12-bak` 备份。建议补充备份或写入补丁脚本。
+5. **FlutterPage.ets 的 Color.White 修改**: 备份文件已保存在 `patches/FlutterPage.ets.petnote-api12-bak`，可直接复制恢复。
 
-6. **PlatformPlugin.ets 的导航栏颜色修改**: 同上，没有备份文件，建议补充。
+6. **PlatformPlugin.ets 的导航栏颜色修改**: 备份文件已保存在 `patches/PlatformPlugin.ets.petnote-api12-bak`，可直接复制恢复。

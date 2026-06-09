@@ -38,6 +38,10 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   // `setSelectedTab`, which can arrive during Flutter's build phase and cause
   // assertion failures (owner!._debugCurrentBuildTarget == this).
   AppTab? _lastSyncedTab;
+  // Cache the last synced brightness to avoid redundant platform channel calls.
+  Brightness? _lastSyncedBrightness;
+  // Cache the last synced bottom inset to detect runtime changes.
+  double? _lastSyncedBottomInset;
 
   @override
   void didUpdateWidget(covariant HarmonyNativeDockHost oldWidget) {
@@ -56,7 +60,15 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     // registering InheritedWidget dependencies inside a fire-and-forget
     // async body (which can cause _depends.isEmpty assertion failures).
     final brightness = Theme.of(context).brightness;
-    _syncBrightness(brightness);
+    if (brightness != _lastSyncedBrightness) {
+      _syncBrightness(brightness);
+    }
+    // Sync bottom inset if it changed (e.g. user toggled gesture/3-button nav).
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
+    if (effectiveBottomInset != _lastSyncedBottomInset) {
+      _syncBottomInset(effectiveBottomInset);
+    }
   }
 
   @override
@@ -74,8 +86,11 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     // report a small or zero viewPadding.bottom; math.max guarantees a
     // safe minimum regardless.
     final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
-    debugPrint('[PetNote] viewPadding.bottom=${viewPadding.bottom}, '
-        'effectiveBottomInset=$effectiveBottomInset');
+    assert(() {
+      debugPrint('[PetNote] viewPadding.bottom=${viewPadding.bottom}, '
+          'effectiveBottomInset=$effectiveBottomInset');
+      return true;
+    }());
     final dockHeight = 96 + effectiveBottomInset;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 17),
@@ -98,6 +113,8 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   }
 
   void _onPlatformViewCreated(int viewId) {
+    // Clear old channel handler if the platform view is being re-created.
+    _channel?.setMethodCallHandler(null);
     final channel = MethodChannel('petnote/harmony_native_dock_$viewId');
     _channel = channel;
     channel.setMethodCallHandler(_handleMethodCall);
@@ -108,21 +125,30 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
         _syncSelectedTab();
         final brightness = Theme.of(context).brightness;
         _syncBrightness(brightness);
+        final viewPadding = MediaQuery.viewPaddingOf(context);
+        final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
+        _syncBottomInset(effectiveBottomInset);
       }
     });
   }
 
   Future<void> _syncSelectedTab() async {
     final channel = _channel;
-    if (channel == null) {
+    if (channel == null || !mounted) {
       return;
     }
-    _lastSyncedTab = widget.selectedTab;
     try {
       await channel.invokeMethod<void>(
         'setSelectedTab',
         widget.selectedTab.name,
       );
+      // Only update _lastSyncedTab AFTER the await succeeds to prevent a
+      // race condition: if the user rapidly switches tabs, a stale echo
+      // for a previous tab would not be suppressed because _lastSyncedTab
+      // was optimistically set before the platform channel round-trip.
+      if (mounted) {
+        _lastSyncedTab = widget.selectedTab;
+      }
     } on PlatformException {
       // 忽略原生视图初始化早期的瞬时同步失败。
     }
@@ -138,6 +164,27 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
         'setBrightness',
         brightness.name,
       );
+      if (mounted) {
+        _lastSyncedBrightness = brightness;
+      }
+    } on PlatformException {
+      // 忽略原生视图初始化早期的瞬时同步失败。
+    }
+  }
+
+  Future<void> _syncBottomInset(double bottomInset) async {
+    final channel = _channel;
+    if (channel == null || !mounted) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>(
+        'setBottomInset',
+        bottomInset,
+      );
+      if (mounted) {
+        _lastSyncedBottomInset = bottomInset;
+      }
     } on PlatformException {
       // 忽略原生视图初始化早期的瞬时同步失败。
     }
