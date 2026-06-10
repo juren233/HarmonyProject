@@ -38,6 +38,9 @@ ohos/entry/src/main/ets/plugins/*
 !ohos/entry/src/main/ets/plugins/PetNoteNotificationPlugin.ets
 !ohos/entry/src/main/ets/plugins/PetNoteAppDirectoryPlugin.ets
 !ohos/entry/src/main/ets/plugins/SharedPreferencesPlugin.ets
+!ohos/entry/src/main/ets/plugins/PetNoteAiSecretStorePlugin.ets
+!ohos/entry/src/main/ets/plugins/PetNoteDataPackageFileAccessPlugin.ets
+!ohos/entry/src/main/ets/plugins/PetNotePhotoPickerPlugin.ets
 ohos/entry/src/main/resources/rawfile/flutter_assets/
 
 # DevTools
