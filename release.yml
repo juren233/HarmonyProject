@@ -1,6 +1,5 @@
 enabled: true
 build_if_not_enabled: true
-tag: v1.3.8
 
 android:
   enabled: true
@@ -18,9 +17,11 @@ ios:
 # 3. main 分支 + enabled=true：创建正式 Release。
 # 4. beta 分支 + enabled=true：创建 pre-release。
 # 5. 其他分支 + enabled=true：只上传 Actions artifacts，不创建 Release。
-# 6. tag 必须与 pubspec.yaml 的版本号（去掉 +build 后）一致，并且必须在前面加 v。
-#    例如：tag=v1.0.0 对应 version: 1.0.0+1
-#    例如：tag=v1.0.0-beta.1 对应 version: 1.0.0-beta.1+2
+# 6. Release tag 由工作流自动取自 pubspec.yaml 的版本号（去掉 +build 后加 v 前缀），
+#    本文件无需也不应再填写 tag 字段；升版本只改 pubspec.yaml 一处即可。
+#    例如：version: 1.0.0+1 自动生成 tag v1.0.0
+#    例如：version: 1.0.0-beta.1+2 自动生成 tag v1.0.0-beta.1
+#    如果本文件残留了 tag 字段且与 pubspec 版本不一致，解析步骤会报错并提示删除。
 # 7. pubspec.yaml 的预发布版本必须使用标准 SemVer 格式，
 #    例如 1.0.0-beta.1、1.0.0-rc.1，不能写成 1.0.0beta.1。
 # 8. Android Release / pre-release 的类型不由文件控制，而是由分支决定：

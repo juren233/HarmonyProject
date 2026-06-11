@@ -175,14 +175,16 @@ jobs:
             if not abis:
               abis = []
 
-          if should_publish_release:
-            if not tag:
-              raise SystemExit(f"tag is required for branch {branch_name}.")
-            expected_tag = f"v{version_core}"
-            if tag != expected_tag:
-              raise SystemExit(
-                f"tag {tag} does not match pubspec version {version_core}; expected {expected_tag}."
-              )
+          # The release tag is derived from pubspec.yaml so the version only
+          # needs to be bumped in one place. A leftover explicit tag in
+          # release.yml is tolerated only when it matches the derived value.
+          derived_tag = f"v{version_core}"
+          if tag and tag != derived_tag:
+            raise SystemExit(
+              f"release.yml tag {tag} conflicts with pubspec version {version_core}; "
+              f"remove the tag field from release.yml (it is derived automatically as {derived_tag})."
+            )
+          tag = derived_tag
 
           matrix = [{"abi": abi, "scriptTarget": abi_map[abi]} for abi in abis]
 
