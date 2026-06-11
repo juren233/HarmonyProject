@@ -18,9 +18,13 @@ class SessionHandler {
   }
 
   void _onData(dynamic raw) {
+    if (raw is! String) {
+      _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
+      return;
+    }
     final SyncMessage message;
     try {
-      message = SyncMessage.decode(raw as String);
+      message = SyncMessage.decode(raw);
     } on FormatException {
       _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
@@ -38,13 +42,24 @@ class SessionHandler {
   }
 
   void _handleHello(SyncMessage message) {
-    final household = app.store.household(message.payload['householdId'] as String?);
+    if (householdId != null) {
+      _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'already registered'}));
+      return;
+    }
+    final requestedDeviceId = message.payload['deviceId'];
+    if (requestedDeviceId is! String || requestedDeviceId.isEmpty) {
+      _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
+      return;
+    }
+    final rawHouseholdId = message.payload['householdId'];
+    final household =
+        app.store.household(rawHouseholdId is String ? rawHouseholdId : null);
     if (household == null) {
       _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'unknown household'}));
       return;
     }
     householdId = household.id;
-    deviceId = message.payload['deviceId'] as String;
+    deviceId = requestedDeviceId;
     app.hub.register(householdId!, deviceId!, channel);
     _send(SyncMessage(SyncMessageTypes.helloAck, {'snapshotVersion': household.snapshotVersion}));
   }

@@ -39,4 +39,28 @@ void main() {
     expect(reply.type, SyncMessageTypes.pairError);
     await ws.sink.close();
   });
+
+  test('二进制帧与缺字段 hello 收到 pair_error 且连接不断开', () async {
+    final ws = IOWebSocketChannel.connect('ws://127.0.0.1:${server.port}/ws');
+    final replies = <SyncMessage>[];
+    final sub = ws.stream.listen((raw) => replies.add(SyncMessage.decode(raw as String)));
+
+    ws.sink.add([0x01, 0x02, 0x03]); // 二进制帧
+    ws.sink.add(SyncMessage(SyncMessageTypes.hello, {
+      'householdId': 'h1',
+      'role': 'pet',
+      'deviceName': 'tablet',
+      // deviceId 缺失
+    }).encode());
+    ws.sink.add(SyncMessage(SyncMessageTypes.hello, {
+      'householdId': 123, // 非字符串 householdId
+      'deviceId': 'd1',
+    }).encode());
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(replies.length, 3);
+    expect(replies.map((m) => m.type).toSet(), {SyncMessageTypes.pairError});
+    await sub.cancel();
+    await ws.sink.close();
+  });
 }
