@@ -23,4 +23,12 @@ void main() {
   test('非法 JSON 抛 FormatException', () {
     expect(() => SyncMessage.decode('not json'), throwsFormatException);
   });
+
+  test('PetAction 非法字段抛 FormatException', () {
+    expect(() => PetAction.fromJson({'kind': 'hackKind', 'sourceType': 'todo', 'itemId': 't1'}),
+        throwsFormatException);
+    expect(() => PetAction.fromJson({'kind': 'markDone', 'sourceType': 1, 'itemId': 't1'}),
+        throwsFormatException);
+    expect(() => PetAction.fromJson({'kind': 'markDone'}), throwsFormatException);
+  });
 }

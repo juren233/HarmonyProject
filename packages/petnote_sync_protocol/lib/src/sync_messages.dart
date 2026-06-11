@@ -69,10 +69,18 @@ class PetAction {
       {'kind': kind.name, 'sourceType': sourceType, 'itemId': itemId};
 
   factory PetAction.fromJson(Map<String, dynamic> json) {
+    final sourceType = json['sourceType'];
+    final itemId = json['itemId'];
+    if (sourceType is! String || itemId is! String) {
+      throw const FormatException('invalid PetAction fields');
+    }
     return PetAction(
-      kind: PetActionKind.values.firstWhere((k) => k.name == json['kind']),
-      sourceType: json['sourceType'] as String,
-      itemId: json['itemId'] as String,
+      kind: PetActionKind.values.firstWhere(
+        (k) => k.name == json['kind'],
+        orElse: () => throw const FormatException('unknown PetAction kind'),
+      ),
+      sourceType: sourceType,
+      itemId: itemId,
     );
   }
 }
