@@ -42,24 +42,49 @@ void main() {
     expect(source.contains('registerViewFactory(VIEW_TYPE,'), isTrue);
   });
 
-  test('Harmony native dock uses official HdsTabs floating bottom bar API', () {
+  test('Harmony native dock anchors to the window bottom avoid area', () {
     final source = File(
       'ohos/entry/src/main/ets/plugins/PetNoteHarmonyNativeDockPlugin.ets',
     ).readAsStringSync();
 
-    expect(source.contains("import { hdsMaterial } from '@hms.hds.hdsMaterial'"),
+    // The dock must measure the bottom safe area (gesture indicator /
+    // 3-button nav bar) from the window itself instead of trusting a
+    // hard-coded fallback forwarded over the platform channel.
+    expect(source.contains("import { window } from '@kit.ArkUI'"), isTrue);
+    expect(source.contains('window.getLastWindow('), isTrue);
+    expect(
+        source.contains(
+            'window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR'),
         isTrue);
-    expect(source.contains("from '@kit.UIDesignKit'"), isTrue);
-    expect(source.contains('HdsTabs({'), isTrue);
-    expect(source.contains('.tabBar(() => {'), isFalse);
-    expect(source.contains('new BottomTabBarStyle('), isTrue);
-    expect(source.contains('.barOverlap(true)'), isTrue);
-    expect(source.contains('.barPosition(BarPosition.End)'), isTrue);
-    expect(source.contains('.vertical(false)'), isTrue);
-    expect(source.contains('.barFloatingStyle({'), isTrue);
-    expect(source.contains('miniBarBuilder:'), isFalse);
-    expect(source.contains('buildVisibleDockOverlay'), isFalse);
+    expect(source.contains('window.AvoidAreaType.TYPE_SYSTEM'), isTrue);
+    expect(source.contains("'avoidAreaChange'"), isTrue);
+    expect(source.contains('px2vp('), isTrue);
+    expect(source.contains("'bottomInsetMeasured'"), isTrue);
+    // The legacy hard-coded 56vp minimum inset must stay gone.
+    expect(source.contains('Math.max(bottomInset, 56)'), isFalse);
     expect(source.contains('buildCenteredAddButton'), isTrue);
+  });
+
+  test('Harmony native dock uses the system Tabs component bridged to Flutter', () {
+    final source = File(
+      'ohos/entry/src/main/ets/plugins/PetNoteHarmonyNativeDockPlugin.ets',
+    ).readAsStringSync();
+
+    // The bar must be the ArkUI system-native Tabs component (not a
+    // hand-written Row), driven by a TabsController so Flutter can sync the
+    // selection programmatically.
+    expect(source.contains('new TabsController()'), isTrue);
+    expect(source.contains('Tabs({'), isTrue);
+    expect(source.contains('barPosition: BarPosition.End'), isTrue);
+    expect(source.contains('TabContent()'), isTrue);
+    expect(source.contains('.tabBar(this.buildTabBarItem('), isTrue);
+    expect(source.contains('.barOverlap(true)'), isTrue);
+    // User taps bridge to Flutter via onTabBarClick (not the echo-prone
+    // onChange), and programmatic selection flows through changeIndex.
+    expect(source.contains('.onTabBarClick('), isTrue);
+    expect(source.contains('this.tabsController.changeIndex('), isTrue);
+    expect(source.contains("invokeMethod('tabSelected'"), isTrue);
+    expect(source.contains("invokeMethod('addTapped'"), isTrue);
   });
 
   test('Harmony native dock preserves Flutter tab colors icons and add button styling', () {
@@ -91,6 +116,15 @@ void main() {
     expect(source.contains("\$r('app.media.ic_tab_add_placeholder')"), isTrue);
     expect(source.contains('const TAB_BAR_HEIGHT = 78'), isTrue);
     expect(source.contains('.barHeight(TAB_BAR_HEIGHT)'), isTrue);
+    // Native bar blur on the system Tabs component, with opaque fallback
+    // when the device predates barBackgroundBlurStyle (API < 15).
+    expect(source.contains('.barBackgroundBlurStyle('), isTrue);
+    expect(source.contains('NATIVE_BLUR_SUPPORTED'), isTrue);
+    expect(source.contains('BlurStyle.COMPONENT_THICK'), isTrue);
+    expect(source.contains('LIGHT_BLUR_BACKGROUND'), isTrue);
+    expect(source.contains('DARK_BLUR_BACKGROUND'), isTrue);
+    expect(source.contains('LIGHT_SOLID_BACKGROUND'), isTrue);
+    expect(source.contains('DARK_SOLID_BACKGROUND'), isTrue);
     expect(source.contains("label: '爱宠'"), isTrue);
 
     expect(File('ohos/entry/src/main/resources/base/media/ic_tab_checklist.svg').existsSync(), isTrue);

@@ -84,6 +84,15 @@
 - [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 是共享基线；`ohos/sign/` 下其他签名产物默认视为本地文件。
 - `ohos/sign/` 下除 [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 之外的任何文件都不得提交，包括证书、签名链、`p7b`、`cer`、`p12`、设备绑定 profile、本机签名材料和临时辅助脚本；如果确实要共享签名辅助脚本，应放到 [scripts](./scripts) 或其他受控源码目录，并同步 README 说明。
 - 如果签名链路出问题，优先核对 README、脚本和受控基线，不要先入为主地把责任归因到“用户没配环境”。
+- 脚本内置的 OpenHarmony 社区证书签名链只对模拟器 / 开发板有效。要求 HarmonyOS 签名的真机安装时报 `9568393 verify code signature failed` 属于签名类型问题，应走 DevEco 自动签名（华为账号签发、绑定设备 UDID），不要在社区证书链上反复重试。
+- DevEco 自动签名会把本机绝对路径与新密文写进 [ohos/build-profile.json5](./ohos/build-profile.json5)，这是本地环境噪音，不得提交。标准处理：把生成的 `app.signingConfigs` 数组搬进 gitignored 的 `ohos/local-signing.json`，还原基线文件；[ohos/hvigorfile.ts](./ohos/hvigorfile.ts) 会在构建评估期自动注入本地签名（文件不存在时回退基线），DevEco 一键运行与共享基线从此不冲突。不要绕过该机制直接提交 build-profile.json5 的签名改动。
+
+### 6.3.1 真机设备 ABI 判别规则
+
+- 不要直接相信 `flutter doctor` / 设备列表显示的 `ohos-arm64`，它按内核位数猜测；部分工程机内核 64 位但用户态是 32 位（armeabi-v7a）。判别命令：`hdc shell "bm dump -n com.ohos.arkwebcore" | grep cpuAbi`，输出 `arm64-v8a` 才是 64 位用户态。
+- 32 位用户态设备无法运行本应用：项目锁定的 OHOS Flutter 全版本线（3.7.12 ~ 3.41.9）只发布 `ohos-arm64` 与 `ohos-x64` 预编译引擎，`-TargetPlatform arm` 必然构建失败。不要在 32 位设备上反复排查业务代码或换 SDK 版本。
+- ABI 错配的典型特征：安装成功但启动即闪退，jscrash 栈在 `FlutterNapi.ets` 报 `Cannot read property nativeInit of undefined`，且 `bm dump` 的 `nativeLibraryPath` 为空（原生库被安装器静默丢弃）。
+- 真机验收标准：`nativeLibraryPath` 非空（如 `libs/arm64`）、应用进程存活且无新增 jscrash、界面正常渲染。`aa start` 返回成功不等于应用可正常运行。
 
 ### 6.4 OHOS 工具链归属规则
 
@@ -146,6 +155,7 @@
 - 任何 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接相关改动，都必须同时验证官方 Flutter 和 OHOS Flutter 两条链路。Harmony 显示正常但 Android / iOS 编译失败，或者 Android 构建通过但 Harmony 原生视图不显示，都是未闭环；最低验证为 README 约定的 Android 构建脚本和 Harmony 构建脚本各跑一次。
 - 不要在共享 Dart 代码中用 `TargetPlatform.ohos` 判断 Harmony，因为官方 Flutter 没有该枚举值；不要用自造 Dart 条件导入如 `if (petnote.hasOhosView)` 试图隔离 OHOS API，因为 `--dart-define` 不会创建条件导入键。需要平台判断时，必须先确认写法能被官方 Flutter 与 OHOS Flutter 同时解析。
 - 任何跨 SDK 构建验证后，都要检查并清理 [pubspec.lock](./pubspec.lock) 的依赖源噪音。官方 Flutter 或 OHOS Flutter 构建可能把 `https://pub.flutter-io.cn` 改成 `https://pub.dev`，这不属于业务修复，不得混进提交。
+- lock 噪音不止 URL 一种：OHOS Flutter 的 `flutter` / `flutter_test` 精确锁定一组较旧版本（`characters 1.4.0`、`material_color_utilities 0.11.1`、`meta 1.16.0`、`test_api 0.7.6`、`matcher 0.12.17`），官方 Flutter 锁定更新版本，在两套 SDK 状态间跑 `pub get` 会让 lock 的锁定版本整组来回翻转。这是 SDK 状态噪音而非依赖损坏，提交前一律恢复"官方 Flutter 默认状态"的 lock，禁止把版本翻转当成升级/降级修复提交。
 - 任何 Harmony / ArkTS 原生插件改动，必须先按 ArkTS 而不是 TypeScript 判断语法和类型可行性。禁止使用 `in`、`for..in`、动态对象布局、运行时追加字段、隐式 `any` 思路或未验证的对象探测写法；跨 MethodChannel 返回复杂结构时，必须使用明确字段结构，并用 Harmony 构建验证。
 - 任何安装后启动闪退且栈落在 `@ohos/flutter_ohos`、`FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等桥接层的位置时，禁止直接归因到新业务插件或用户环境。必须先读取生成物中的实际栈行号上下文，再回查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)、[ohos/hvigorfile.ts](./ohos/hvigorfile.ts)、[ohos/hvigorconfig.ts](./ohos/hvigorconfig.ts) 等仓库自管补丁链路。
 - 任何涉及 Harmony / ArkUI 系统对象的改动，都必须区分“普通 ArkTS 对象”和“系统原生对象”。对 `window.AvoidArea`、`window.Rect` 等对象，不得随意把嵌套字段整体替换成对象字面量；需要清零或调整时优先逐字段更新标量值，或先克隆成稳定普通结构后再使用，避免触发 `Obj is not a Valid object` 一类运行时崩溃。

@@ -917,6 +917,14 @@ try {
 
   New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
 
+  # Remove stale HAP outputs from previous builds so a failed build cannot
+  # silently fall through to installing an outdated artifact.
+  foreach ($staleHap in @($unsignedHap, $signedHap, $builtSignedHap)) {
+    if (Test-Path $staleHap) {
+      Remove-Item -Path $staleHap -Force
+    }
+  }
+
   Invoke-AllowingUnsignedBuild `
     -Executable $flutterSdk `
     -Arguments @('build', 'hap', '--debug', '--target-platform', "ohos-$TargetPlatform", '--no-tree-shake-icons') `

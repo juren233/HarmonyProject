@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -9,6 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 const _harmonyNativeDockViewType = 'petnote/harmony_native_dock';
+
+// Height of the dock visuals (floating panel + breathing room) excluding
+// the device-specific bottom safe-area inset. Must stay in sync with the
+// native side: TAB_BAR_HEIGHT (78) + TAB_BAR_BOTTOM_MARGIN (6) + shadow
+// headroom (12).
+const _dockHostBaseHeight = 96.0;
 
 bool supportsHarmonyNativeDock(TargetPlatform platform) {
   return platform.name == 'ohos' &&
@@ -42,6 +47,10 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   Brightness? _lastSyncedBrightness;
   // Cache the last synced bottom inset to detect runtime changes.
   double? _lastSyncedBottomInset;
+  // Bottom safe-area inset measured natively from the window avoid areas
+  // (gesture indicator / 3-button nav bar) and reported back via the
+  // `bottomInsetMeasured` channel call. Preferred over MediaQuery once known.
+  double? _nativeMeasuredBottomInset;
 
   @override
   void didUpdateWidget(covariant HarmonyNativeDockHost oldWidget) {
@@ -56,18 +65,28 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
         }
       });
     }
-    // Capture brightness synchronously BEFORE the async call to avoid
+    _syncEnvironment();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Fires when MediaQuery (nav-mode toggle, fold posture) or Theme changes,
+    // which didUpdateWidget alone would miss.
+    _syncEnvironment();
+  }
+
+  void _syncEnvironment() {
+    // Capture inherited values synchronously BEFORE the async calls to avoid
     // registering InheritedWidget dependencies inside a fire-and-forget
     // async body (which can cause _depends.isEmpty assertion failures).
     final brightness = Theme.of(context).brightness;
     if (brightness != _lastSyncedBrightness) {
       _syncBrightness(brightness);
     }
-    // Sync bottom inset if it changed (e.g. user toggled gesture/3-button nav).
-    final viewPadding = MediaQuery.viewPaddingOf(context);
-    final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
-    if (effectiveBottomInset != _lastSyncedBottomInset) {
-      _syncBottomInset(effectiveBottomInset);
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    if (bottomInset != _lastSyncedBottomInset) {
+      _syncBottomInset(bottomInset);
     }
   }
 
@@ -80,18 +99,20 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   @override
   Widget build(BuildContext context) {
     final viewPadding = MediaQuery.viewPaddingOf(context);
-    // [PetNote] Ensure at least 56 logical pixels of bottom inset so the
-    // native dock doesn't overlap with the 3-button system navigation bar
-    // (back / home / recent-apps).  On full-screen devices the system may
-    // report a small or zero viewPadding.bottom; math.max guarantees a
-    // safe minimum regardless.
-    final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
+    // Anchor to the real bottom safe area (gesture indicator / 3-button nav
+    // bar). The native side measures the window avoid areas itself and
+    // reports back via `bottomInsetMeasured`; until that arrives, Flutter's
+    // viewPadding (fed by the same avoid areas through the OHOS embedder)
+    // is used as the initial estimate.
+    final effectiveBottomInset =
+        math.max(viewPadding.bottom, _nativeMeasuredBottomInset ?? 0.0);
     assert(() {
       debugPrint('[PetNote] viewPadding.bottom=${viewPadding.bottom}, '
+          'nativeMeasured=$_nativeMeasuredBottomInset, '
           'effectiveBottomInset=$effectiveBottomInset');
       return true;
     }());
-    final dockHeight = 96 + effectiveBottomInset;
+    final dockHeight = _dockHostBaseHeight + effectiveBottomInset;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 17),
       child: SizedBox(
@@ -118,16 +139,16 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     final channel = MethodChannel('petnote/harmony_native_dock_$viewId');
     _channel = channel;
     channel.setMethodCallHandler(_handleMethodCall);
+    // The native view starts fresh — invalidate sync caches so the deferred
+    // _syncEnvironment below pushes the current state to it.
+    _lastSyncedBrightness = null;
+    _lastSyncedBottomInset = null;
     // Defer all sync calls to a post-frame callback to avoid triggering
     // platform channel messages during the platform view creation build phase.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _syncSelectedTab();
-        final brightness = Theme.of(context).brightness;
-        _syncBrightness(brightness);
-        final viewPadding = MediaQuery.viewPaddingOf(context);
-        final effectiveBottomInset = math.max(viewPadding.bottom, 56.0);
-        _syncBottomInset(effectiveBottomInset);
+        _syncEnvironment();
       }
     });
   }
@@ -204,12 +225,30 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
       case 'addTapped':
         widget.onAddTap();
         return;
+      case 'bottomInsetMeasured':
+        final inset = (call.arguments as num?)?.toDouble();
+        if (inset != null && inset != _nativeMeasuredBottomInset) {
+          _nativeMeasuredBottomInset = inset;
+          // May arrive while a frame is in progress on the OHOS embedder —
+          // defer the rebuild to the end of the frame.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {});
+            }
+          });
+        }
+        return;
       default:
         return;
     }
   }
 }
 
+// Texture-based platform view embedding. Hybrid composition
+// (initExpensiveOhosView / createForPlatformViewLayer) is NOT usable with
+// this flutter_ohos version: the embedder has no onDisplayPlatformView /
+// initializePlatformViewIfNeeded path, so a platform-view layer is created
+// but never attached to the window tree and the dock simply never renders.
 class _HarmonyOhosView extends StatelessWidget {
   const _HarmonyOhosView({
     required this.viewType,

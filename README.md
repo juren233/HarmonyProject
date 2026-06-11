@@ -508,6 +508,28 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode run -T
 
 如果你的 DevEco Studio、SDK 或 OpenHarmony toolchains 不在默认安装路径，先在当前终端设置 `DEVECO_HOME`、`DEVECO_SDK_HOME` 或 `HARMONY_TOOLCHAIN_HOME`，再执行上面的 `-Mode init`。
 
+#### 真机签名与设备 ABI 适配（2026-06 实测结论）
+
+真机安装前必须先确认两件事：签名类型和设备 ABI，否则会分别在安装和启动阶段失败。
+
+签名：
+
+- 脚本内置的手动签名链使用 SDK 自带的 OpenHarmony 社区证书，只对模拟器 / 开发板有效。要求 HarmonyOS 签名的真机会在安装时报 `code:9568393 error: verify code signature failed`
+- 遇到 9568393 时，在 DevEco Studio 里打开 [ohos](./ohos)，保持手机连接，走 File > Project Structure > Signing Configs > Automatically generate signature 用华为账号签发设备绑定的调试签名（有效期一年，绑定设备 UDID，材料生成在 `~/.ohos/config`）
+- 自动签名会把本机绝对路径和新密文写进 [ohos/build-profile.json5](./ohos/build-profile.json5)，这是本地环境噪音，不得提交。仓库已在 [ohos/hvigorfile.ts](./ohos/hvigorfile.ts) 内置本地签名注入来消除这个冲突：把自动签名写进 `build-profile.json5` 的 `app.signingConfigs` 数组整段拷贝到 `ohos/local-signing.json`（严格 JSON、已被 .gitignore 忽略），再 `git restore ohos/build-profile.json5`；此后 DevEco 一键构建 / 运行会在构建评估期自动加载本地签名，基线文件保持干净
+- `ohos/local-signing.json` 不存在时构建自动回退共享基线签名，CI 和新机器不受影响；签名到期（一年）或换设备后重新走一次自动签名向导，再重复"拷贝 + 还原"即可
+- 新版 SDK（API 23 toolchains）的 hap-sign-tool 要求 profile 的 `bundle-info` 内含 `development-certificate` 等字段；当前共享基线 [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 缺这些字段，脚本的社区证书签名链在新 SDK 上会报 `Require cert in bundleInfo!`，此问题待基线补全后解决
+
+设备 ABI：
+
+- 不要直接相信 `flutter doctor` / 设备列表里的 `ohos-arm64`，它按内核位数猜测；部分工程机内核是 aarch64 但用户态是 32 位（armeabi-v7a）
+- 判别方法：`hdc shell "bm dump -n com.ohos.arkwebcore" | grep cpuAbi`，显示 `arm64-v8a` 才是 64 位用户态；显示 `armeabi-v7a` 说明是 32 位用户态设备
+- **32 位用户态设备目前无法运行本应用**：项目锁定的 OHOS Flutter SDK（3.35.8-ohos）只发布 `ohos-arm64` 和 `ohos-x64` 预编译引擎（见 SDK 内 `flutter_tools` 的 `_ohosBinaryDirs` 清单），`-TargetPlatform arm` 会因缺少 `ohos-arm/flutter_embedding_debug.har` 直接构建失败。要支持 32 位设备只能自编 32 位引擎或换 64 位设备
+- ABI 不匹配的典型特征：安装成功但启动即闪退，jscrash 栈在 `FlutterNapi.ets` 报 `Cannot read property nativeInit of undefined`，且 `bm dump -n com.krustykrab.petnote` 里 `nativeLibraryPath` 为空（安装器没匹配到 HAP 里的 so 目录，原生库被静默丢弃）
+- 验收标准：安装后 `nativeLibraryPath` 非空（如 `libs/arm64`），应用进程存活且无新增 jscrash，界面正常渲染；`aa start` 命令返回成功不等于应用可正常运行
+- [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1) 会在每次构建前自动清理上一次的 `entry-default-unsigned.hap` / `entry-default-signed.hap` 产物，确保构建失败时如实报错，而不是把过期包当成新包安装（2026-06 修复，此前版本存在该陷阱）
+- 32 位预编译引擎缺失是 OHOS Flutter 全版本线的限制：经核查 gitcode `flutter_flutter` 仓库 3.7.12 / 3.22.x / 3.27.4 / 3.32.4 / 3.35.7 / 3.41.9 各分支的 `flutter_cache.dart` 产物清单，均只发布 `ohos-arm64` 与 `ohos-x64`，升级 SDK 解决不了 32 位设备问题
+
 macOS 终端：
 
 当前仓库没有提供经过验证的 macOS Harmony PowerShell 脚本，但可以直接用 DevEco Studio 自带的命令行工具在默认终端里做构建。先准备环境变量：
@@ -593,7 +615,7 @@ open -a "DevEco Studio" .
 说明：
 
 - Harmony 模拟器通常使用 `x64`
-- Harmony 真机通常使用 `arm64`
+- Harmony 真机多数使用 `arm64`，但部分工程机用户态是 32 位（需用 `arm`），先按上面"真机签名与设备 ABI 适配"一节判别再选 `-TargetPlatform`
 - Harmony 命令行脚本当前按 Windows + DevEco Studio 工具链编写，建议只在 Windows 上执行
 - macOS 可走 DevEco Studio 一键编译 / 运行，也可以走上面的 `ohpm + hvigorw` 终端构建命令
 - Windows 新机器第一次使用 Harmony / DevEco 前，先执行一次 `powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
@@ -693,6 +715,7 @@ Harmony / ArkTS 运行时问题警醒：
 - `ohos/node_modules/`
 - `ohos/oh_modules/`
 - `ohos/sign/` 下除 [ohos/sign/debug-profile.json](./ohos/sign/debug-profile.json) 之外的任何文件，包括证书、签名链、`p7b`、`cer`、`p12`、设备绑定 profile、本机签名材料和临时辅助脚本
+- `ohos/local-signing.json`（本机 DevEco 自动签名材料，由 [ohos/hvigorfile.ts](./ohos/hvigorfile.ts) 构建期注入）
 - `.signing-temp/`
 - `android/key.properties`
 - `android/signing/`
@@ -704,6 +727,7 @@ Harmony / ArkTS 运行时问题警醒：
 - 如果 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 在主仓库里显示为 `dirty`，先清掉子模块内部的本地改动再提主仓库。
 - 根目录 [pubspec.lock](./pubspec.lock) 提交前应保持“官方 Flutter 默认状态”。
 - 跑 Android / Harmony 脚本后，如果 [pubspec.lock](./pubspec.lock) 只出现 `https://pub.flutter-io.cn` 与 `https://pub.dev` 的来回变化，默认视为依赖源环境噪音，不要和业务修复一起提交。
+- 除依赖源 URL 外，两套 SDK 还会让 [pubspec.lock](./pubspec.lock) 的锁定版本来回翻转：OHOS Flutter 的 `flutter` / `flutter_test` 包精确锁定一组较旧版本（`characters 1.4.0`、`material_color_utilities 0.11.1`、`meta 1.16.0`、`test_api 0.7.6`、`matcher 0.12.17`），官方 Flutter 则锁定更新版本，`synchronized` 等个别传递依赖也会随 Dart SDK 上界小幅变化。在哪套 SDK 状态下跑 `pub get`，lock 就会被解析成哪组版本——这是各自构建期的必然结果，不是依赖损坏。按上一条同样处理：提交前恢复"官方 Flutter 默认状态"，不要把这类翻转和业务修复一起提交。
 - 如果需要改 DevEco 直跑逻辑，请优先改 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)，不要去改子模块里的 upstream hvigor 插件源码。
 - 如果 Harmony 运行时错误栈落在 `@ohos/flutter_ohos/.../FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等 SDK / 桥接层，不要先入为主地怀疑业务插件本身；先检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin) 对 upstream FlutterView 的补丁是否仍然成立，再决定是否要改业务代码。
 - 如果共享 Dart 层为了 Harmony 特性引用了平台视图或平台判断相关 API，先确认这些符号在官方 Flutter 和 OHOS Flutter 下都能解析。不能把 `OhosView`、`TargetPlatform.ohos` 或只在某一套 SDK 暴露的类型直接留在共享入口里；官方 Flutter 不会因为运行时分支不进入就跳过编译期解析。

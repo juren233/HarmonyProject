@@ -52,6 +52,7 @@ node_modules/
 package-lock.json
 
 # Signing
+ohos/local-signing.json
 *.jks
 *.keystore
 *.p12
@@ -68,6 +69,7 @@ android/signing/
 *.log
 *.tmp
 *.orig
+*.stackdump
 tmp-*.jpeg
 tmp-*.jpg
 tmp-*.png
