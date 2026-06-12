@@ -44,6 +44,7 @@ jobs:
 
           enabled = False
           build_if_not_enabled = False
+          pre_release = False
           tag = ""
           android_section_found = False
           android_enabled = None
@@ -77,6 +78,8 @@ jobs:
                 enabled = stripped.split(":", 1)[1].strip().lower() == "true"
               elif stripped.startswith("build_if_not_enabled:"):
                 build_if_not_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
+              elif stripped.startswith(("pre_release:", "prerelease:", "pre-release:")):
+                pre_release = stripped.split(":", 1)[1].strip().lower() == "true"
               elif stripped.startswith("tag:"):
                 value = stripped.split(":", 1)[1].strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
@@ -133,10 +136,8 @@ jobs:
             raise SystemExit("pubspec.yaml version must not be empty.")
 
           branch_name = os.environ["GITHUB_REF_NAME"]
-          if branch_name == "main":
-            publish_mode = "release"
-          elif branch_name == "beta":
-            publish_mode = "pre-release"
+          if branch_name in {"main", "beta"}:
+            publish_mode = "pre-release" if pre_release else "release"
           else:
             publish_mode = "artifacts-only"
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
@@ -9,20 +10,27 @@ class PairingCodeTicket {
     required this.code,
     required this.householdId,
     required this.saltBase64,
+    required this.authToken,
     required this.expiresAt,
   });
 
   final String code;
   final String householdId;
   final String saltBase64;
+  final String authToken;
   final DateTime expiresAt;
 }
 
 class PairingJoinResult {
-  PairingJoinResult({required this.householdId, required this.saltBase64});
+  PairingJoinResult({
+    required this.householdId,
+    required this.saltBase64,
+    required this.authToken,
+  });
 
   final String householdId;
   final String saltBase64;
+  final String authToken;
 }
 
 class PairingService {
@@ -43,8 +51,12 @@ class PairingService {
   }) {
     final issuedAt = now ?? DateTime.now().toUtc();
     final existing = _store.household(existingHouseholdId);
-    final household =
-        existing ?? _store.create(_newId(), SyncCrypto.generateSaltBase64());
+    final household = existing ??
+        _store.create(
+          _newId(),
+          SyncCrypto.generateSaltBase64(),
+          _newToken(),
+        );
 
     household.devices.putIfAbsent(
       ownerDeviceId,
@@ -59,6 +71,7 @@ class PairingService {
       code: _newCode(),
       householdId: household.id,
       saltBase64: household.saltBase64,
+      authToken: household.authToken,
       expiresAt: issuedAt.add(codeTtl),
     );
     _activeCodes[ticket.code] = ticket;
@@ -86,6 +99,12 @@ class PairingService {
       return null;
     }
 
+    final hasOtherPetDevice = household.devices.values.any(
+        (device) => device.role == 'pet' && device.deviceId != petDeviceId);
+    if (hasOtherPetDevice) {
+      return null;
+    }
+
     household.devices.putIfAbsent(
       petDeviceId,
       () => HouseholdDevice(
@@ -98,10 +117,16 @@ class PairingService {
     return PairingJoinResult(
       householdId: household.id,
       saltBase64: household.saltBase64,
+      authToken: household.authToken,
     );
   }
 
   String _newCode() => _random.nextInt(1000000).toString().padLeft(6, '0');
+
+  String _newToken() {
+    final bytes = List<int>.generate(32, (_) => _random.nextInt(256));
+    return base64UrlEncode(bytes);
+  }
 
   String _newId() {
     final timestamp =

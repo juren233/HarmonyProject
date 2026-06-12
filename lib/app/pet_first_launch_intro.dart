@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/layout_metrics.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 
 class PetFirstLaunchIntro extends StatefulWidget {
   const PetFirstLaunchIntro({
@@ -18,6 +19,7 @@ class PetFirstLaunchIntro extends StatefulWidget {
     this.fillParent = true,
     this.onboardingExitProgress = 0,
     this.introHapticsDriver,
+    this.onSelectPetRole,
   });
 
   final Future<void> Function() onStartOnboarding;
@@ -27,6 +29,7 @@ class PetFirstLaunchIntro extends StatefulWidget {
   final bool fillParent;
   final double onboardingExitProgress;
   final IntroHapticsDriver? introHapticsDriver;
+  final Future<void> Function(DeviceRole role)? onSelectPetRole;
 
   @override
   State<PetFirstLaunchIntro> createState() => _PetFirstLaunchIntroState();
@@ -75,6 +78,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   bool _showLaunchPaw = true;
   bool _isPrimaryNavigating = false;
   bool _isSecondaryNavigating = false;
+  bool _isRoleNavigating = false;
   bool _hasReportedFirstPageAnimationsCompleted = false;
   bool _hasStartedLaunchAnimation = false;
   bool _hasRequestedLaunchHapticsPreparation = false;
@@ -125,6 +129,28 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       ],
     ),
     _IntroPageData(
+      title: '这台设备为谁服务？',
+      subtitle: '主人设备用来记录与管理；爱宠设备放在家里展示提醒。',
+      icon: Icons.devices_rounded,
+      accentColor: Color(0xFFF2A65A),
+      heroAccentColor: Color(0xFFF2A65A),
+      listStyle: _IntroListStyle.roleCards,
+      values: [
+        _IntroValueData(
+          title: '主人',
+          subtitle: '我用这台设备记录和管理毛孩子的照护。',
+          icon: Icons.person_rounded,
+          iconColor: Color(0xFFD9822B),
+        ),
+        _IntroValueData(
+          title: '爱宠',
+          subtitle: '这台设备放在家里，给毛孩子当电子标签牌。',
+          icon: Icons.pets_rounded,
+          iconColor: Color(0xFF90CE9B),
+        ),
+      ],
+    ),
+    _IntroPageData(
       title: '先认识一下你的毛孩子吧',
       subtitle: '添加爱宠信息才能够更好地照顾你的毛孩子~',
       icon: Icons.pets_rounded,
@@ -136,7 +162,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
         _IntroValueData(
-          title: '所有数据均安全保存在本地',
+          title: '数据仅在你的设备与你自己的服务器间加密同步',
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
         _IntroValueData(
@@ -324,6 +350,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
                                         data: item,
                                         isRevealed:
                                             _revealedPages.contains(index),
+                                        onSelectRole: _handleSelectRole,
                                       );
                                     }),
                                   ),
@@ -435,6 +462,9 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   }
 
   Widget _buildStaticFooterChrome(_IntroPageData page, bool isFinalPage) {
+    if (page.listStyle == _IntroListStyle.roleCards) {
+      return _buildIndicator(_sharedIndicatorColor);
+    }
     if (isFinalPage) {
       return AnimatedBuilder(
         animation: _finalPageFooterController,
@@ -572,6 +602,24 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   void _handlePrimaryContinue() {
     _playPrimaryButtonTapHaptics();
     _goNext();
+  }
+
+  Future<void> _handleSelectRole(DeviceRole role) async {
+    if (_isRoleNavigating) {
+      return;
+    }
+    _playPrimaryButtonTapHaptics();
+    setState(() => _isRoleNavigating = true);
+    try {
+      await widget.onSelectPetRole?.call(role);
+      if (mounted && role == DeviceRole.owner) {
+        _goNext();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRoleNavigating = false);
+      }
+    }
   }
 
   void _startFirstPageFooterReveal() {
@@ -881,11 +929,13 @@ class _IntroPage extends StatefulWidget {
     required this.index,
     required this.data,
     required this.isRevealed,
+    this.onSelectRole,
   });
 
   final int index;
   final _IntroPageData data;
   final bool isRevealed;
+  final Future<void> Function(DeviceRole role)? onSelectRole;
 
   @override
   State<_IntroPage> createState() => _IntroPageState();
@@ -965,6 +1015,8 @@ class _IntroPageState extends State<_IntroPage>
           const SizedBox(height: 22),
           if (widget.data.listStyle == _IntroListStyle.cards)
             ..._buildCardItems()
+          else if (widget.data.listStyle == _IntroListStyle.roleCards)
+            ..._buildRoleItems()
           else
             ..._buildCheckItems(),
         ],
@@ -1015,6 +1067,26 @@ class _IntroPageState extends State<_IntroPage>
       return _buildReveal(
         interval: Interval(start, end, curve: Curves.easeOutCubic),
         child: _IntroFeatureCard(data: widget.data.values[index]),
+      );
+    });
+  }
+
+  List<Widget> _buildRoleItems() {
+    return List.generate(widget.data.values.length, (index) {
+      final data = widget.data.values[index];
+      final role = index == 0 ? DeviceRole.owner : DeviceRole.pet;
+      final start = 0.30 + index * 0.16;
+      final end = (start + 0.30).clamp(0.0, 1.0);
+      return _buildReveal(
+        interval: Interval(start, end, curve: Curves.easeOutCubic),
+        child: _IntroRoleCard(
+          key: ValueKey(
+              role == DeviceRole.owner ? 'intro_role_owner' : 'intro_role_pet'),
+          data: data,
+          onTap: widget.onSelectRole == null
+              ? null
+              : () => widget.onSelectRole!(role),
+        ),
       );
     });
   }
@@ -1512,6 +1584,85 @@ class _IntroFeatureCard extends StatelessWidget {
   }
 }
 
+class _IntroRoleCard extends StatelessWidget {
+  const _IntroRoleCard({
+    super.key,
+    required this.data,
+    required this.onTap,
+  });
+
+  final _IntroValueData data;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: tokens.panelStrongBackground,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: tokens.panelBorder, width: 1),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: tokens.secondarySurface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    data.icon ?? Icons.devices_rounded,
+                    color: data.iconColor ?? const Color(0xFFD9822B),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data.title,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: tokens.primaryText,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      if (data.subtitle != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          data.subtitle!,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: tokens.secondaryText,
+                                    height: 1.45,
+                                  ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _IntroIndicator extends StatelessWidget {
   const _IntroIndicator({
     required this.pageCount,
@@ -1583,6 +1734,6 @@ class _IntroValueData {
   final _IntroValueLeadingStyle leadingStyle;
 }
 
-enum _IntroListStyle { checks, cards }
+enum _IntroListStyle { checks, cards, roleCards }
 
 enum _IntroValueLeadingStyle { check, animatedPrivacyLock }

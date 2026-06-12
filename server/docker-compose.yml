@@ -1,0 +1,30 @@
+services:
+  petnote-sync:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      DATA_DIR: /data
+    ports:
+      - "8787:8787"
+    volumes:
+      - petnote-data:/data
+
+  # 二期启用：WebRTC TURN 兜底；本期只预留编排，不接 RTC。
+  # coturn:
+  #   image: coturn/coturn:4.6
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   command:
+  #     - -n
+  #     - --use-auth-secret
+  #     - --static-auth-secret=${TURN_SECRET}
+  #     - --realm=petnote
+  #   ports:
+  #     - "3478:3478"
+  #     - "3478:3478/udp"
+
+volumes:
+  petnote-data:

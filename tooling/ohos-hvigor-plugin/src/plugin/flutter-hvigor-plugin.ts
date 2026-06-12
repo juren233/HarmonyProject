@@ -177,6 +177,38 @@ function getFlutterProjectPackageName(flutterProjectPath: string): string | null
   }
 }
 
+const PUBSPEC_DEPENDENCY_SECTIONS = ['dependencies', 'dev_dependencies', 'dependency_overrides']
+
+function getPubspecDependencyNames(flutterProjectPath: string): string[] | null {
+  const pubspecPath = path.join(flutterProjectPath, 'pubspec.yaml')
+  if (!fs.existsSync(pubspecPath)) {
+    return null
+  }
+
+  try {
+    const pubspecContent = fs.readFileSync(pubspecPath, 'utf-8')
+    const dependencyNames = new Set<string>()
+    let inDependencySection = false
+    pubspecContent.split(/\r?\n/).forEach(line => {
+      if (/^[^\s#]/.test(line)) {
+        inDependencySection = PUBSPEC_DEPENDENCY_SECTIONS.some(section => line.startsWith(`${section}:`))
+        return
+      }
+      if (!inDependencySection) {
+        return
+      }
+      const dependencyMatch = line.match(/^ {2}([A-Za-z0-9_]+):/)
+      if (dependencyMatch) {
+        dependencyNames.add(dependencyMatch[1])
+      }
+    })
+    return Array.from(dependencyNames)
+  } catch (error) {
+    console.warn(`Failed to inspect pubspec.yaml for dependency names, refresh Flutter packages by default. ${error}`)
+    return null
+  }
+}
+
 function getFlutterProjectVersionInfo(flutterProjectPath: string): {
   versionName: string | null
   versionCode: string | null
@@ -260,7 +292,29 @@ function shouldRefreshFlutterPackages(flutterProjectPath: string, sdkPath: strin
 
     const currentFlutterRoot = resolvePackageRootUri(flutterProjectPath, flutterPackage.rootUri)
     const expectedFlutterRoot = path.join(sdkPath, 'packages', 'flutter')
-    return normalizeComparablePath(currentFlutterRoot) !== normalizeComparablePath(expectedFlutterRoot)
+    if (normalizeComparablePath(currentFlutterRoot) !== normalizeComparablePath(expectedFlutterRoot)) {
+      return true
+    }
+
+    const pubspecDependencyNames = getPubspecDependencyNames(flutterProjectPath)
+    if (!pubspecDependencyNames) {
+      return true
+    }
+
+    const resolvedPackageNames = new Set<string>(
+      (Array.isArray(packageConfig.packages) ? packageConfig.packages : [])
+        .map((pkg: { name?: string }) => pkg.name)
+        .filter((name: string | undefined): name is string => !!name)
+    )
+    const missingDependencyNames = pubspecDependencyNames.filter(name => !resolvedPackageNames.has(name))
+    if (missingDependencyNames.length > 0) {
+      console.info(
+        `Pubspec dependencies missing from package_config.json, refresh Flutter packages: ${missingDependencyNames.join(', ')}`
+      )
+      return true
+    }
+
+    return false
   } catch (error) {
     console.warn(`Failed to inspect package_config.json, refresh Flutter packages by default. ${error}`)
     return true

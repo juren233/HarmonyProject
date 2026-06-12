@@ -16,6 +16,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var introHapticsBridge: PetNoteIntroHapticsBridge? = null
     private var nativeOptionPickerBridge: PetNoteNativeOptionPickerBridge? = null
     private var nativePetPhotoPickerBridge: PetNoteNativePetPhotoPickerBridge? = null
+    private var keepAliveBridge: PetNoteKeepAliveBridge? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +67,11 @@ class MainActivity : FlutterFragmentActivity() {
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
+        keepAliveBridge = PetNoteKeepAliveBridge(
+            activity = this,
+            context = applicationContext,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onResume() {
@@ -106,6 +112,8 @@ class MainActivity : FlutterFragmentActivity() {
         dataPackageFileAccessBridge = null
         appDirectoryBridge?.close()
         appDirectoryBridge = null
+        keepAliveBridge?.close()
+        keepAliveBridge = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

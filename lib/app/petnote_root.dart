@@ -29,8 +29,10 @@ import 'package:petnote/app/petnote_pages.dart' hide MePage;
 import 'package:petnote/app/pet_edit_sheet.dart';
 import 'package:petnote/app/pet_first_launch_intro.dart';
 import 'package:petnote/app/pet_onboarding_overlay.dart';
+import 'package:petnote/app/pet_pairing_page.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_service.dart';
 
 class PetNoteRoot extends StatefulWidget {
   const PetNoteRoot({
@@ -64,7 +66,7 @@ class PetNoteRoot extends StatefulWidget {
 
 enum _OnboardingEntryPoint { intro, manual }
 
-enum _OverlayTransition { none, introToOnboarding, introToShell }
+enum _OverlayTransition { none, introToOnboarding, introToShell, introToPairing }
 
 class _PetNoteRootState extends State<PetNoteRoot>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
@@ -152,6 +154,12 @@ class _PetNoteRootState extends State<PetNoteRoot>
     });
     store.setNotificationSyncHandler(() => _flushNotificationSync(store));
     store.startTimeDerivedDataRefresh();
+    final settingsController = widget.settingsController;
+    if (settingsController != null) {
+      final syncService =
+          SyncService.instance ??= SyncService(settings: settingsController);
+      unawaited(syncService.ensureStartedForOwner(store: store));
+    }
     _overlayTransitionController.value = 0;
     _notificationInitializationTask = _initializeNotifications(store);
     unawaited(_notificationInitializationTask!);
@@ -348,6 +356,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
               setState(() => _activeChecklistKey = value),
           onAddFirstPet: _openManualOnboarding,
           onStartOnboardingFromIntro: _openOnboardingFromIntro,
+          onSelectPetRoleFromIntro: _selectRoleFromIntro,
           onExploreFirstLaunchIntro: _dismissFirstLaunchIntro,
           shouldStartFirstLaunchIntroAnimation:
               shouldStartFirstLaunchIntroAnimation,
@@ -419,6 +428,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
           selectedTab: store.activeTab,
           onTabSelected: store.setActiveTab,
           onAddTap: () => _openAddSheet(context, store),
+          followSystemTheme: widget.settingsController?.themePreference !=
+                  AppThemePreference.light &&
+              widget.settingsController?.themePreference !=
+                  AppThemePreference.dark,
         );
       },
     );
@@ -518,6 +531,51 @@ class _PetNoteRootState extends State<PetNoteRoot>
       _overlayTransition = _OverlayTransition.none;
     });
     _overlayTransitionController.value = 0;
+  }
+
+  Future<void> _selectRoleFromIntro(DeviceRole role) async {
+    final store = _store;
+    final settingsController = widget.settingsController;
+    if (store == null || settingsController == null) {
+      return;
+    }
+    if (role == DeviceRole.owner) {
+      // 主人：仅持久化角色，由引导页自己滑到下一页（二选一页）。
+      await settingsController.setDeviceRole(role);
+      return;
+    }
+    // 爱宠：先以“先看看宠记”同款退场动画露出配对页，动画完成后再切换角色。
+    await store.dismissFirstLaunchIntro();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showFirstLaunchIntro = true;
+      _showOnboarding = false;
+      _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _overlayTransition = _OverlayTransition.introToPairing;
+    });
+    await _overlayTransitionController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+    await settingsController.setDeviceRole(role);
+    await _resetPetModeTransitionState();
+  }
+
+  Future<void> _resetPetModeTransitionState() async {
+    if (!mounted) {
+      return;
+    }
+    _resetOverlayTransition();
+    setState(() {
+      _showFirstLaunchIntro = false;
+      _showOnboarding = false;
+      _onboardingEntryPoint = _OnboardingEntryPoint.manual;
+      _shouldPrewarmBottomNavDuringIntro = false;
+      _hasCompletedIntroBottomNavPrewarm = false;
+    });
   }
 
   void _handleIntroBottomNavPrewarmCompleted() {
@@ -756,6 +814,9 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.setNotificationSyncHandler(null);
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
+    if (widget.settingsController?.deviceRole == DeviceRole.owner) {
+      unawaited(SyncService.instance?.stop() ?? Future<void>.value());
+    }
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
     super.dispose();
@@ -792,6 +853,7 @@ class _PetNoteBody extends StatefulWidget {
     required this.onSectionChanged,
     required this.onAddFirstPet,
     required this.onStartOnboardingFromIntro,
+    required this.onSelectPetRoleFromIntro,
     required this.onExploreFirstLaunchIntro,
     required this.shouldStartFirstLaunchIntroAnimation,
     required this.onEditPet,
@@ -821,6 +883,7 @@ class _PetNoteBody extends StatefulWidget {
   final ValueChanged<String> onSectionChanged;
   final VoidCallback onAddFirstPet;
   final Future<void> Function() onStartOnboardingFromIntro;
+  final Future<void> Function(DeviceRole role) onSelectPetRoleFromIntro;
   final Future<void> Function() onExploreFirstLaunchIntro;
   final bool shouldStartFirstLaunchIntroAnimation;
   final ValueChanged<Pet> onEditPet;
@@ -948,13 +1011,16 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
         widget.overlayTransition == _OverlayTransition.introToOnboarding;
     final introToShell =
         widget.overlayTransition == _OverlayTransition.introToShell;
-    final introShellExitProgress = introToShell
+    final introToPairing =
+        widget.overlayTransition == _OverlayTransition.introToPairing;
+    final introExitTransition = introToShell || introToPairing;
+    final introShellExitProgress = introExitTransition
         ? Curves.easeOutQuart.transform(
             (widget.overlayTransitionProgress / 0.34).clamp(0.0, 1.0))
         : 0.0;
     final introShellExitOffset =
-        introToShell ? -introShellExitProgress * 260 : 0.0;
-    final introOpacity = introToShell ? 1 - introShellExitProgress : 1.0;
+        introExitTransition ? -introShellExitProgress * 260 : 0.0;
+    final introOpacity = introExitTransition ? 1 - introShellExitProgress : 1.0;
     final shouldIgnoreBottomNavigation = widget.showOnboarding ||
         (widget.showFirstLaunchIntro && (!introToShell || introOpacity > 0.05));
     return RepaintBoundary(
@@ -983,6 +1049,13 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
               child: IgnorePointer(
                 ignoring: shouldIgnoreBottomNavigation,
                 child: widget.bottomNavigationOverlay!,
+              ),
+            ),
+          if (introToPairing && widget.settingsController != null)
+            Positioned.fill(
+              key: const ValueKey('intro_pairing_layer'),
+              child: PetPairingPage(
+                settingsController: widget.settingsController!,
               ),
             ),
           Positioned.fill(
@@ -1026,6 +1099,7 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                                 widget.shouldStartFirstLaunchIntroAnimation,
                             onStartOnboarding:
                                 widget.onStartOnboardingFromIntro,
+                            onSelectPetRole: widget.onSelectPetRoleFromIntro,
                             onExploreFirst: widget.onExploreFirstLaunchIntro,
                           ),
                         ),
@@ -1103,6 +1177,7 @@ class _PetNoteBodyState extends State<_PetNoteBody> {
                 onThemePreferenceChanged: (value) =>
                     widget.settingsController?.setThemePreference(value),
                 settingsController: widget.settingsController,
+                store: widget.store,
                 appVersionInfo: widget.appVersionInfo,
                 appUpdateChecker: widget.appUpdateChecker,
                 platformNameOverride: widget.platformNameOverride,

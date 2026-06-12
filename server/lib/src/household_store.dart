@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 class HouseholdDevice {
   HouseholdDevice({
@@ -20,8 +21,8 @@ class HouseholdDevice {
         'deviceId': deviceId,
         'name': name,
         'role': role,
-        if (servedPetId != null) 'servedPetId': servedPetId,
-        if (lastSeenMs != null) 'lastSeenMs': lastSeenMs,
+        'servedPetId': servedPetId,
+        'lastSeenMs': lastSeenMs,
       };
 
   factory HouseholdDevice.fromJson(Map<String, dynamic> json) =>
@@ -35,10 +36,15 @@ class HouseholdDevice {
 }
 
 class Household {
-  Household({required this.id, required this.saltBase64});
+  Household({
+    required this.id,
+    required this.saltBase64,
+    required this.authToken,
+  });
 
   final String id;
   final String saltBase64;
+  final String authToken;
   int snapshotVersion = 0;
   String? snapshotCiphertext;
   final Map<String, HouseholdDevice> devices = <String, HouseholdDevice>{};
@@ -47,6 +53,7 @@ class Household {
   Map<String, dynamic> toJson() => {
         'id': id,
         'saltBase64': saltBase64,
+        'authToken': authToken,
         'snapshotVersion': snapshotVersion,
         if (snapshotCiphertext != null)
           'snapshotCiphertext': snapshotCiphertext,
@@ -60,6 +67,7 @@ class Household {
     final household = Household(
       id: json['id'] as String,
       saltBase64: json['saltBase64'] as String,
+      authToken: json['authToken'] as String? ?? _newAuthToken(),
     )
       ..snapshotVersion = json['snapshotVersion'] as int? ?? 0
       ..snapshotCiphertext = json['snapshotCiphertext'] as String?;
@@ -79,6 +87,12 @@ class Household {
 
     return household;
   }
+
+  static String _newAuthToken() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    return base64UrlEncode(bytes);
+  }
 }
 
 class HouseholdStore {
@@ -91,8 +105,9 @@ class HouseholdStore {
 
   Household? household(String? id) => id == null ? null : _households[id];
 
-  Household create(String id, String saltBase64) {
-    final household = Household(id: id, saltBase64: saltBase64);
+  Household create(String id, String saltBase64, String authToken) {
+    final household =
+        Household(id: id, saltBase64: saltBase64, authToken: authToken);
     _households[id] = household;
     return household;
   }

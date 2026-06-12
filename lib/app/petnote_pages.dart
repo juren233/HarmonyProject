@@ -13,6 +13,7 @@ import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/navigation_palette.dart';
 import 'package:petnote/app/overview_bottom_cta.dart';
+import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/app/add_sheet/form_controls/adaptive_date_time_field.dart';
 import 'package:petnote/app/add_sheet/form_controls/choice_wrap.dart';
 import 'package:petnote/app/add_sheet/form_controls/pet_selector.dart';

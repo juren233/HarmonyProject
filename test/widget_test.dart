@@ -456,6 +456,13 @@ void main() {
 
     driver.events.clear();
     await tester.tap(
+      find.byKey(const ValueKey('intro_role_owner')),
+    );
+    await tester.pumpAndSettle();
+    expect(driver.events, <String>['button-tap']);
+
+    driver.events.clear();
+    await tester.tap(
       find.byKey(const ValueKey('first_launch_intro_primary_button')),
     );
     await tester.pumpAndSettle();
@@ -1312,6 +1319,20 @@ void main() {
 
     expect(
       _iconColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
+      const Color(0xFFF2A65A),
+    );
+    expect(
+      _selectedIndicatorColor(tester),
+      const Color(0xFFF2A65A),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('intro_role_owner')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      _iconColorByKey(tester, const ValueKey('intro_page_3_hero_icon')),
       const Color(0xFF90CE9B),
     );
     expect(
@@ -1487,10 +1508,15 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('first_launch_intro_continue_button')),
     );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('intro_role_owner')),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
 
-    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_3_content')), findsOneWidget);
     expect(
       _opacityOrOne(
         tester,
@@ -1601,7 +1627,7 @@ void main() {
     await _advanceIntroToFinalPage(tester);
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_3_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('privacy_lock_0')), findsOneWidget);
     expect(find.byKey(const ValueKey('privacy_lock_1')), findsOneWidget);
     expect(find.byKey(const ValueKey('privacy_lock_2')), findsOneWidget);
@@ -1621,6 +1647,13 @@ void main() {
 
     await tester.tap(
       find.byKey(const ValueKey('first_launch_intro_continue_button')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.tap(
+      find.byKey(const ValueKey('intro_role_owner')),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
@@ -1664,6 +1697,13 @@ void main() {
 
     await tester.tap(
       find.byKey(const ValueKey('first_launch_intro_continue_button')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.tap(
+      find.byKey(const ValueKey('intro_role_owner')),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
@@ -1743,7 +1783,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await _advanceIntroToFinalPage(tester);
-    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_3_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
 
     await tester
@@ -1751,7 +1791,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 90));
 
-    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_3_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_0_content')), findsNothing);
   });
 
@@ -1770,7 +1810,7 @@ void main() {
     expect(
       _opacityOrOne(
         tester,
-        find.byKey(const ValueKey('intro_page_2_content')),
+        find.byKey(const ValueKey('intro_page_3_content')),
       ),
       1,
     );
@@ -1908,6 +1948,62 @@ void main() {
       find.byKey(const ValueKey('first_launch_intro_overlay')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('choosing pet role exits intro into the pairing page',
+      (tester) async {
+    final settings = await AppSettingsController.load();
+    await tester.pumpWidget(PetNoteApp(settingsController: settings));
+    await tester.pumpAndSettle();
+
+    for (var i = 0; i < 2; i++) {
+      final continueButton =
+          find.byKey(const ValueKey('first_launch_intro_continue_button'));
+      await _pumpUntilFound(tester, continueButton);
+      await tester.tap(continueButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 360));
+    }
+    final petRoleCard = find.byKey(const ValueKey('intro_role_pet'));
+    await _pumpUntilFound(tester, petRoleCard);
+    await tester.tap(petRoleCard);
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_pairing_layer')),
+    );
+    await tester.pump(const Duration(milliseconds: 180));
+
+    // 转场进行中：底下已是配对页，intro 仍在做与“先看看宠记”一致的上滑淡出。
+    expect(find.byKey(const ValueKey('intro_pairing_layer')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+      findsOneWidget,
+    );
+    expect(
+      _translateDyByKey(
+        tester,
+        const ValueKey('intro_shell_exit_motion'),
+      ),
+      lessThan(0),
+    );
+
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.byKey(const ValueKey('pairing_server_mode_control')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('pairing_server_field')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('first_launch_intro_overlay')),
+      findsNothing,
+    );
+    expect(settings.deviceRole, DeviceRole.pet);
+
+    // 推过宠物端 store 加载的超时定时器，避免测试结束时遗留 pending timer。
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
   });
 
   testWidgets(
@@ -3756,7 +3852,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('主题外观'), findsOneWidget);
-    expect(find.text('设备'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('theme_option_system')),
+        matching: find.text('设备'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('浅色'), findsOneWidget);
     expect(find.text('深色'), findsOneWidget);
     expect(find.byKey(const ValueKey('me_theme_slider')), findsOneWidget);
@@ -4646,6 +4748,11 @@ Future<void> _advanceIntroToFinalPage(WidgetTester tester) async {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 360));
   }
+  final ownerRoleCard = find.byKey(const ValueKey('intro_role_owner'));
+  await _pumpUntilFound(tester, ownerRoleCard);
+  await tester.tap(ownerRoleCard);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 360));
   await _pumpUntilFound(
     tester,
     find.byKey(const ValueKey('first_launch_intro_primary_button')),

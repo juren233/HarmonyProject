@@ -26,11 +26,16 @@ class HarmonyNativeDockHost extends StatefulWidget {
     required this.selectedTab,
     required this.onTabSelected,
     required this.onAddTap,
+    this.followSystemTheme = true,
   });
 
   final AppTab selectedTab;
   final ValueChanged<AppTab> onTabSelected;
   final VoidCallback onAddTap;
+
+  // 主题偏好为“跟随设备”时必须让原生侧保持 COLOR_MODE_NOT_SET，
+  // 否则应用颜色模式被钉死后 ThemeMode.system 不再跟随系统明暗。
+  final bool followSystemTheme;
 
   @override
   State<HarmonyNativeDockHost> createState() => _HarmonyNativeDockHostState();
@@ -45,6 +50,8 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
   AppTab? _lastSyncedTab;
   // Cache the last synced brightness to avoid redundant platform channel calls.
   Brightness? _lastSyncedBrightness;
+  // Cache the last synced follow-system flag to detect preference changes.
+  bool? _lastSyncedFollowSystemTheme;
   // Cache the last synced bottom inset to detect runtime changes.
   double? _lastSyncedBottomInset;
   // Bottom safe-area inset measured natively from the window avoid areas
@@ -83,6 +90,9 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     final brightness = Theme.of(context).brightness;
     if (brightness != _lastSyncedBrightness) {
       _syncBrightness(brightness);
+    }
+    if (widget.followSystemTheme != _lastSyncedFollowSystemTheme) {
+      _syncFollowSystemTheme(widget.followSystemTheme);
     }
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     if (bottomInset != _lastSyncedBottomInset) {
@@ -124,6 +134,7 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
           creationParams: <String, Object?>{
             'selectedTab': widget.selectedTab.name,
             'brightness': Theme.of(context).brightness.name,
+            'followSystemTheme': widget.followSystemTheme,
             'bottomInset': effectiveBottomInset,
           },
           creationParamsCodec: const StandardMessageCodec(),
@@ -142,6 +153,7 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
     // The native view starts fresh — invalidate sync caches so the deferred
     // _syncEnvironment below pushes the current state to it.
     _lastSyncedBrightness = null;
+    _lastSyncedFollowSystemTheme = null;
     _lastSyncedBottomInset = null;
     // Defer all sync calls to a post-frame callback to avoid triggering
     // platform channel messages during the platform view creation build phase.
@@ -187,6 +199,24 @@ class _HarmonyNativeDockHostState extends State<HarmonyNativeDockHost> {
       );
       if (mounted) {
         _lastSyncedBrightness = brightness;
+      }
+    } on PlatformException {
+      // 忽略原生视图初始化早期的瞬时同步失败。
+    }
+  }
+
+  Future<void> _syncFollowSystemTheme(bool followSystemTheme) async {
+    final channel = _channel;
+    if (channel == null || !mounted) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>(
+        'setThemeFollowsSystem',
+        followSystemTheme,
+      );
+      if (mounted) {
+        _lastSyncedFollowSystemTheme = followSystemTheme;
       }
     } on PlatformException {
       // 忽略原生视图初始化早期的瞬时同步失败。

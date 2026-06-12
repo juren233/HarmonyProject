@@ -75,6 +75,7 @@ const DOCK_BORDER_RADIUS = 28;
 interface HarmonyDockCreationParams {
   selectedTab?: string;
   brightness?: string;
+  followSystemTheme?: boolean;
   bottomInset?: number;
 }
 
@@ -191,6 +192,10 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
         this.updateBrightness(call.args);
         result.success(null);
         break;
+      case 'setThemeFollowsSystem':
+        this.updateFollowSystemTheme(call.args);
+        result.success(null);
+        break;
       case 'setBottomInset':
         this.updateBottomInset(call.args);
         result.success(null);
@@ -208,6 +213,9 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
     }
     if (typeof params.selectedTab === 'string') {
       this.state.updateSelectedTab(params.selectedTab);
+    }
+    if (typeof params.followSystemTheme === 'boolean') {
+      this.state.updateFollowSystemTheme(params.followSystemTheme);
     }
     if (typeof params.brightness === 'string') {
       this.state.updateBrightness(params.brightness);
@@ -231,6 +239,13 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
     this.state.updateBrightness(rawBrightness);
   }
 
+  private updateFollowSystemTheme(rawFollow: Any): void {
+    if (typeof rawFollow !== 'boolean') {
+      return;
+    }
+    this.state.updateFollowSystemTheme(rawFollow);
+  }
+
   private updateBottomInset(rawInset: Any): void {
     if (typeof rawInset !== 'number') {
       return;
@@ -243,6 +258,7 @@ class HarmonyNativeDockPlatformView extends PlatformView implements MethodCallHa
 class HarmonyNativeDockState {
   selectedTab: string = 'checklist';
   brightness: string = 'light';
+  followSystemTheme: boolean = true;
   bottomInset: number = 0;
   measuredBottomInset: number = 0;
   hdsController: HdsTabsController = new HdsTabsController();
@@ -305,14 +321,27 @@ class HarmonyNativeDockState {
 
   updateBrightness(brightness: string): void {
     this.brightness = brightness;
-    // HDS materials, default masks and other native components follow the
-    // application color mode, not the Flutter theme. Sync it so the dock
-    // (and every other native surface) matches the app's brightness.
+    this.applyColorMode();
+  }
+
+  updateFollowSystemTheme(followSystemTheme: boolean): void {
+    this.followSystemTheme = followSystemTheme;
+    this.applyColorMode();
+  }
+
+  // HDS materials, default masks and other native components follow the
+  // application color mode, not the Flutter theme. Sync it so the dock
+  // (and every other native surface) matches the app's brightness.
+  // 主题偏好为“跟随设备”时必须回到 COLOR_MODE_NOT_SET：钉死成 LIGHT/DARK 会让
+  // Flutter 引擎的 platformBrightness 不再跟随系统，ThemeMode.system 因此失效。
+  private applyColorMode(): void {
     try {
       this.hostContext?.getApplicationContext().setColorMode(
-        brightness === 'dark'
-          ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
-          : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT,
+        this.followSystemTheme
+          ? ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET
+          : (this.brightness === 'dark'
+            ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+            : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT),
       );
     } catch (err) {
       hilog.warn(0x0000, TAG, 'setColorMode failed: %{public}s', JSON.stringify(err));

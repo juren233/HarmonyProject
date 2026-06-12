@@ -8,7 +8,8 @@ class WsHub {
     _connections.putIfAbsent(householdId, () => {})[deviceId] = channel;
   }
 
-  void unregister(String householdId, String deviceId, WebSocketChannel channel) {
+  void unregister(
+      String householdId, String deviceId, WebSocketChannel channel) {
     final household = _connections[householdId];
     if (household != null && identical(household[deviceId], channel)) {
       household.remove(deviceId);
@@ -27,10 +28,11 @@ class WsHub {
       _connections[householdId]?.keys ?? const Iterable.empty();
 
   Future<void> closeAll() async {
-    for (final household in _connections.values) {
-      for (final channel in household.values) {
-        await channel.sink.close();
-      }
+    final channels = _connections.values
+        .expand((household) => household.values)
+        .toList(growable: false);
+    for (final channel in channels) {
+      await channel.sink.close();
     }
     _connections.clear();
   }

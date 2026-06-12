@@ -30,7 +30,8 @@ class _PetsPageState extends State<PetsPage> {
       children: [
         PageHeader(
           title: '爱宠',
-          subtitle: pet == null ? '管理你的宠物档案' : '${pet.name} 的照护档案',
+          subtitle: _petsPageSubtitle(widget.store.pets.length),
+          trailing: pet == null ? null : RemoteVideoPillButton(pet: pet),
         ),
         SizedBox(
           height: 76,
@@ -194,6 +195,13 @@ class _PetsPageState extends State<PetsPage> {
       ],
     );
   }
+}
+
+String _petsPageSubtitle(int petCount) {
+  if (petCount == 0) {
+    return '添加宠物就有照护档案啦';
+  }
+  return petCount == 1 ? '它的照护档案' : '它们的照护档案';
 }
 
 class _RecordsFolderMetricIcon extends StatelessWidget {

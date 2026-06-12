@@ -9,7 +9,8 @@ void main() {
   late PairingService pairing;
 
   setUp(() async {
-    store = HouseholdStore(Directory.systemTemp.createTempSync('petnote_pair_'));
+    store =
+        HouseholdStore(Directory.systemTemp.createTempSync('petnote_pair_'));
     await store.load();
     pairing = PairingService(store);
   });
@@ -21,6 +22,7 @@ void main() {
       ownerDeviceName: '我的手机',
     );
     expect(created.code.length, 6);
+    expect(created.authToken, isNotEmpty);
     final joined = pairing.redeem(
       code: created.code,
       petDeviceId: 'pet-1',
@@ -29,6 +31,7 @@ void main() {
     expect(joined, isNotNull);
     expect(joined!.householdId, created.householdId);
     expect(joined.saltBase64, created.saltBase64);
+    expect(joined.authToken, created.authToken);
     final household = store.household(created.householdId)!;
     expect(household.devices.keys, containsAll(['owner-1', 'pet-1']));
   });
@@ -64,6 +67,19 @@ void main() {
     final reloaded = HouseholdStore(store.dataDirectory);
     await reloaded.load();
     expect(reloaded.household(created.householdId)!.snapshotVersion, 7);
-    expect(reloaded.household(created.householdId)!.snapshotCiphertext, 'cipher');
+    expect(
+        reloaded.household(created.householdId)!.snapshotCiphertext, 'cipher');
+  });
+
+  test('旧 household 存储缺少 authToken 时加载后自动补齐', () async {
+    final file = File('${store.dataDirectory.path}/households.json');
+    await file.writeAsString('''
+{"households":{"house-legacy":{"id":"house-legacy","saltBase64":"salt","devices":{},"pendingActions":[]}}}
+''');
+    final reloaded = HouseholdStore(store.dataDirectory);
+
+    await reloaded.load();
+
+    expect(reloaded.household('house-legacy')!.authToken, isNotEmpty);
   });
 }

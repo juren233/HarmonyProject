@@ -32,6 +32,9 @@ import UserNotifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteAppDirectoryPlugin") {
       PetNoteAppDirectoryPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteKeepAlivePlugin") {
+      PetNoteKeepAlivePlugin.register(with: registrar)
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
     }
@@ -86,6 +89,33 @@ final class PetNoteAppDirectoryPlugin: NSObject, FlutterPlugin {
       } catch {
         result(FlutterError(code: "app_directory_error", message: error.localizedDescription, details: nil))
       }
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+}
+
+final class PetNoteKeepAlivePlugin: NSObject, FlutterPlugin {
+  static let channelName = "petnote/keep_alive"
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteKeepAlivePlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "setKeepScreenOn":
+      let args = call.arguments as? [String: Any]
+      let enabled = args?["enabled"] as? Bool ?? false
+      UIApplication.shared.isIdleTimerDisabled = enabled
+      result(nil)
+    case "startBackgroundKeepAlive", "stopBackgroundKeepAlive":
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }

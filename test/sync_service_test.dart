@@ -1,0 +1,318 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/official_sync_server_resolver.dart';
+import 'package:petnote/sync/sync_secret_store.dart';
+import 'package:petnote/sync/sync_service.dart';
+import 'package:petnote/sync/sync_transport.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  test('未配对时 ensureStarted 不建立连接', () async {
+    final settings = await AppSettingsController.load();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => FakeSyncTransport(),
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(service.isActive, isFalse);
+  });
+
+  test('owner 配对完整时建立连接、启动 owner engine 并发送 hello', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setDeviceName('主人手机');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(service.isActive, isTrue);
+    expect(service.ownerEngine, isNotNull);
+    expect(transport.connected, isTrue);
+    expect(transport.sent.first.type, SyncMessageTypes.hello);
+    expect(transport.sent.first.payload['role'], 'owner');
+    expect(transport.sent.first.payload['authToken'], 'auth-token-1');
+    expect(
+      transport.sent
+          .skip(1)
+          .any((message) => message.type == SyncMessageTypes.snapshotPush),
+      isTrue,
+    );
+
+    await service.stop();
+  });
+
+  test('pet 配对完整时启动宠物端 controller', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(service.isActive, isTrue);
+    expect(service.petController, isNotNull);
+    expect(transport.sent.first.type, SyncMessageTypes.hello);
+    expect(transport.sent.first.payload['role'], 'pet');
+    expect(transport.sent.first.payload['authToken'], 'auth-token-1');
+    expect(transport.sent.last.type, SyncMessageTypes.snapshotRequest);
+    expect(
+      transport.sent.any((message) =>
+          message.type == SyncMessageTypes.hello &&
+          message.payload['role'] == 'pet'),
+      isTrue,
+    );
+
+    await service.stop();
+  });
+
+  test('连接恢复后重新发送 hello 完成会话认证', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    final initialHelloCount = transport.sent
+        .where((message) => message.type == SyncMessageTypes.hello)
+        .length;
+
+    transport.setState(SyncConnectionState.disconnected);
+    transport.setState(SyncConnectionState.connected);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(initialHelloCount, 1);
+    expect(
+      transport.sent.where((message) => message.type == SyncMessageTypes.hello),
+      hasLength(2),
+    );
+
+    await service.stop();
+  });
+
+  test('重连时 hello 先于断线期间排队的业务消息发出', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setDeviceName('主人手机');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = QueuedFakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final store = PetNoteStore.seeded();
+
+    await service.ensureStarted(store: store);
+    transport.sent.clear();
+    transport.setDisconnected();
+    await store.addTodo(
+      petId: store.pets.first.id,
+      title: '断线期间新增',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    await service.ownerEngine!.pushSnapshotNow();
+
+    transport.reconnectAndFlushQueue();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.sent.map((message) => message.type).take(2), [
+      SyncMessageTypes.hello,
+      SyncMessageTypes.snapshotPush,
+    ]);
+
+    await service.stop();
+  });
+
+  test('官方模式启动同步前解析服务器地址', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    String? resolvedUrl;
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      officialServerResolver: OfficialSyncServerResolver(
+        fetcher: (_) async => '{"server_domain":"petnote.juren233.top"}',
+      ),
+      transportFactory: (url) {
+        resolvedUrl = url;
+        return transport;
+      },
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(resolvedUrl, 'wss://petnote.juren233.top/ws');
+    expect(settings.syncServerUrl, 'wss://petnote.juren233.top/ws');
+    expect(service.isActive, isTrue);
+
+    await service.stop();
+  });
+}
+
+class FakeSyncTransport implements SyncTransport {
+  final List<SyncMessage> sent = <SyncMessage>[];
+  final StreamController<SyncMessage> incoming =
+      StreamController<SyncMessage>.broadcast();
+  final StreamController<Object> errorController =
+      StreamController<Object>.broadcast();
+  var connected = false;
+
+  @override
+  Stream<Object> get errors => errorController.stream;
+
+  @override
+  Stream<SyncMessage> get messages => incoming.stream;
+
+  @override
+  ValueListenable<SyncConnectionState> get state => _state;
+  final ValueNotifier<SyncConnectionState> _state =
+      ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+
+  @override
+  Future<void> connect() async {
+    connected = true;
+    _state.value = SyncConnectionState.connected;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    connected = false;
+    _state.value = SyncConnectionState.disconnected;
+  }
+
+  @override
+  void send(SyncMessage message) => sent.add(message);
+
+  void setState(SyncConnectionState value) {
+    _state.value = value;
+  }
+}
+
+class QueuedFakeSyncTransport implements SyncTransport {
+  final List<SyncMessage> sent = <SyncMessage>[];
+  final List<SyncMessage> queued = <SyncMessage>[];
+  final StreamController<SyncMessage> incoming =
+      StreamController<SyncMessage>.broadcast();
+  final StreamController<Object> errorController =
+      StreamController<Object>.broadcast();
+  var connected = false;
+
+  @override
+  Stream<Object> get errors => errorController.stream;
+
+  @override
+  Stream<SyncMessage> get messages => incoming.stream;
+
+  @override
+  ValueListenable<SyncConnectionState> get state => _state;
+  final ValueNotifier<SyncConnectionState> _state =
+      ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+
+  @override
+  Future<void> connect() async {
+    reconnectAndFlushQueue();
+  }
+
+  @override
+  Future<void> disconnect() async {
+    setDisconnected();
+  }
+
+  @override
+  void send(SyncMessage message) {
+    if (connected) {
+      sent.add(message);
+      return;
+    }
+    queued.add(message);
+  }
+
+  void setDisconnected() {
+    connected = false;
+    _state.value = SyncConnectionState.disconnected;
+  }
+
+  void reconnectAndFlushQueue() {
+    connected = true;
+    _state.value = SyncConnectionState.connected;
+    sent.addAll(queued);
+    queued.clear();
+  }
+}

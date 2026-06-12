@@ -1,4 +1,5 @@
 import { FlutterEngine } from '@ohos/flutter_ohos';
+import KeepAlivePlugin from './KeepAlivePlugin';
 import PackageInfoPlusPlugin from './PackageInfoPlusPlugin';
 import PetNoteAiSecretStorePlugin from './PetNoteAiSecretStorePlugin';
 import PetNoteAppDirectoryPlugin from './PetNoteAppDirectoryPlugin';
@@ -10,6 +11,7 @@ import SharedPreferencesPlugin from './SharedPreferencesPlugin';
 
 export class ProjectPluginRegistrant {
   static registerWith(flutterEngine: FlutterEngine): void {
+    flutterEngine.getPlugins()?.add(new KeepAlivePlugin());
     flutterEngine.getPlugins()?.add(new PackageInfoPlusPlugin());
     flutterEngine.getPlugins()?.add(new PetNoteAiSecretStorePlugin());
     flutterEngine.getPlugins()?.add(new PetNoteAppDirectoryPlugin());

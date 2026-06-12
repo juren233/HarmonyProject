@@ -15,6 +15,7 @@ import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/app_version_info.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/data_storage_page.dart';
+import 'package:petnote/app/devices_page.dart';
 import 'package:petnote/app/ios_native_update_reminder_switch.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/navigation_palette.dart';
@@ -22,6 +23,7 @@ import 'package:petnote/data/data_storage_coordinator.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/sync/sync_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const double _settingsEntrySpacing = 12;
@@ -49,6 +51,7 @@ class MePage extends StatelessWidget {
     required this.settingsController,
     required this.aiSettingsCoordinator,
     required this.dataStorageCoordinator,
+    this.store,
     this.appVersionInfo = AppVersionInfo.empty,
     this.notificationCapabilities = const NotificationPlatformCapabilities(),
     this.appUpdateChecker = const GitHubAppUpdateChecker(),
@@ -67,6 +70,7 @@ class MePage extends StatelessWidget {
   final AppSettingsController? settingsController;
   final AiSettingsCoordinator? aiSettingsCoordinator;
   final DataStorageCoordinator? dataStorageCoordinator;
+  final PetNoteStore? store;
   final AppVersionInfo appVersionInfo;
   final AppUpdateChecker appUpdateChecker;
   final String? platformNameOverride;
@@ -82,6 +86,10 @@ class MePage extends StatelessWidget {
           title: '我的',
           subtitle: 'App各项设置',
         ),
+        if (settingsController != null) ...[
+          _DeviceModeCard(settingsController: settingsController!),
+          const SizedBox(height: _settingsEntrySpacing),
+        ],
         _ThemeAppearanceCard(
           themePreference: themePreference,
           onThemePreferenceChanged: onThemePreferenceChanged,
@@ -143,6 +151,22 @@ class MePage extends StatelessWidget {
                         MaterialPageRoute<void>(
                           builder: (context) => DataStoragePage(
                             coordinator: dataStorageCoordinator!,
+                          ),
+                        ),
+                      ),
+            ),
+            _SettingsNavigationEntry(
+              key: const ValueKey('me_devices_entry'),
+              icon: Icons.devices_rounded,
+              title: '设备',
+              subtitle: '配对宠物端，自动同步数据',
+              onTap: settingsController == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => DevicesPage(
+                            settingsController: settingsController!,
+                            store: store,
                           ),
                         ),
                       ),
@@ -215,6 +239,234 @@ class _ThemeAppearanceCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DeviceModeCard extends StatefulWidget {
+  const _DeviceModeCard({required this.settingsController});
+
+  final AppSettingsController settingsController;
+
+  @override
+  State<_DeviceModeCard> createState() => _DeviceModeCardState();
+}
+
+class _DeviceModeCardState extends State<_DeviceModeCard> {
+  // 滑块拖动期间 onChanged 可能连续触发，避免确认弹窗重复弹出。
+  bool _isSelectingRole = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    final meAccentColor = tabAccentFor(context, AppTab.me).label;
+    return AnimatedBuilder(
+      animation: widget.settingsController,
+      builder: (context, _) {
+        final isPet = widget.settingsController.deviceRole == DeviceRole.pet;
+        return FrostedPanel(
+          key: const ValueKey('me_device_mode_card'),
+          margin: EdgeInsets.zero,
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          backgroundColor: tokens.panelStrongBackground,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _SettingsIconBubble(
+                    icon: Icons.swap_horiz_rounded,
+                    backgroundColor: meAccentColor.withValues(alpha: 0.12),
+                    foregroundColor: meAccentColor,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '模式',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: tokens.primaryText,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _DeviceModeSlider(
+                isPet: isPet,
+                onSelectOwner: () => _selectRole(context, DeviceRole.owner),
+                onSelectPet: () => _selectRole(context, DeviceRole.pet),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _selectRole(BuildContext context, DeviceRole role) async {
+    if (_isSelectingRole) {
+      return;
+    }
+    final isPetNow = widget.settingsController.deviceRole == DeviceRole.pet;
+    if ((role == DeviceRole.pet) == isPetNow) {
+      return;
+    }
+    _isSelectingRole = true;
+    try {
+      if (role == DeviceRole.pet) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('切换宠物模式'),
+            content:
+                const Text('切换后此设备将作为宠物端，放在家里展示提醒。可在宠物端设置中切回主人模式。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                key: const ValueKey('me_mode_confirm_pet'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('确认切换'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) {
+          return;
+        }
+      }
+      await SyncService.instance?.stop();
+      await widget.settingsController.setDeviceRole(role);
+    } finally {
+      _isSelectingRole = false;
+    }
+  }
+}
+
+class _DeviceModeSlider extends StatelessWidget {
+  const _DeviceModeSlider({
+    required this.isPet,
+    required this.onSelectOwner,
+    required this.onSelectPet,
+  });
+
+  final bool isPet;
+  final VoidCallback onSelectOwner;
+  final VoidCallback onSelectPet;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = context.petNoteTokens;
+    final isDark = theme.brightness == Brightness.dark;
+    final sliderSurfaceColor = isDark ? tokens.listRowBackground : Colors.white;
+    final selectedPillColor =
+        isDark ? const Color(0xFFF3F1EC) : const Color(0xFF171717);
+    final sliderShadowColor = isDark
+        ? Colors.black.withValues(alpha: 0.18)
+        : Colors.black.withValues(alpha: 0.06);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        const outerPadding = 6.0;
+        const selectedPillHeight = 48.0;
+        final contentWidth = availableWidth - outerPadding * 2;
+        final pillWidth = contentWidth / 2;
+        return Container(
+          key: const ValueKey('me_device_mode_slider'),
+          height: 60,
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: sliderSurfaceColor,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: sliderShadowColor,
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                left: (isPet ? 1 : 0) * pillWidth,
+                top: 0,
+                width: pillWidth,
+                height: selectedPillHeight,
+                child: DecoratedBox(
+                  key: isPet
+                      ? const ValueKey('me_mode_selected_pet')
+                      : const ValueKey('me_mode_selected_owner'),
+                  decoration: BoxDecoration(
+                    color: selectedPillColor,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x26000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  _ThemeSegmentOption(
+                    key: const ValueKey('me_mode_owner'),
+                    label: '主人',
+                    icon: Icons.person_rounded,
+                    selected: !isPet,
+                    useDarkSurface: isDark,
+                    onTap: onSelectOwner,
+                  ),
+                  _ThemeSegmentOption(
+                    key: const ValueKey('me_mode_pet'),
+                    label: '宠物',
+                    icon: Icons.pets_rounded,
+                    selected: isPet,
+                    useDarkSurface: isDark,
+                    onTap: onSelectPet,
+                  ),
+                ],
+              ),
+              Positioned.fill(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: selectedPillHeight,
+                    activeTrackColor: Colors.transparent,
+                    inactiveTrackColor: Colors.transparent,
+                    overlayShape: SliderComponentShape.noOverlay,
+                    thumbShape: SliderComponentShape.noThumb,
+                    tickMarkShape: SliderTickMarkShape.noTickMark,
+                  ),
+                  child: Slider(
+                    key: const ValueKey('me_device_mode_slider_control'),
+                    min: 0,
+                    max: 1,
+                    divisions: 1,
+                    value: isPet ? 1 : 0,
+                    onChanged: (value) => value.round() == 1
+                        ? onSelectPet()
+                        : onSelectOwner(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

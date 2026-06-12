@@ -8,6 +8,7 @@ import 'package:petnote/ai/ai_settings_coordinator.dart';
 import 'package:petnote/app/app_version_info.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/pet_device_home.dart';
 import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -41,6 +42,7 @@ class PetNoteApp extends StatefulWidget {
 class _PetNoteAppState extends State<PetNoteApp> {
   AppSettingsController? _settingsController;
   late AppVersionInfo _appVersionInfo;
+  PetNoteStore? _preloadedStore;
 
   @override
   void initState() {
@@ -57,18 +59,20 @@ class _PetNoteAppState extends State<PetNoteApp> {
   }
 
   Future<void> _loadControllers() async {
-    final results = await Future.wait<Object>([
-      AppSettingsController.load(),
-      _appVersionInfo == AppVersionInfo.empty
-          ? AppVersionInfo.load()
-          : Future<AppVersionInfo>.value(_appVersionInfo),
-    ]);
-    final controller = results[0] as AppSettingsController;
-    final appVersionInfo = results[1] as AppVersionInfo;
+    final storeFuture = (widget.storeLoader ?? PetNoteStore.load)();
+    final versionFuture = _appVersionInfo == AppVersionInfo.empty
+        ? AppVersionInfo.load()
+        : Future<AppVersionInfo>.value(_appVersionInfo);
+    final store = await storeFuture;
+    final controller = await AppSettingsController.load(
+      hasExistingLocalData: _hasExistingLocalData(store),
+    );
+    final appVersionInfo = await versionFuture;
     if (!mounted) {
       return;
     }
     setState(() {
+      _preloadedStore = store;
       _settingsController = controller;
       _appVersionInfo = appVersionInfo;
     });
@@ -127,6 +131,30 @@ class _PetNoteAppState extends State<PetNoteApp> {
       builder: (context, _) {
         final secretStore =
             widget.aiSecretStore ?? MethodChannelAiSecretStore();
+        final home = settingsController.deviceRole == DeviceRole.pet
+            ? PetDeviceHome(
+                settingsController: settingsController,
+                storeLoader: _loadStore,
+              )
+            : PetNoteRoot(
+                appVersionInfo: _appVersionInfo,
+                settingsController: settingsController,
+                nativePetPhotoPicker: widget.nativePetPhotoPicker,
+                storeLoader: _loadStore,
+                aiSettingsCoordinator: AiSettingsCoordinator(
+                  settingsController: settingsController,
+                  secretStore: secretStore,
+                  connectionTester:
+                      widget.aiConnectionTester ?? AiConnectionTester(),
+                ),
+                aiInsightsService: widget.aiInsightsService ??
+                    NetworkAiInsightsService(
+                      clientFactory: AiClientFactory(
+                        settingsController: settingsController,
+                        secretStore: secretStore,
+                      ),
+                    ),
+              );
         return MaterialApp(
           title: _appTaskTitle,
           debugShowCheckedModeBanner: false,
@@ -143,27 +171,25 @@ class _PetNoteAppState extends State<PetNoteApp> {
           theme: buildPetNoteTheme(Brightness.light),
           darkTheme: buildPetNoteTheme(Brightness.dark),
           themeMode: settingsController.themeMode,
-          home: PetNoteRoot(
-            appVersionInfo: _appVersionInfo,
-            settingsController: settingsController,
-            nativePetPhotoPicker: widget.nativePetPhotoPicker,
-            storeLoader: widget.storeLoader,
-            aiSettingsCoordinator: AiSettingsCoordinator(
-              settingsController: settingsController,
-              secretStore: secretStore,
-              connectionTester:
-                  widget.aiConnectionTester ?? AiConnectionTester(),
-            ),
-            aiInsightsService: widget.aiInsightsService ??
-                NetworkAiInsightsService(
-                  clientFactory: AiClientFactory(
-                    settingsController: settingsController,
-                    secretStore: secretStore,
-                  ),
-                ),
-          ),
+          home: home,
         );
       },
     );
+  }
+
+  Future<PetNoteStore> _loadStore() async {
+    final preloadedStore = _preloadedStore;
+    if (preloadedStore != null) {
+      _preloadedStore = null;
+      return preloadedStore;
+    }
+    return (widget.storeLoader ?? PetNoteStore.load)();
+  }
+
+  bool _hasExistingLocalData(PetNoteStore store) {
+    return store.pets.isNotEmpty ||
+        store.todos.isNotEmpty ||
+        store.reminders.isNotEmpty ||
+        store.records.isNotEmpty;
   }
 }

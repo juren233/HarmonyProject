@@ -66,7 +66,7 @@ class PageHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 18),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(

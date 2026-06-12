@@ -10,7 +10,8 @@ void main() {
   late HttpServer server;
 
   setUp(() async {
-    app = SyncServerApp(dataDirectory: Directory.systemTemp.createTempSync('petnote_srv_'));
+    app = SyncServerApp(
+        dataDirectory: Directory.systemTemp.createTempSync('petnote_srv_'));
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
   });
 
@@ -21,7 +22,8 @@ void main() {
 
   test('healthz 返回 ok', () async {
     final client = HttpClient();
-    final request = await client.getUrl(Uri.parse('http://127.0.0.1:${server.port}/healthz'));
+    final request = await client
+        .getUrl(Uri.parse('http://127.0.0.1:${server.port}/healthz'));
     final response = await request.close();
     expect(response.statusCode, 200);
     client.close();
@@ -40,10 +42,29 @@ void main() {
     await ws.sink.close();
   });
 
+  test('已有 household 的 hello 缺少 token 会拒绝', () async {
+    final created = app.pairing.createCode(
+      ownerDeviceId: 'owner-1',
+      ownerDeviceName: '主人手机',
+    );
+    final ws = IOWebSocketChannel.connect('ws://127.0.0.1:${server.port}/ws');
+    ws.sink.add(SyncMessage(SyncMessageTypes.hello, {
+      'householdId': created.householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'deviceName': '主人手机',
+    }).encode());
+    final reply = SyncMessage.decode(await ws.stream.first as String);
+    expect(reply.type, SyncMessageTypes.pairError);
+    expect(reply.payload['message'], 'auth failed');
+    await ws.sink.close();
+  });
+
   test('二进制帧与缺字段 hello 收到 pair_error 且连接不断开', () async {
     final ws = IOWebSocketChannel.connect('ws://127.0.0.1:${server.port}/ws');
     final replies = <SyncMessage>[];
-    final sub = ws.stream.listen((raw) => replies.add(SyncMessage.decode(raw as String)));
+    final sub = ws.stream
+        .listen((raw) => replies.add(SyncMessage.decode(raw as String)));
 
     ws.sink.add([0x01, 0x02, 0x03]); // 二进制帧
     ws.sink.add(SyncMessage(SyncMessageTypes.hello, {
