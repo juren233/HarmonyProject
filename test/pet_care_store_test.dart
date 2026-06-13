@@ -1189,6 +1189,98 @@ void main() {
       expect(appended.todoById('todo-extra'), isNull);
       expect(appended.reminderById('reminder-extra'), isNull);
     });
+
+    test('mergeData 默认保留本机冲突并补充缺失数据', () async {
+      final store = PetNoteStore.seeded();
+      final incoming = PetNoteStore.seeded();
+      final localTodo = store.todoById('todo-1')!;
+      await incoming.updateTodo(
+        todoId: localTodo.id,
+        petId: localTodo.petId,
+        title: '对方改过的待办',
+        dueAt: localTodo.dueAt,
+        notificationLeadTime: localTodo.notificationLeadTime,
+        note: localTodo.note,
+      );
+      await incoming.addTodo(
+        petId: incoming.pets.first.id,
+        title: '对方新增待办',
+        dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+        notificationLeadTime: NotificationLeadTime.none,
+        note: '',
+      );
+
+      await store.mergeData(incoming.exportDataState());
+
+      expect(store.todoById(localTodo.id)?.title, localTodo.title);
+      expect(store.todos.any((item) => item.title == '对方新增待办'), isTrue);
+    });
+
+    test('mergeData 保留本机总览宠物筛选偏好', () async {
+      final store = PetNoteStore.seeded();
+      final selectedPetId = store.pets.first.id;
+      store.updateOverviewAnalysisConfig(
+        range: OverviewRange.oneMonth,
+        selectedPetIds: [selectedPetId],
+      );
+
+      await store.mergeData(
+        PetNoteDataState(
+          pets: [
+            Pet(
+              id: 'pet-remote',
+              name: 'Nori',
+              avatarText: 'NO',
+              type: PetType.dog,
+              breed: '柯基',
+              sex: '公',
+              birthday: '2023-01-01',
+              ageLabel: '3岁',
+              weightKg: 9.8,
+              neuterStatus: PetNeuterStatus.notNeutered,
+              feedingPreferences: '少量多餐',
+              allergies: '无',
+              note: '活泼',
+            ),
+          ],
+          todos: const [],
+          reminders: const [],
+          records: const [],
+        ),
+      );
+
+      expect(store.petById('pet-remote'), isNotNull);
+      expect(store.overviewSelectedPetIds, [selectedPetId]);
+    });
+
+    test('mergeData 冲突选择对方时覆盖同 id 数据', () async {
+      final store = PetNoteStore.seeded();
+      final incoming = PetNoteStore.seeded();
+      final localTodo = store.todoById('todo-1')!;
+      await incoming.updateTodo(
+        todoId: localTodo.id,
+        petId: localTodo.petId,
+        title: '对方改过的待办',
+        dueAt: localTodo.dueAt,
+        notificationLeadTime: localTodo.notificationLeadTime,
+        note: localTodo.note,
+      );
+      SyncMergeConflict? conflict;
+
+      await store.mergeData(
+        incoming.exportDataState(),
+        resolveConflict: (value) async {
+          conflict = value;
+          return SyncMergeSide.remote;
+        },
+      );
+
+      expect(conflict?.collectionLabel, '待办');
+      expect(conflict?.id, localTodo.id);
+      expect(conflict?.localLabel, localTodo.title);
+      expect(conflict?.remoteLabel, '对方改过的待办');
+      expect(store.todoById(localTodo.id)?.title, '对方改过的待办');
+    });
   });
 }
 

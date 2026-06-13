@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
@@ -97,7 +99,13 @@ void main() {
     expect(transport.sent.first.type, SyncMessageTypes.hello);
     expect(transport.sent.first.payload['role'], 'pet');
     expect(transport.sent.first.payload['authToken'], 'auth-token-1');
-    expect(transport.sent.last.type, SyncMessageTypes.snapshotRequest);
+    expect(
+      transport.sent.map((message) => message.type),
+      containsAllInOrder([
+        SyncMessageTypes.snapshotRequest,
+        SyncMessageTypes.snapshotPush,
+      ]),
+    );
     expect(
       transport.sent.any((message) =>
           message.type == SyncMessageTypes.hello &&
@@ -108,7 +116,104 @@ void main() {
     await service.stop();
   });
 
-  test('连接恢复后重新发送 hello 完成会话认证', () async {
+  test('owner 选择以另一台设备为准时主动请求 remoteWins 快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.remoteWins);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+
+    await service.stop();
+  });
+
+  test('pet 选择以另一台设备为准时主动请求 remoteWins 快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.remoteWins);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+
+    await service.stop();
+  });
+
+  test('pet 选择以当前设备为准时主动推送 remoteWins 快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(
+      transport.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.snapshotRequest)),
+    );
+
+    await service.stop();
+  });
+
+  test('连接恢复后重新发送 hello 并主动请求同步', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
     await settings.setSyncServerMode(SyncServerMode.custom);
@@ -141,6 +246,13 @@ void main() {
     expect(
       transport.sent.where((message) => message.type == SyncMessageTypes.hello),
       hasLength(2),
+    );
+    expect(
+      transport.sent
+          .skipWhile((message) => message.type != SyncMessageTypes.hello)
+          .skip(1)
+          .map((message) => message.type),
+      contains(SyncMessageTypes.snapshotRequest),
     );
 
     await service.stop();
@@ -187,6 +299,10 @@ void main() {
       SyncMessageTypes.hello,
       SyncMessageTypes.snapshotPush,
     ]);
+    expect(
+      transport.sent.map((message) => message.type),
+      contains(SyncMessageTypes.snapshotRequest),
+    );
 
     await service.stop();
   });
@@ -223,6 +339,49 @@ void main() {
     expect(service.isActive, isTrue);
 
     await service.stop();
+  });
+
+  testWidgets('同步失败胶囊在 owner engine 首次创建后订阅失败数', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    addTearDown(() async {
+      await service.stop();
+      SyncService.instance = null;
+    });
+    SyncService.instance = service;
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SyncFailureChip(),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('sync_failure_chip')), findsNothing);
+
+    await service.ensureStartedForOwner(store: PetNoteStore.seeded());
+    await tester.pump();
+    transport.setState(SyncConnectionState.disconnected);
+    service.ownerEngine?.requestSnapshot();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('sync_failure_chip')), findsOneWidget);
   });
 }
 

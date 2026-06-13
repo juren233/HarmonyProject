@@ -66,7 +66,12 @@ class PetNoteRoot extends StatefulWidget {
 
 enum _OnboardingEntryPoint { intro, manual }
 
-enum _OverlayTransition { none, introToOnboarding, introToShell, introToPairing }
+enum _OverlayTransition {
+  none,
+  introToOnboarding,
+  introToShell,
+  introToPairing
+}
 
 class _PetNoteRootState extends State<PetNoteRoot>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
@@ -158,6 +163,12 @@ class _PetNoteRootState extends State<PetNoteRoot>
     if (settingsController != null) {
       final syncService =
           SyncService.instance ??= SyncService(settings: settingsController);
+      syncService.resolveMergeConflict = (conflict) async {
+        if (!mounted) {
+          return SyncMergeSide.local;
+        }
+        return showSyncMergeConflictDialog(context, conflict);
+      };
       unawaited(syncService.ensureStartedForOwner(store: store));
     }
     _overlayTransitionController.value = 0;

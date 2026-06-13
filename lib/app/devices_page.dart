@@ -18,14 +18,17 @@ class DevicesPage extends StatefulWidget {
     this.store,
     this.initialDevices,
     this.ownerPairingFlow,
+    DateTime Function()? now,
     OfficialSyncServerResolver? officialServerResolver,
-  }) : officialServerResolver =
-            officialServerResolver ?? OfficialSyncServerResolver();
+  })  : officialServerResolver =
+            officialServerResolver ?? OfficialSyncServerResolver(),
+        now = now ?? DateTime.now;
 
   final AppSettingsController settingsController;
   final PetNoteStore? store;
   final List<SyncedDeviceInfo>? initialDevices;
   final OwnerPairingFlow? ownerPairingFlow;
+  final DateTime Function() now;
   final OfficialSyncServerResolver officialServerResolver;
 
   @override
@@ -38,6 +41,7 @@ class _DevicesPageState extends State<DevicesPage> {
   OwnerPairingFlow? _pairingFlow;
   Timer? _countdownTimer;
   bool _generating = false;
+  BuildContext? _pairingDialogContext;
 
   @override
   void initState() {
@@ -112,7 +116,7 @@ class _DevicesPageState extends State<DevicesPage> {
                   SectionCard(
                     title: '添加设备',
                     children: [
-                      const Text('每个家庭组当前支持一台宠物端设备，新增前请先解绑旧设备。'),
+                      const Text('生成 4 位配对码后，在另一台设备输入即可加入当前家庭组。'),
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
@@ -177,12 +181,30 @@ class _DevicesPageState extends State<DevicesPage> {
       final session = await flow.createAsOwner(
         serverUrl: serverUrl,
         deviceName: widget.settingsController.deviceName ?? '主人设备',
-        onPeerJoined: (_, name) {
-          Navigator.of(context, rootNavigator: true).maybePop();
+        onPeerJoined: (_, name, dataPolicy) {
+          if (dataPolicy != SyncDataPolicy.localWins) {
+            SyncService.instance?.ownerEngine?.pushSnapshotNow(
+              dataPolicy: dataPolicy == SyncDataPolicy.remoteWins
+                  ? SyncDataPolicy.remoteWins
+                  : SyncDataPolicy.merge,
+            );
+          }
+          final dialogContext = _pairingDialogContext;
+          if (dialogContext != null) {
+            Navigator.of(dialogContext).pop();
+            _pairingDialogContext = null;
+          }
           messenger.showSnackBar(SnackBar(content: Text('$name 已配对 ✓')));
         },
       );
       if (!mounted) {
+        return;
+      }
+      if (widget.now().millisecondsSinceEpoch >= session.expiresAtMs) {
+        if (!identical(flow, widget.ownerPairingFlow)) {
+          unawaited(flow.dispose());
+          _pairingFlow = null;
+        }
         return;
       }
       _showCodeDialog(session);
@@ -218,6 +240,10 @@ class _DevicesPageState extends State<DevicesPage> {
     _countdownTimer?.cancel();
     StateSetter? refreshDialog;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (widget.now().millisecondsSinceEpoch >= session.expiresAtMs) {
+        _closePairingDialog();
+        return;
+      }
       if (mounted) {
         setState(() {});
         refreshDialog?.call(() {});
@@ -225,42 +251,57 @@ class _DevicesPageState extends State<DevicesPage> {
     });
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('配对码'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) {
-            refreshDialog = setDialogState;
-            final seconds =
-                ((session.expiresAtMs - DateTime.now().millisecondsSinceEpoch) /
-                        1000)
-                    .ceil()
-                    .clamp(0, 300);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  session.code,
-                  style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 8,
-                      ),
-                ),
-                const SizedBox(height: 8),
-                Text('$seconds 秒后失效'),
-              ],
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('关闭'),
+      builder: (context) {
+        _pairingDialogContext = context;
+        return AlertDialog(
+          title: const Text('配对码'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              refreshDialog = setDialogState;
+              final remainingMs =
+                  session.expiresAtMs - widget.now().millisecondsSinceEpoch;
+              final seconds =
+                  remainingMs <= 0 ? 0 : (remainingMs / 1000).ceil();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    session.code,
+                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 8,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('$seconds 秒后失效'),
+                ],
+              );
+            },
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
     ).whenComplete(() {
       _countdownTimer?.cancel();
+      _pairingDialogContext = null;
+      unawaited(_pairingFlow?.dispose());
+      _pairingFlow = null;
     });
+  }
+
+  void _closePairingDialog() {
+    _countdownTimer?.cancel();
+    final dialogContext = _pairingDialogContext;
+    if (dialogContext == null) {
+      return;
+    }
+    _pairingDialogContext = null;
+    Navigator.of(dialogContext).pop();
   }
 
   String _petName(String? petId) {

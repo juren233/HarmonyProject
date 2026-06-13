@@ -41,7 +41,7 @@ void main() {
 
     expect(settings.syncServerUrl, 'wss://petnote.juren233.top/ws');
     expect(flow.serverUrl, 'wss://petnote.juren233.top/ws');
-    expect(find.text('123456'), findsOneWidget);
+    expect(find.text('1234'), findsOneWidget);
     expect(find.textContaining('秒后失效'), findsOneWidget);
   });
 
@@ -74,7 +74,77 @@ void main() {
     expect(settings.syncServerMode, SyncServerMode.official);
     expect(settings.syncServerUrl, 'wss://petnote.juren233.top/ws');
     expect(flow.serverUrl, 'wss://petnote.juren233.top/ws');
-    expect(find.text('123456'), findsOneWidget);
+    expect(find.text('1234'), findsOneWidget);
+  });
+
+  testWidgets('配对成功回调只关闭配对码弹窗而不退出设备页', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('petnote.juren233.top');
+    final flow = _FakeOwnerPairingFlow(settings);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Navigator(
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => DevicesPage(
+              settingsController: settings,
+              ownerPairingFlow: flow,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('1234'), findsOneWidget);
+
+    flow.joinPeer('pet-1', '客厅平板');
+    await tester.pump();
+
+    expect(find.byType(DevicesPage), findsOneWidget);
+    expect(find.text('1234'), findsNothing);
+    expect(find.text('客厅平板 已配对 ✓'), findsOneWidget);
+  });
+
+  testWidgets('配对码过期后关闭弹窗并需要重新生成', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('petnote.juren233.top');
+    var now = DateTime(2026, 1, 1, 10);
+    final flow = _FakeOwnerPairingFlow(
+      settings,
+      expiresAfter: const Duration(milliseconds: 50),
+      now: () => now,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          ownerPairingFlow: flow,
+          now: () => now,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('1234'), findsOneWidget);
+
+    now = now.add(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('1234'), findsNothing);
+    expect(find.byKey(const ValueKey('devices_generate_code')), findsOneWidget);
   });
 
   testWidgets('设备列表提供宠物名、重命名和解绑动作', (tester) async {
@@ -113,13 +183,20 @@ void main() {
 }
 
 class _FakeOwnerPairingFlow extends OwnerPairingFlow {
-  _FakeOwnerPairingFlow(AppSettingsController settingsController)
-      : super(
+  _FakeOwnerPairingFlow(
+    AppSettingsController settingsController, {
+    this.expiresAfter = const Duration(minutes: 5),
+    DateTime Function()? now,
+  })  : now = now ?? DateTime.now,
+        super(
           settingsController: settingsController,
           transportFactory: (_) => throw StateError('测试不应建立真实同步连接'),
         );
 
+  final Duration expiresAfter;
+  final DateTime Function() now;
   String? serverUrl;
+  PairingPeerJoined? onPeerJoined;
 
   @override
   Future<OwnerPairingSession> createAsOwner({
@@ -128,11 +205,15 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
     PairingPeerJoined? onPeerJoined,
   }) async {
     this.serverUrl = serverUrl;
+    this.onPeerJoined = onPeerJoined;
     return OwnerPairingSession(
-      code: '123456',
-      expiresAtMs:
-          DateTime.now().add(const Duration(minutes: 5)).millisecondsSinceEpoch,
+      code: '1234',
+      expiresAtMs: now().add(expiresAfter).millisecondsSinceEpoch,
       householdId: 'house-1',
     );
+  }
+
+  void joinPeer(String deviceId, String deviceName) {
+    onPeerJoined?.call(deviceId, deviceName, SyncDataPolicy.merge);
   }
 }

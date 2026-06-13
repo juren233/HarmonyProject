@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:petnote/app/pet_device_dashboard.dart';
 import 'package:petnote/app/pet_device_settings_page.dart';
+import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_pairing_page.dart';
 import 'package:petnote/platform/device_keep_alive.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -80,6 +81,12 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
         SyncService(settings: widget.settingsController);
     SyncService.instance = service;
     _syncService = service;
+    service.resolveMergeConflict = (conflict) async {
+      if (!mounted) {
+        return SyncMergeSide.local;
+      }
+      return showSyncMergeConflictDialog(context, conflict);
+    };
     if (widget.settingsController.householdId == null) {
       await service.stop();
       await _stopKeepAlive();

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppThemePreference { system, light, dark }
@@ -27,6 +28,7 @@ class AppSettingsController extends ChangeNotifier {
     String? sharedKeyBase64,
     String? householdAuthToken,
     String? servedPetId,
+    SyncDataPolicy? pendingInitialSyncPolicy,
     bool petKeepScreenOn = true,
   })  : _preferences = preferences,
         _themePreference = themePreference,
@@ -40,6 +42,7 @@ class AppSettingsController extends ChangeNotifier {
         _sharedKeyBase64 = sharedKeyBase64,
         _householdAuthToken = householdAuthToken,
         _servedPetId = servedPetId,
+        _pendingInitialSyncPolicy = pendingInitialSyncPolicy,
         _petKeepScreenOn = petKeepScreenOn;
 
   static const String themeModeStorageKey = 'app_theme_mode_v1';
@@ -58,6 +61,8 @@ class AppSettingsController extends ChangeNotifier {
   static const String householdAuthTokenStorageKey =
       'sync_household_auth_token_v1';
   static const String servedPetIdStorageKey = 'served_pet_id_v1';
+  static const String pendingInitialSyncPolicyStorageKey =
+      'pending_initial_sync_policy_v1';
   static const String petKeepScreenOnStorageKey = 'pet_keep_screen_on_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
 
@@ -73,6 +78,7 @@ class AppSettingsController extends ChangeNotifier {
   String? _sharedKeyBase64;
   String? _householdAuthToken;
   String? _servedPetId;
+  SyncDataPolicy? _pendingInitialSyncPolicy;
   bool _petKeepScreenOn;
   final List<AiProviderConfig> _aiProviderConfigs = <AiProviderConfig>[];
   String? _activeAiProviderConfigId;
@@ -89,6 +95,7 @@ class AppSettingsController extends ChangeNotifier {
   String? get sharedKeyBase64 => _sharedKeyBase64;
   String? get householdAuthToken => _householdAuthToken;
   String? get servedPetId => _servedPetId;
+  SyncDataPolicy? get pendingInitialSyncPolicy => _pendingInitialSyncPolicy;
   bool get petKeepScreenOn => _petKeepScreenOn;
   String? get activeAiProviderConfigId => _activeAiProviderConfigId;
   List<AiProviderConfig> get aiProviderConfigs =>
@@ -146,6 +153,9 @@ class AppSettingsController extends ChangeNotifier {
       householdAuthToken:
           _nonBlank(preferences?.getString(householdAuthTokenStorageKey)),
       servedPetId: _nonBlank(preferences?.getString(servedPetIdStorageKey)),
+      pendingInitialSyncPolicy: _syncDataPolicyFromName(
+        preferences?.getString(pendingInitialSyncPolicyStorageKey),
+      ),
       petKeepScreenOn: preferences?.getBool(petKeepScreenOnStorageKey) ?? true,
     ).._restoreAiProviderConfigs(storedConfigs, activeConfigId);
   }
@@ -254,6 +264,18 @@ class AppSettingsController extends ChangeNotifier {
     }
     _servedPetId = normalized;
     await _writeOptionalString(servedPetIdStorageKey, normalized);
+    notifyListeners();
+  }
+
+  Future<void> setPendingInitialSyncPolicy(SyncDataPolicy? value) async {
+    if (_pendingInitialSyncPolicy == value) {
+      return;
+    }
+    _pendingInitialSyncPolicy = value;
+    await _writeOptionalString(
+      pendingInitialSyncPolicyStorageKey,
+      value?.name,
+    );
     notifyListeners();
   }
 
@@ -474,6 +496,13 @@ DeviceRole _deviceRoleFromName(String? value) => switch (value) {
       'owner' => DeviceRole.owner,
       'pet' => DeviceRole.pet,
       _ => DeviceRole.undecided,
+    };
+
+SyncDataPolicy? _syncDataPolicyFromName(String? value) => switch (value) {
+      'remoteWins' => SyncDataPolicy.remoteWins,
+      'localWins' => SyncDataPolicy.localWins,
+      'merge' => SyncDataPolicy.merge,
+      _ => null,
     };
 
 SyncServerMode _syncServerModeFromName(

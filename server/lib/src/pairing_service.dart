@@ -45,8 +45,9 @@ class PairingService {
 
   PairingCodeTicket createCode({
     String? existingHouseholdId,
-    required String ownerDeviceId,
-    required String ownerDeviceName,
+    required String issuerDeviceId,
+    required String issuerDeviceName,
+    required String issuerRole,
     DateTime? now,
   }) {
     final issuedAt = now ?? DateTime.now().toUtc();
@@ -59,16 +60,15 @@ class PairingService {
         );
 
     household.devices.putIfAbsent(
-      ownerDeviceId,
+      issuerDeviceId,
       () => HouseholdDevice(
-        deviceId: ownerDeviceId,
-        name: ownerDeviceName,
-        role: 'owner',
+        deviceId: issuerDeviceId,
+        name: issuerDeviceName,
       ),
     );
 
     final ticket = PairingCodeTicket(
-      code: _newCode(),
+      code: _newUniqueCode(),
       householdId: household.id,
       saltBase64: household.saltBase64,
       authToken: household.authToken,
@@ -80,8 +80,9 @@ class PairingService {
 
   PairingJoinResult? redeem({
     required String code,
-    required String petDeviceId,
-    required String petDeviceName,
+    required String joiningDeviceId,
+    required String joiningDeviceName,
+    required String joiningRole,
     DateTime? now,
   }) {
     final ticket = _activeCodes.remove(code);
@@ -99,18 +100,11 @@ class PairingService {
       return null;
     }
 
-    final hasOtherPetDevice = household.devices.values.any(
-        (device) => device.role == 'pet' && device.deviceId != petDeviceId);
-    if (hasOtherPetDevice) {
-      return null;
-    }
-
     household.devices.putIfAbsent(
-      petDeviceId,
+      joiningDeviceId,
       () => HouseholdDevice(
-        deviceId: petDeviceId,
-        name: petDeviceName,
-        role: 'pet',
+        deviceId: joiningDeviceId,
+        name: joiningDeviceName,
       ),
     );
 
@@ -121,7 +115,21 @@ class PairingService {
     );
   }
 
-  String _newCode() => _random.nextInt(1000000).toString().padLeft(6, '0');
+  void releaseCode(String code) {
+    _activeCodes.remove(code);
+  }
+
+  String _newUniqueCode() {
+    for (var attempt = 0; attempt < 10000; attempt += 1) {
+      final code = _newCode();
+      if (!_activeCodes.containsKey(code)) {
+        return code;
+      }
+    }
+    throw StateError('没有可用的配对码');
+  }
+
+  String _newCode() => _random.nextInt(10000).toString().padLeft(4, '0');
 
   String _newToken() {
     final bytes = List<int>.generate(32, (_) => _random.nextInt(256));

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
@@ -12,12 +13,13 @@ import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 typedef SyncTransportFactory = SyncTransport Function(String url);
 
-class SyncService {
+class SyncService extends ChangeNotifier {
   SyncService({
     required this.settings,
     SyncSecretStore? secretStore,
     OfficialSyncServerResolver? officialServerResolver,
     SyncTransportFactory? transportFactory,
+    this.resolveMergeConflict,
   })  : _secretStore = secretStore ?? MethodChannelSyncSecretStore(),
         _officialServerResolver =
             officialServerResolver ?? OfficialSyncServerResolver(),
@@ -29,6 +31,7 @@ class SyncService {
   final SyncSecretStore _secretStore;
   final OfficialSyncServerResolver _officialServerResolver;
   final SyncTransportFactory _transportFactory;
+  SyncMergeConflictResolver? resolveMergeConflict;
 
   SyncTransport? _transport;
   OwnerSyncEngine? ownerEngine;
@@ -38,6 +41,8 @@ class SyncService {
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
+  ValueListenable<int>? get failedSyncCount =>
+      ownerEngine?.failedSyncCount ?? petController?.failedSyncCount;
 
   Future<void> ensureStarted({required PetNoteStore store}) async {
     switch (settings.deviceRole) {
@@ -70,8 +75,10 @@ class SyncService {
       store: store,
       transport: transport,
       crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
+      resolveMergeConflict: resolveMergeConflict,
     )..start(pushInitialSnapshot: false);
     _activeRole = DeviceRole.owner;
+    notifyListeners();
     await transport.connect();
     _sendHello(
       transport: transport,
@@ -83,7 +90,20 @@ class SyncService {
       config: config,
       role: DeviceRole.owner,
     );
-    await ownerEngine?.pushSnapshotNow();
+    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    await settings.setPendingInitialSyncPolicy(null);
+    if (policy == SyncDataPolicy.remoteWins) {
+      ownerEngine?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
+    } else {
+      await ownerEngine?.pushSnapshotNow(
+        dataPolicy: policy == SyncDataPolicy.localWins
+            ? SyncDataPolicy.remoteWins
+            : SyncDataPolicy.merge,
+      );
+      if (policy == SyncDataPolicy.merge) {
+        ownerEngine?.requestSnapshot();
+      }
+    }
   }
 
   Future<void> ensureStartedForPet({required PetNoteStore store}) async {
@@ -103,9 +123,11 @@ class SyncService {
       store: store,
       transport: transport,
       crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
+      resolveMergeConflict: resolveMergeConflict,
       settings: settings,
     )..start(requestInitialSnapshot: false);
     _activeRole = DeviceRole.pet;
+    notifyListeners();
     await transport.connect();
     _sendHello(
       transport: transport,
@@ -117,10 +139,26 @@ class SyncService {
       config: config,
       role: DeviceRole.pet,
     );
-    petController?.requestSnapshot();
+    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    await settings.setPendingInitialSyncPolicy(null);
+    if (policy == SyncDataPolicy.localWins) {
+      await petController?.pushSnapshotNow(
+          dataPolicy: SyncDataPolicy.remoteWins);
+    } else {
+      petController?.requestSnapshot(
+        dataPolicy: policy == SyncDataPolicy.remoteWins
+            ? SyncDataPolicy.remoteWins
+            : SyncDataPolicy.merge,
+      );
+      if (policy == SyncDataPolicy.merge) {
+        await petController?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
+      }
+    }
   }
 
   Future<void> stop() async {
+    final shouldNotify =
+        ownerEngine != null || petController != null || _transport != null;
     final listener = _transportStateListener;
     if (listener != null) {
       _transport?.state.removeListener(listener);
@@ -133,6 +171,9 @@ class SyncService {
     await _transport?.disconnect();
     _transport = null;
     _activeRole = null;
+    if (shouldNotify) {
+      notifyListeners();
+    }
   }
 
   Future<_SyncConfig?> _loadConfig() async {
@@ -170,6 +211,14 @@ class SyncService {
         return;
       }
       _sendHello(transport: transport, config: config, role: role);
+      switch (role) {
+        case DeviceRole.owner:
+          ownerEngine?.requestSnapshot();
+        case DeviceRole.pet:
+          petController?.requestSnapshot();
+        case DeviceRole.undecided:
+          break;
+      }
     }
 
     transport.state.addListener(listener);

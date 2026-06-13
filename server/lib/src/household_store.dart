@@ -2,25 +2,24 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
+
 class HouseholdDevice {
   HouseholdDevice({
     required this.deviceId,
     required this.name,
-    required this.role,
     this.servedPetId,
     this.lastSeenMs,
   });
 
   final String deviceId;
   String name;
-  final String role;
   String? servedPetId;
   int? lastSeenMs;
 
   Map<String, dynamic> toJson() => {
         'deviceId': deviceId,
         'name': name,
-        'role': role,
         'servedPetId': servedPetId,
         'lastSeenMs': lastSeenMs,
       };
@@ -29,7 +28,6 @@ class HouseholdDevice {
       HouseholdDevice(
         deviceId: json['deviceId'] as String,
         name: json['name'] as String,
-        role: json['role'] as String,
         servedPetId: json['servedPetId'] as String?,
         lastSeenMs: json['lastSeenMs'] as int?,
       );
@@ -45,22 +43,24 @@ class Household {
   final String id;
   final String saltBase64;
   final String authToken;
-  int snapshotVersion = 0;
-  String? snapshotCiphertext;
   final Map<String, HouseholdDevice> devices = <String, HouseholdDevice>{};
-  final List<Map<String, dynamic>> pendingActions = <Map<String, dynamic>>[];
+  final Map<String, Map<String, dynamic>> completedActions =
+      <String, Map<String, dynamic>>{};
+  final Set<String> completedItemKeys = <String>{};
+  final Map<String, SyncEventReceipt> syncEvents = <String, SyncEventReceipt>{};
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'saltBase64': saltBase64,
         'authToken': authToken,
-        'snapshotVersion': snapshotVersion,
-        if (snapshotCiphertext != null)
-          'snapshotCiphertext': snapshotCiphertext,
         'devices': devices.map(
           (deviceId, device) => MapEntry(deviceId, device.toJson()),
         ),
-        'pendingActions': pendingActions,
+        'completedActions': completedActions,
+        'completedItemKeys': completedItemKeys.toList(growable: false),
+        'syncEvents': syncEvents.map(
+          (syncId, event) => MapEntry(syncId, event.toJson()),
+        ),
       };
 
   factory Household.fromJson(Map<String, dynamic> json) {
@@ -68,9 +68,7 @@ class Household {
       id: json['id'] as String,
       saltBase64: json['saltBase64'] as String,
       authToken: json['authToken'] as String? ?? _newAuthToken(),
-    )
-      ..snapshotVersion = json['snapshotVersion'] as int? ?? 0
-      ..snapshotCiphertext = json['snapshotCiphertext'] as String?;
+    );
 
     final devicesJson =
         json['devices'] as Map<String, dynamic>? ?? <String, dynamic>{};
@@ -79,19 +77,131 @@ class Household {
         entry.value as Map<String, dynamic>,
       );
     }
-
-    final pendingJson = json['pendingActions'] as List<dynamic>? ?? <dynamic>[];
-    household.pendingActions.addAll(
-      pendingJson.map((action) => Map<String, dynamic>.from(action as Map)),
+    final completedActionsJson =
+        json['completedActions'] as Map<String, dynamic>? ??
+            <String, dynamic>{};
+    for (final entry in completedActionsJson.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        household.completedActions[entry.key] =
+            Map<String, dynamic>.from(value);
+        household.completedItemKeys.add(entry.key);
+      }
+    }
+    household.completedItemKeys.addAll(
+      ((json['completedItemKeys'] as List?) ?? const <dynamic>[])
+          .whereType<String>(),
     );
+    household._migrateLegacySnapshot(json);
+    household._migrateLegacyPendingActions(json);
+    final syncEventsJson =
+        json['syncEvents'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    for (final entry in syncEventsJson.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        final event =
+            SyncEventReceipt.fromJson(Map<String, dynamic>.from(value));
+        household.syncEvents[event.syncId] = event;
+      }
+    }
 
     return household;
+  }
+
+  void _migrateLegacySnapshot(Map<String, dynamic> json) {
+    final ciphertext = json['snapshotCiphertext'];
+    if (ciphertext is! String || ciphertext.isEmpty) {
+      return;
+    }
+    final version = (json['snapshotVersion'] as num?)?.toInt() ?? 0;
+    final syncId = 'legacy-snapshot-$version';
+    syncEvents.putIfAbsent(
+      syncId,
+      () => SyncEventReceipt(
+        syncId: syncId,
+        originDeviceId: '',
+        messageType: SyncMessageTypes.snapshot,
+        payload: {
+          'syncId': syncId,
+          'originDeviceId': '',
+          'version': version,
+          'ciphertext': ciphertext,
+        },
+      ),
+    );
+  }
+
+  void _migrateLegacyPendingActions(Map<String, dynamic> json) {
+    final pendingActions = json['pendingActions'];
+    if (pendingActions is! List) {
+      return;
+    }
+    for (var index = 0; index < pendingActions.length; index += 1) {
+      final value = pendingActions[index];
+      if (value is! Map) {
+        continue;
+      }
+      final payload = Map<String, dynamic>.from(value);
+      final actionId = payload['actionId'] as String?;
+      final syncId = 'legacy-action-${actionId ?? index}';
+      payload
+        ..putIfAbsent('syncId', () => syncId)
+        ..putIfAbsent('originDeviceId', () => '');
+      syncEvents.putIfAbsent(
+        payload['syncId'] as String,
+        () => SyncEventReceipt(
+          syncId: payload['syncId'] as String,
+          originDeviceId: payload['originDeviceId'] as String? ?? '',
+          messageType: SyncMessageTypes.action,
+          payload: payload,
+        ),
+      );
+    }
   }
 
   static String _newAuthToken() {
     final random = Random.secure();
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     return base64UrlEncode(bytes);
+  }
+}
+
+class SyncEventReceipt {
+  SyncEventReceipt({
+    required this.syncId,
+    required this.originDeviceId,
+    required this.messageType,
+    required this.payload,
+    Set<String>? receivedByDeviceIds,
+  }) : receivedByDeviceIds = receivedByDeviceIds ?? <String>{};
+
+  final String syncId;
+  final String originDeviceId;
+  final String messageType;
+  final Map<String, dynamic> payload;
+  final Set<String> receivedByDeviceIds;
+
+  Map<String, dynamic> toJson() => {
+        'syncId': syncId,
+        'originDeviceId': originDeviceId,
+        'messageType': messageType,
+        'payload': payload,
+        'receivedByDeviceIds': receivedByDeviceIds.toList(growable: false),
+      };
+
+  factory SyncEventReceipt.fromJson(Map<String, dynamic> json) {
+    final syncId = json['syncId'] as String;
+    final originDeviceId = json['originDeviceId'] as String? ?? '';
+    return SyncEventReceipt(
+      syncId: syncId,
+      originDeviceId: originDeviceId,
+      messageType: json['messageType'] as String,
+      payload: Map<String, dynamic>.from(json['payload'] as Map? ?? const {}),
+      receivedByDeviceIds: {
+        ...((json['receivedByDeviceIds'] as List?) ?? const <dynamic>[])
+            .whereType<String>(),
+      },
+    );
   }
 }
 

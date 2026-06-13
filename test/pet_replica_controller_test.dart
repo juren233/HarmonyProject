@@ -43,6 +43,8 @@ void main() {
     transport.incoming.add(
       SyncMessage(SyncMessageTypes.snapshot, {
         'version': 1,
+        'syncId': 'snapshot-sync-1',
+        'originDeviceId': 'owner-1',
         'ciphertext': await crypto.encryptString(jsonEncode(state.toJson())),
       }),
     );
@@ -50,13 +52,94 @@ void main() {
 
     expect(replicaStore.pets.length, sourceStore.pets.length);
     expect(controller.lastSyncedVersion.value, 1);
+    expect(
+      transport.sent.any((message) =>
+          message.type == SyncMessageTypes.syncReceived &&
+          message.payload['syncId'] == 'snapshot-sync-1'),
+      isTrue,
+    );
+
+    controller.dispose();
+  });
+
+  test('收到主人端标记完成后的快照会同步完成状态', () async {
+    final ownerStore = PetNoteStore.seeded();
+    final replicaStore =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    final todo =
+        ownerStore.todos.firstWhere((item) => item.status == TodoStatus.open);
+
+    await ownerStore.markChecklistDone('todo', todo.id);
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 2,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(ownerStore.exportDataState().toJson())),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(replicaStore.todoById(todo.id)?.status, TodoStatus.done);
+
+    controller.dispose();
+  });
+
+  test('合并快照遇到同 id 差异时调用冲突选择', () async {
+    final ownerStore = PetNoteStore.seeded();
+    final replicaStore = PetNoteStore.seeded();
+    final todo = replicaStore.todoById('todo-1')!;
+    await ownerStore.updateTodo(
+      todoId: todo.id,
+      petId: todo.petId,
+      title: '主人端待办标题',
+      dueAt: todo.dueAt,
+      notificationLeadTime: todo.notificationLeadTime,
+      note: todo.note,
+    );
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    SyncMergeConflict? conflict;
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+      resolveMergeConflict: (value) async {
+        conflict = value;
+        return SyncMergeSide.remote;
+      },
+    )..start(requestInitialSnapshot: false);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(ownerStore.exportDataState().toJson())),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(conflict?.collectionLabel, '待办');
+    expect(conflict?.id, todo.id);
+    expect(replicaStore.todoById(todo.id)?.title, '主人端待办标题');
 
     controller.dispose();
   });
 
   test('sendAction 加密上行并标记 pending', () async {
-    final replicaStore =
-        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final replicaStore = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
     final crypto = await SyncCrypto.deriveFromPairingCode(
       code: '123456',
@@ -80,7 +163,160 @@ void main() {
         .where((message) => message.type == SyncMessageTypes.actionPush)
         .toList();
     expect(actionMessages, hasLength(1));
+    expect(actionMessages.single.payload['kind'], PetActionKind.markDone.name);
+    expect(actionMessages.single.payload['sourceType'], 'todo');
+    expect(actionMessages.single.payload['itemId'], 'todo-1');
     expect(controller.pendingItemKeys.value, contains('todo:todo-1'));
+
+    controller.dispose();
+  });
+
+  test('收到快照后释放 action 去重并允许重新发送', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    const action = PetAction(
+      kind: PetActionKind.markDone,
+      sourceType: 'todo',
+      itemId: 'todo-1',
+    );
+
+    await controller.sendAction(action);
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 2,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(replicaStore.exportDataState().toJson())),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await controller.sendAction(action);
+
+    final actionMessages = transport.sent
+        .where((message) => message.type == SyncMessageTypes.actionPush)
+        .toList();
+    expect(controller.pendingItemKeys.value, contains('todo:todo-1'));
+    expect(actionMessages, hasLength(2));
+
+    controller.dispose();
+  });
+
+  test('推送快照时携带已完成事项摘要', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    final todo =
+        replicaStore.todos.firstWhere((item) => item.status == TodoStatus.open);
+
+    await replicaStore.markChecklistDone('todo', todo.id);
+    await controller.pushSnapshotNow();
+
+    final push = transport.sent
+        .lastWhere((message) => message.type == SyncMessageTypes.snapshotPush);
+    expect(push.payload['completedItemKeys'], contains('todo:${todo.id}'));
+
+    controller.dispose();
+  });
+
+  test('主动请求远端覆盖快照时携带 remoteWins 策略', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+
+    controller.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+
+    controller.dispose();
+  });
+
+  test('收到远端覆盖快照请求时用 remoteWins 回传快照', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.snapshotRequest, {
+        'dataPolicy': 'remoteWins',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+
+    controller.dispose();
+  });
+
+  test('收到其他设备 action 后更新本地 store', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    final todo =
+        replicaStore.todos.firstWhere((item) => item.status == TodoStatus.open);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.action, {
+        'actionId': 'action-1',
+        'ciphertext': await crypto.encryptString(jsonEncode(
+          PetAction(
+            kind: PetActionKind.markDone,
+            sourceType: 'todo',
+            itemId: todo.id,
+          ).toJson(),
+        )),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(replicaStore.todoById(todo.id)?.status, TodoStatus.done);
+    expect(
+        controller.pendingItemKeys.value, isNot(contains('todo:${todo.id}')));
 
     controller.dispose();
   });
@@ -138,7 +374,7 @@ class FakeSyncTransport implements SyncTransport {
   @override
   ValueListenable<SyncConnectionState> get state => _state;
   final ValueNotifier<SyncConnectionState> _state =
-      ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+      ValueNotifier<SyncConnectionState>(SyncConnectionState.connected);
 
   @override
   Future<void> connect() async {

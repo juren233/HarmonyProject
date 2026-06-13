@@ -1,6 +1,6 @@
 # PetNote Sync Server
 
-自建同步中继服务，负责配对码撮合、WebSocket 快照同步、宠物端 Action 队列、设备在线状态和一期视频信令透传。
+自建同步中继服务，负责配对码撮合、WebSocket 在线中转、设备目录、设备在线状态和一期视频信令透传。
 
 ## 部署
 
@@ -81,7 +81,9 @@ curl https://petnote.juren233.top/healthz
 
 ## 数据与备份
 
-运行数据写入容器内 `/data`，Compose 默认挂载到 `petnote-data` volume。迁移或重装服务器前请备份该 volume，里面包含 household、设备目录、最新快照密文与待处理 Action 队列。
+运行数据写入容器内 `/data`，Compose 默认挂载到 `petnote-data` volume。迁移或重装服务器前请备份该 volume，里面包含 household、认证 token、配对盐值和设备目录。
+
+业务快照和待办 / 提醒操作会在线中转；服务器会持久化未完成回执的同步事件、完成状态否决账本和设备回执标记，用于服务重启后继续补发离线设备尚未收到的数据。所有当前设备都回传 `sync_received` 后，对应同步事件会从账本清理。
 
 ## TURN 预留
 

@@ -29,7 +29,7 @@
   <a href="#工程协作与运行说明">工程协作与运行说明</a>
 </p>
 
----
+***
 
 ## 概览
 
@@ -91,15 +91,15 @@ README 前半部分用于 GitHub 首页展示，后半部分保留工程协作�
 
 ## 技术栈
 
-| 模块 | 技术与职责 |
-| --- | --- |
-| 共享业务层 | Flutter / Dart，集中在 `lib` 与 `test` |
-| Android / iOS | 官方 Flutter SDK，平台壳位于 `android` 与 `ios` |
-| HarmonyOS / OpenHarmony | 项目内 OHOS Flutter 子模块，平台工程位于 `ohos` |
-| 本地数据 | `sembast`、`shared_preferences` 与平台文件访问桥接 |
-| AI 能力 | 可配置 provider、平台安全密钥存储、结构化照护总览 |
-| 通知能力 | Flutter 业务层协调，平台 MethodChannel 适配通知状态 |
-| Release | GitHub Actions 构建 Android arm64 APK 与 iOS unsigned IPA |
+| 模块                      | 技术与职责                                                  |
+| ----------------------- | ------------------------------------------------------ |
+| 共享业务层                   | Flutter / Dart，集中在 `lib` 与 `test`                      |
+| Android / iOS           | 官方 Flutter SDK，平台壳位于 `android` 与 `ios`                 |
+| HarmonyOS / OpenHarmony | 项目内 OHOS Flutter 子模块，平台工程位于 `ohos`                     |
+| 本地数据                    | `sembast`、`shared_preferences` 与平台文件访问桥接               |
+| AI 能力                   | 可配置 provider、平台安全密钥存储、结构化照护总览                          |
+| 通知能力                    | Flutter 业务层协调，平台 MethodChannel 适配通知状态                  |
+| Release                 | GitHub Actions 构建 Android arm64 APK 与 iOS unsigned IPA |
 
 ## 快速开始
 
@@ -121,9 +121,134 @@ Android / iOS 日常开发使用官方 Flutter；HarmonyOS / OpenHarmony 开发�
 
 > 完整命令、签名规则、SDK 状态切换、Release 产物和提交边界见下面的“工程协作与运行说明”。本仓库不要混用官方 Flutter 与 OHOS Flutter 状态。
 
+## 服务器更新
+
+如果你已经把 PetNote 同步服务部署到 Linux 服务器，并且本地改动已经提交、推送到远端分支，服务器更新建议按下面的顺序执行。
+
+### 适用范围
+
+- 适用于项目根目录通过 `server/docker-compose.yml` 启动同步服务的部署方式
+- 适用于“App 改动已经推送，同时 `server/` 目录也可能有变更”的情况
+- 如果本次提交改到了 `server/lib`、`server/pubspec.*`、`packages/petnote_sync_protocol`、`server/Dockerfile` 或 `server/docker-compose.yml`，都应执行带 `--build` 的重建启动，而不是只重启旧容器
+
+### 1. 进入服务器上的仓库目录
+
+```bash
+cd /path/to/PetNote
+```
+
+这里必须是项目根目录，也就是同时能看到 `pubspec.yaml`、`server/` 和 `packages/petnote_sync_protocol/` 的位置。
+
+### 2. 拉取最新提交
+
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+```
+
+如果你的服务器跟踪的不是 `main`，把上面的分支名替换成你实际部署分支。
+
+### 3. 重建并重启同步服务
+
+```bash
+docker compose -f server/docker-compose.yml up -d --build
+```
+
+说明：
+
+- 这里要在**项目根目录**执行
+- `server/docker-compose.yml` 的 build context 依赖仓库根目录，不能先 `cd server` 再运行
+- `--build` 会确保 `server/` 和 `packages/petnote_sync_protocol/` 的最新代码重新进入镜像
+
+### 4. 检查容器状态
+
+```bash
+docker compose -f server/docker-compose.yml ps
+```
+
+正常情况下应能看到对应服务处于 `Up` 状态。
+
+### 5. 本机健康检查
+
+```bash
+curl http://127.0.0.1:8787/healthz
+```
+
+正常返回：
+
+```text
+ok
+```
+
+### 6. 如果前面挂了 Caddy，再检查外网入口
+
+```bash
+curl https://petnote.juren233.top/healthz
+```
+
+正常也应返回：
+
+```text
+ok
+```
+
+如果本机 `127.0.0.1:8787` 正常、外网域名不正常，问题通常不在 PetNote 同步服务本体，而在 Caddy、443 端口、安全组或证书链路。
+
+### 7. 查看启动日志
+
+如果容器没有起来，或者健康检查失败，先看日志：
+
+```bash
+docker compose -f server/docker-compose.yml logs -f
+```
+
+建议优先关注：
+
+- 端口占用
+- 镜像构建失败
+- `dart pub get` 失败
+- `petnote_sync_protocol` 路径未复制进镜像
+- 容器启动后立即退出
+
+### 8. 首次部署或机器重装后的前置步骤
+
+如果服务器还没装 Docker：
+
+```bash
+sudo dnf update -y
+sudo dnf install -y docker docker-compose-plugin git
+sudo systemctl enable --now docker
+```
+
+如果还没配置 Caddy，可参考 [server/README.md](./server/README.md) 里的反代和证书说明。
+
+### 9. 一个可直接照抄的更新流程
+
+```bash
+cd /path/to/PetNote
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+docker compose -f server/docker-compose.yml up -d --build
+docker compose -f server/docker-compose.yml ps
+curl http://127.0.0.1:8787/healthz
+curl https://petnote.juren233.top/healthz
+```
+
+### 10. 更新后你应该检查什么
+
+- `git pull` 是否真的拿到了最新提交
+- `docker compose ... up -d --build` 是否成功完成构建
+- `docker compose ... ps` 是否显示容器仍在运行
+- `curl http://127.0.0.1:8787/healthz` 是否返回 `ok`
+- 如果用了域名反代，`curl https://petnote.juren233.top/healthz` 是否也返回 `ok`
+
+如果只做了 `git pull`，但没有重新 `docker compose ... up -d --build`，那服务器很可能仍在跑旧镜像。
+
 ## CI 与发布
 
-当前版本来自 `pubspec.yaml`：`1.3.7+21`。
+当前版本来自 `pubspec.yaml`。
 
 Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 控制：
 
@@ -777,3 +902,4 @@ Harmony / ArkTS 运行时问题警醒：
   因为这两个密文和本机 `ohos/sign/material` 是配套关系，不是通用密码。只提密文、不带成套材料，其他机器大概率无法解密通过；这种 diff 默认应视为本地签名噪音，而不是共享改动。
 - “为什么不要直接把 OHOS Flutter SDK 当普通目录提交？”
   因为体积太大，而且不利于升级和团队同步，子模块更可控。
+

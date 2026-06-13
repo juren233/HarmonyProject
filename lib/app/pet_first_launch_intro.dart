@@ -67,6 +67,9 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _finalPageSecondaryButtonRevealDuration =
       Duration(milliseconds: 280);
   static const _finalPageFooterTimelineDuration = Duration(milliseconds: 2100);
+  static const _roleSelectionPageIndex = 2;
+  static const _roleSelectionHeroColor = Color(0xFF4A9DDA);
+  static const _roleSelectionHeroShellColor = Color(0xFFD7ECFF);
 
   late final PageController _pageController;
   late final AnimationController _launchController;
@@ -133,7 +136,8 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       subtitle: '主人设备用来记录与管理；爱宠设备放在家里展示提醒。',
       icon: Icons.devices_rounded,
       accentColor: Color(0xFFF2A65A),
-      heroAccentColor: Color(0xFFF2A65A),
+      heroAccentColor: _roleSelectionHeroColor,
+      heroShellColor: _roleSelectionHeroShellColor,
       listStyle: _IntroListStyle.roleCards,
       values: [
         _IntroValueData(
@@ -162,7 +166,7 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
         _IntroValueData(
-          title: '数据仅在你的设备与你自己的服务器间加密同步',
+          title: '数据在你的设备间加密同步',
           leadingStyle: _IntroValueLeadingStyle.animatedPrivacyLock,
         ),
         _IntroValueData(
@@ -337,7 +341,9 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
                                       'first_launch_intro_page_view',
                                     ),
                                     controller: _pageController,
-                                    physics: _showLaunchPaw
+                                    physics: _showLaunchPaw ||
+                                            _pageIndex ==
+                                                _roleSelectionPageIndex
                                         ? const NeverScrollableScrollPhysics()
                                         : null,
                                     onPageChanged: _handlePageChanged,
@@ -1131,12 +1137,14 @@ class _IntroHeroIcon extends StatelessWidget {
     required this.icon,
     required this.heroAssetPath,
     required this.accentColor,
+    this.shellColor,
   });
 
   final Key heroKey;
   final IconData? icon;
   final String? heroAssetPath;
   final Color accentColor;
+  final Color? shellColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1145,7 +1153,7 @@ class _IntroHeroIcon extends StatelessWidget {
       width: _PetFirstLaunchIntroState._launchPawEndSize,
       height: _PetFirstLaunchIntroState._launchPawEndSize,
       decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: 0.18),
+        color: shellColor ?? accentColor.withValues(alpha: 0.18),
         shape: BoxShape.circle,
       ),
       child: Center(
@@ -1250,6 +1258,7 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
                 icon: _displayedPage.icon,
                 heroAssetPath: _displayedPage.heroAssetPath,
                 accentColor: _displayedPage.heroAccentColor,
+                shellColor: _displayedPage.heroShellColor,
               ),
             ),
           );
@@ -1704,6 +1713,7 @@ class _IntroPageData {
     this.heroAssetPath,
     required this.accentColor,
     required this.heroAccentColor,
+    this.heroShellColor,
     this.values = const [],
     this.listStyle = _IntroListStyle.checks,
   });
@@ -1714,6 +1724,7 @@ class _IntroPageData {
   final String? heroAssetPath;
   final Color accentColor;
   final Color heroAccentColor;
+  final Color? heroShellColor;
   final List<_IntroValueData> values;
   final _IntroListStyle listStyle;
 }

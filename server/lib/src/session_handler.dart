@@ -4,6 +4,7 @@ import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'household_store.dart';
+import 'pairing_service.dart';
 import 'server_app.dart';
 
 /// 每条 WebSocket 连接一个会话。hello/pair 之后才进入已认证状态。
@@ -15,6 +16,8 @@ class SessionHandler {
 
   String? householdId;
   String? deviceId;
+  String? _sessionRole;
+  String? _issuedPairingCode;
 
   void bind() {
     channel.stream.listen(_onData, onDone: _onDone, onError: (_) => _onDone());
@@ -48,11 +51,13 @@ class SessionHandler {
       case SyncMessageTypes.snapshotPush:
         _handleSnapshotPush(message);
       case SyncMessageTypes.snapshotRequest:
-        _sendSnapshotIfAny();
+        _sendSnapshotIfAny(message);
       case SyncMessageTypes.actionPush:
         _handleActionPush(message);
       case SyncMessageTypes.actionAck:
         _handleActionAck(message);
+      case SyncMessageTypes.syncReceived:
+        _handleSyncReceived(message);
       case SyncMessageTypes.devicesRequest:
         _sendDevices();
       case SyncMessageTypes.deviceUpdate:
@@ -80,13 +85,13 @@ class SessionHandler {
     if (requestedHouseholdId != null) {
       final currentDevice = _currentDevice;
       final requestedAuthToken = _optionalString(message.payload['authToken']);
-      final isAuthenticatedOwner = householdId == requestedHouseholdId &&
+      final isAuthenticatedDevice = householdId == requestedHouseholdId &&
           deviceId == requestedDeviceId &&
-          currentDevice?.role == 'owner';
+          currentDevice != null;
       final hasValidToken = existingHousehold != null &&
           existingHousehold.authToken == requestedAuthToken &&
-          existingHousehold.devices[requestedDeviceId]?.role == 'owner';
-      if (!isAuthenticatedOwner && !hasValidToken) {
+          existingHousehold.devices.containsKey(requestedDeviceId);
+      if (!isAuthenticatedDevice && !hasValidToken) {
         _send(
             SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
         return;
@@ -96,13 +101,26 @@ class SessionHandler {
       _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
       return;
     }
-    final ticket = app.pairing.createCode(
-      existingHouseholdId: requestedHouseholdId,
-      ownerDeviceId: requestedDeviceId,
-      ownerDeviceName: _optionalString(message.payload['deviceName']) ?? '主人设备',
-    );
+    late final PairingCodeTicket ticket;
+    try {
+      ticket = app.pairing.createCode(
+        existingHouseholdId: requestedHouseholdId,
+        issuerDeviceId: requestedDeviceId,
+        issuerDeviceName:
+            _optionalString(message.payload['deviceName']) ?? '设备',
+        issuerRole: _normalizedRole(_optionalString(message.payload['role'])) ??
+            'owner',
+      );
+    } on StateError {
+      _send(SyncMessage(
+        SyncMessageTypes.pairError,
+        {'message': '服务繁忙，请稍后再试'},
+      ));
+      return;
+    }
     householdId = ticket.householdId;
     deviceId = requestedDeviceId;
+    _issuedPairingCode = ticket.code;
     final household = _household;
     final device = household?.devices[requestedDeviceId];
     if (device != null) {
@@ -110,16 +128,19 @@ class SessionHandler {
         ..name = _optionalString(message.payload['deviceName']) ?? device.name
         ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     }
-    app.hub.register(householdId!, deviceId!, channel);
+    _sessionRole =
+        _normalizedRole(_optionalString(message.payload['role'])) ?? 'owner';
+    app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.pairCreated, {
       'code': ticket.code,
       'saltBase64': ticket.saltBase64,
       'authToken': ticket.authToken,
       'expiresAtMs': ticket.expiresAt.millisecondsSinceEpoch,
       'householdId': ticket.householdId,
-      'hasPetDevice':
-          household?.devices.values.any((device) => device.role == 'pet') ??
-              false,
+      'hasPetDevice': household?.devices.keys.any(
+            (deviceId) => deviceId != requestedDeviceId,
+          ) ??
+          false,
     }));
     unawaited(app.store.flush());
   }
@@ -129,8 +150,10 @@ class SessionHandler {
     if (requestedDeviceId == null) return;
     final result = app.pairing.redeem(
       code: _optionalString(message.payload['code']) ?? '',
-      petDeviceId: requestedDeviceId,
-      petDeviceName: _optionalString(message.payload['deviceName']) ?? '宠物端设备',
+      joiningDeviceId: requestedDeviceId,
+      joiningDeviceName: _optionalString(message.payload['deviceName']) ?? '设备',
+      joiningRole:
+          _normalizedRole(_optionalString(message.payload['role'])) ?? 'pet',
     );
     if (result == null) {
       _send(SyncMessage(SyncMessageTypes.pairError, {'message': '配对码无效或已过期'}));
@@ -145,21 +168,28 @@ class SessionHandler {
         ..name = _optionalString(message.payload['deviceName']) ?? device.name
         ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     }
-    app.hub.register(householdId!, deviceId!, channel);
+    _sessionRole =
+        _normalizedRole(_optionalString(message.payload['role'])) ?? 'pet';
+    app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.pairJoined, {
       'householdId': result.householdId,
       'saltBase64': result.saltBase64,
       'authToken': result.authToken,
     }));
-    for (final owner in household?.devices.values
-            .where((device) => device.role == 'owner') ??
+    for (final device in household?.devices.values ??
         const Iterable<HouseholdDevice>.empty()) {
+      if (device.deviceId == requestedDeviceId) {
+        continue;
+      }
       app.hub.sendTo(
         householdId!,
-        owner.deviceId,
+        device.deviceId,
         SyncMessage(SyncMessageTypes.pairPeerJoined, {
           'deviceId': requestedDeviceId,
           'deviceName': message.payload['deviceName'],
+          'dataPolicy': _normalizedDataPolicy(
+                  _optionalString(message.payload['dataPolicy']))
+              .name,
         }).encode(),
       );
     }
@@ -192,10 +222,11 @@ class SessionHandler {
           SyncMessageTypes.pairError, {'message': 'unknown device'}));
       return;
     }
-    final requestedRole = _optionalString(message.payload['role']);
-    if (requestedRole != null && requestedRole != device.role) {
-      _send(SyncMessage(
-          SyncMessageTypes.pairError, {'message': 'role mismatch'}));
+    final requestedRole =
+        _normalizedRole(_optionalString(message.payload['role']));
+    if (requestedRole == null) {
+      _send(
+          SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
     if (_optionalString(message.payload['authToken']) != household.authToken) {
@@ -205,18 +236,12 @@ class SessionHandler {
     }
     householdId = household.id;
     deviceId = requestedDeviceId;
+    _sessionRole = requestedRole;
     device
       ..name = _optionalString(message.payload['deviceName']) ?? device.name
       ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
-    app.hub.register(householdId!, deviceId!, channel);
-    _send(SyncMessage(SyncMessageTypes.helloAck,
-        {'snapshotVersion': household.snapshotVersion}));
-    if (device.role == 'owner') {
-      for (final action in household.pendingActions) {
-        _send(SyncMessage(
-            SyncMessageTypes.action, Map<String, dynamic>.from(action)));
-      }
-    }
+    app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
+    _send(const SyncMessage(SyncMessageTypes.helloAck, {'snapshotVersion': 0}));
     unawaited(app.store.flush());
   }
 
@@ -225,7 +250,6 @@ class SessionHandler {
   void _handleSnapshotPush(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    if (!_requireRole('owner')) return;
     final version = message.payload['version'];
     final ciphertext = message.payload['ciphertext'];
     if (version is! int || ciphertext is! String || ciphertext.isEmpty) {
@@ -233,83 +257,147 @@ class SessionHandler {
           SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
-    household
-      ..snapshotVersion = version
-      ..snapshotCiphertext = ciphertext;
-    for (final device
-        in household.devices.values.where((device) => device.role == 'pet')) {
-      app.hub.sendTo(
-        householdId!,
-        device.deviceId,
-        SyncMessage(SyncMessageTypes.snapshot, message.payload).encode(),
-      );
+    final completedItemKeys = _stringSet(message.payload['completedItemKeys']);
+    final missingCompletedKeys =
+        household.completedItemKeys.difference(completedItemKeys);
+    if (missingCompletedKeys.isNotEmpty) {
+      _sendMissingSyncEvents(household);
+      _sendMissingCompletedActions(household, missingCompletedKeys);
+      return;
     }
+    household.completedItemKeys.addAll(completedItemKeys);
+    _broadcastToOtherDevices(
+      household,
+      SyncMessage(
+        SyncMessageTypes.snapshot,
+        _registerSyncEvent(
+          household,
+          messageType: SyncMessageTypes.snapshot,
+          payload: Map<String, dynamic>.from(message.payload),
+        ).payload,
+      ),
+    );
     unawaited(app.store.flush());
   }
 
-  void _sendSnapshotIfAny() {
+  void _sendSnapshotIfAny(SyncMessage message) {
     final household = _registeredHousehold();
-    if (household == null || household.snapshotCiphertext == null) return;
-    if (!_requireRole('pet')) return;
-    _send(SyncMessage(SyncMessageTypes.snapshot, {
-      'version': household.snapshotVersion,
-      'ciphertext': household.snapshotCiphertext,
-    }));
+    if (household == null) return;
+    _sendMissingSyncEvents(household);
+    _broadcastToOtherDevices(
+      household,
+      SyncMessage(
+        SyncMessageTypes.snapshotRequest,
+        Map<String, dynamic>.from(message.payload),
+      ),
+    );
   }
 
   void _handleActionPush(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    if (!_requireRole('pet')) return;
     final actionId = message.payload['actionId'];
     final ciphertext = message.payload['ciphertext'];
+    final sourceType = _optionalString(message.payload['sourceType']);
+    final itemId = _optionalString(message.payload['itemId']);
+    final kind = _optionalString(message.payload['kind']);
     if (actionId is! String ||
         actionId.isEmpty ||
         ciphertext is! String ||
-        ciphertext.isEmpty) {
+        ciphertext.isEmpty ||
+        sourceType == null ||
+        itemId == null ||
+        kind == null) {
       _send(
           SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
-    final entry = <String, dynamic>{
+    final itemKey = '$sourceType:$itemId';
+    final completedAction = household.completedActions[itemKey];
+    if (completedAction != null && kind != PetActionKind.markDone.name) {
+      _send(SyncMessage(SyncMessageTypes.action, completedAction));
+      return;
+    }
+    final outgoingPayload = <String, dynamic>{
       'actionId': actionId,
       'ciphertext': ciphertext,
+      'kind': kind,
+      'sourceType': sourceType,
+      'itemId': itemId,
     };
-    household.pendingActions.add(entry);
-    for (final device
-        in household.devices.values.where((device) => device.role == 'owner')) {
-      if (app.hub.isOnline(householdId!, device.deviceId)) {
-        app.hub.sendTo(
-          householdId!,
-          device.deviceId,
-          SyncMessage(SyncMessageTypes.action, entry).encode(),
-        );
-      }
+    if (kind == PetActionKind.markDone.name) {
+      final event = _registerSyncEvent(
+        household,
+        messageType: SyncMessageTypes.action,
+        payload: outgoingPayload,
+      );
+      household.completedItemKeys.add(itemKey);
+      household.completedActions[itemKey] = event.payload;
+      _broadcastToOtherDevices(
+        household,
+        SyncMessage(SyncMessageTypes.action, event.payload),
+      );
+      unawaited(app.store.flush());
+      return;
     }
+    final event = _registerSyncEvent(
+      household,
+      messageType: SyncMessageTypes.action,
+      payload: outgoingPayload,
+    );
+    _broadcastToOtherDevices(
+      household,
+      SyncMessage(SyncMessageTypes.action, event.payload),
+    );
     unawaited(app.store.flush());
   }
 
   void _handleActionAck(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    if (!_requireRole('owner')) return;
     final actionId = _requiredString(message, 'actionId');
     if (actionId == null) return;
-    household.pendingActions
-        .removeWhere((action) => action['actionId'] == actionId);
+  }
+
+  void _handleSyncReceived(SyncMessage message) {
+    final household = _registeredHousehold();
+    if (household == null) return;
+    final syncId = _requiredString(message, 'syncId');
+    if (syncId == null) return;
+    final event = household.syncEvents[syncId];
+    if (event == null) {
+      return;
+    }
+    if (deviceId != event.originDeviceId) {
+      event.receivedByDeviceIds.add(deviceId!);
+    }
+    final originDeviceId = _optionalString(message.payload['originDeviceId']) ??
+        event.originDeviceId;
+    if (originDeviceId.isNotEmpty && originDeviceId != deviceId) {
+      app.hub.sendTo(
+        householdId!,
+        originDeviceId,
+        SyncMessage(SyncMessageTypes.syncReceived, {
+          'syncId': syncId,
+          'originDeviceId': event.originDeviceId,
+          'receivedDeviceId': deviceId,
+        }).encode(),
+      );
+    }
+    _pruneReceivedSyncEvents(household);
     unawaited(app.store.flush());
   }
 
   void _sendDevices() {
     final household = _registeredHousehold();
     if (household == null) return;
-    if (!_requireRole('owner')) return;
     _send(SyncMessage(SyncMessageTypes.devices, {
       'devices': household.devices.values
           .map((device) => SyncedDeviceInfo(
                 deviceId: device.deviceId,
                 name: device.name,
-                role: device.role,
+                role:
+                    app.hub.roleFor(householdId!, device.deviceId) ?? 'unknown',
                 servedPetId: device.servedPetId,
                 online: app.hub.isOnline(householdId!, device.deviceId),
                 lastSeenMs: device.lastSeenMs,
@@ -381,6 +469,112 @@ class SessionHandler {
     app.hub.sendTo(householdId!, target, message.encode());
   }
 
+  void _broadcastToOtherDevices(Household household, SyncMessage message) {
+    for (final device in household.devices.values) {
+      if (device.deviceId == deviceId) {
+        continue;
+      }
+      app.hub.sendTo(householdId!, device.deviceId, message.encode());
+    }
+  }
+
+  SyncEventReceipt _registerSyncEvent(
+    Household household, {
+    required String messageType,
+    required Map<String, dynamic> payload,
+  }) {
+    final syncId = _optionalString(payload['syncId']) ??
+        '${DateTime.now().toUtc().microsecondsSinceEpoch}-${deviceId ?? 'unknown'}';
+    final originDeviceId = deviceId ?? '';
+    final eventPayload = Map<String, dynamic>.from(payload)
+      ..['syncId'] = syncId
+      ..['originDeviceId'] = originDeviceId;
+    final event = SyncEventReceipt(
+      syncId: syncId,
+      originDeviceId: originDeviceId,
+      messageType: messageType,
+      payload: eventPayload,
+    );
+    household.syncEvents[syncId] = event;
+    return event;
+  }
+
+  void _sendMissingSyncEvents(Household household) {
+    final currentDeviceId = deviceId;
+    if (currentDeviceId == null) {
+      return;
+    }
+    final missingCompletedKeys = <String>{};
+    var receiptChanged = false;
+    for (final event in household.syncEvents.values) {
+      if (event.originDeviceId == currentDeviceId) {
+        continue;
+      }
+      if (event.receivedByDeviceIds.contains(currentDeviceId)) {
+        continue;
+      }
+      if (_isObsoleteCompletedAction(household, event.payload)) {
+        event.receivedByDeviceIds.add(currentDeviceId);
+        receiptChanged = true;
+        continue;
+      }
+      if (event.messageType == SyncMessageTypes.snapshot) {
+        final completedKeys = _stringSet(event.payload['completedItemKeys']);
+        final missingKeys =
+            household.completedItemKeys.difference(completedKeys);
+        if (missingKeys.isNotEmpty) {
+          event.receivedByDeviceIds.add(currentDeviceId);
+          receiptChanged = true;
+          missingCompletedKeys.addAll(missingKeys);
+          continue;
+        }
+      }
+      _send(SyncMessage(event.messageType, event.payload));
+    }
+    if (missingCompletedKeys.isNotEmpty) {
+      _sendMissingCompletedActions(household, missingCompletedKeys);
+    }
+    if (receiptChanged) {
+      _pruneReceivedSyncEvents(household);
+      unawaited(app.store.flush());
+    }
+  }
+
+  void _sendMissingCompletedActions(
+    Household household,
+    Set<String> itemKeys,
+  ) {
+    for (final itemKey in itemKeys) {
+      final action = household.completedActions[itemKey];
+      if (action == null) {
+        continue;
+      }
+      _send(SyncMessage(SyncMessageTypes.action, action));
+    }
+  }
+
+  bool _isObsoleteCompletedAction(
+    Household household,
+    Map<String, dynamic> payload,
+  ) {
+    final sourceType = _optionalString(payload['sourceType']);
+    final itemId = _optionalString(payload['itemId']);
+    final kind = _optionalString(payload['kind']);
+    if (sourceType == null || itemId == null || kind == null) {
+      return false;
+    }
+    return household.completedActions.containsKey('$sourceType:$itemId') &&
+        kind != PetActionKind.markDone.name;
+  }
+
+  void _pruneReceivedSyncEvents(Household household) {
+    final deviceIds = household.devices.keys.toSet();
+    household.syncEvents.removeWhere((_, event) {
+      final receiptTargets = {...deviceIds}..remove(event.originDeviceId);
+      return receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
+    });
+  }
+
   Household? _registeredHousehold() {
     final household = _household;
     if (household == null) {
@@ -394,7 +588,7 @@ class SessionHandler {
   HouseholdDevice? get _currentDevice => _household?.devices[deviceId];
 
   bool _requireRole(String role) {
-    if (_currentDevice?.role == role) {
+    if (_sessionRole == role) {
       return true;
     }
     _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
@@ -412,7 +606,33 @@ class SessionHandler {
 
   String? _optionalString(Object? value) => value is String ? value : null;
 
+  Set<String> _stringSet(Object? value) {
+    if (value is! List) {
+      return const <String>{};
+    }
+    return value.whereType<String>().toSet();
+  }
+
+  String? _normalizedRole(String? role) {
+    if (role == 'owner' || role == 'pet') {
+      return role;
+    }
+    return null;
+  }
+
+  SyncDataPolicy _normalizedDataPolicy(String? value) {
+    return SyncDataPolicy.values.firstWhere(
+      (policy) => policy.name == value,
+      orElse: () => SyncDataPolicy.merge,
+    );
+  }
+
   void _onDone() {
+    final issuedPairingCode = _issuedPairingCode;
+    if (issuedPairingCode != null) {
+      app.pairing.releaseCode(issuedPairingCode);
+      _issuedPairingCode = null;
+    }
     if (householdId != null && deviceId != null) {
       app.hub.unregister(householdId!, deviceId!, channel);
     }

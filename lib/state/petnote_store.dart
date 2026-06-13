@@ -5,7 +5,28 @@ import 'package:flutter/foundation.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+enum SyncMergeSide { local, remote }
+
+class SyncMergeConflict {
+  const SyncMergeConflict({
+    required this.collectionLabel,
+    required this.id,
+    required this.localLabel,
+    required this.remoteLabel,
+  });
+
+  final String collectionLabel;
+  final String id;
+  final String localLabel;
+  final String remoteLabel;
+}
+
+typedef SyncMergeConflictResolver = Future<SyncMergeSide> Function(
+  SyncMergeConflict conflict,
+);
 
 enum ReminderKind { vaccine, deworming, medication, review, grooming, custom }
 
@@ -1447,6 +1468,29 @@ class PetNoteStore extends ChangeNotifier {
     );
   }
 
+  bool isPetActionApplied(PetAction action) {
+    if (action.sourceType == 'todo') {
+      final item = _todosById[action.itemId];
+      return item != null && item.status == _todoStatusForAction(action.kind);
+    }
+    final item = _remindersById[action.itemId];
+    return item != null && item.status == _reminderStatusForAction(action.kind);
+  }
+
+  Future<void> applyPetAction(PetAction action) async {
+    if (isPetActionApplied(action)) {
+      return;
+    }
+    switch (action.kind) {
+      case PetActionKind.markDone:
+        await markChecklistDone(action.sourceType, action.itemId);
+      case PetActionKind.postpone:
+        await postponeChecklist(action.sourceType, action.itemId);
+      case PetActionKind.skip:
+        await skipChecklist(action.sourceType, action.itemId);
+    }
+  }
+
   Future<void> dismissFirstLaunchIntro() async {
     _shouldAutoShowFirstLaunchIntro = false;
     await _storage?.writeBool(_firstLaunchIntroAutoEnabledKey, false);
@@ -1886,6 +1930,16 @@ class PetNoteStore extends ChangeNotifier {
     );
   }
 
+  List<String> completedItemKeys() {
+    final keys = <String>[
+      for (final todo in _todos)
+        if (todo.status == TodoStatus.done) 'todo:${todo.id}',
+      for (final reminder in _reminders)
+        if (reminder.status == ReminderStatus.done) 'reminder:${reminder.id}',
+    ]..sort();
+    return keys;
+  }
+
   Future<void> replaceAllData(PetNoteDataState state) async {
     _validateDataState(state);
     final normalizedState = _normalizedDataState(state);
@@ -1973,6 +2027,65 @@ class PetNoteStore extends ChangeNotifier {
       reminders: true,
       records: true,
       overviewConfig: true,
+    );
+  }
+
+  Future<void> mergeData(
+    PetNoteDataState state, {
+    SyncMergeConflictResolver? resolveConflict,
+  }) async {
+    _validateDataState(state);
+    final normalizedState = _normalizedDataState(state);
+    await _mergeById<Pet>(
+      current: _pets,
+      incoming: normalizedState.pets,
+      idOf: (item) => item.id,
+      index: _petsById,
+      collectionLabel: '宠物',
+      labelOf: (item) => item.name,
+      jsonOf: (item) => item.toJson(),
+      resolveConflict: resolveConflict,
+    );
+    await _mergeById<TodoItem>(
+      current: _todos,
+      incoming: normalizedState.todos,
+      idOf: (item) => item.id,
+      index: _todosById,
+      collectionLabel: '待办',
+      labelOf: (item) => item.title,
+      jsonOf: (item) => item.toJson(),
+      resolveConflict: resolveConflict,
+    );
+    await _mergeById<ReminderItem>(
+      current: _reminders,
+      incoming: normalizedState.reminders,
+      idOf: (item) => item.id,
+      index: _remindersById,
+      collectionLabel: '提醒',
+      labelOf: (item) => item.title,
+      jsonOf: (item) => item.toJson(),
+      resolveConflict: resolveConflict,
+    );
+    await _mergeById<PetRecord>(
+      current: _records,
+      incoming: normalizedState.records,
+      idOf: (item) => item.id,
+      index: _recordsById,
+      collectionLabel: '记录',
+      labelOf: (item) => item.title,
+      jsonOf: (item) => item.toJson(),
+      resolveConflict: resolveConflict,
+    );
+    if (_selectedPetId.isEmpty && _pets.isNotEmpty) {
+      _selectedPetId = _pets.first.id;
+    }
+    _invalidateAllDerivedData();
+    _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
     );
   }
 
@@ -2725,6 +2838,61 @@ class PetNoteStore extends ChangeNotifier {
     }
   }
 
+  Future<void> _mergeById<T>({
+    required List<T> current,
+    required List<T> incoming,
+    required String Function(T item) idOf,
+    required Map<String, T> index,
+    required String collectionLabel,
+    required String Function(T item) labelOf,
+    required Map<String, dynamic> Function(T item) jsonOf,
+    required SyncMergeConflictResolver? resolveConflict,
+  }) async {
+    for (final item in incoming) {
+      final id = idOf(item);
+      final existingIndex = current.indexWhere((currentItem) {
+        return idOf(currentItem) == id;
+      });
+      if (existingIndex == -1) {
+        current.add(item);
+        index[id] = item;
+        continue;
+      }
+      final existingItem = current[existingIndex];
+      if (_jsonEquals(jsonOf(existingItem), jsonOf(item))) {
+        index[id] = existingItem;
+        continue;
+      }
+      final side = await resolveConflict?.call(
+            SyncMergeConflict(
+              collectionLabel: collectionLabel,
+              id: id,
+              localLabel: labelOf(existingItem),
+              remoteLabel: labelOf(item),
+            ),
+          ) ??
+          SyncMergeSide.local;
+      if (side == SyncMergeSide.remote) {
+        current[existingIndex] = item;
+        index[id] = item;
+      } else {
+        index[id] = existingItem;
+      }
+    }
+  }
+
+  bool _jsonEquals(Map<String, dynamic> left, Map<String, dynamic> right) {
+    return jsonEncode(_conflictComparableJson(left)) ==
+        jsonEncode(_conflictComparableJson(right));
+  }
+
+  Map<String, dynamic> _conflictComparableJson(Map<String, dynamic> source) {
+    return {
+      for (final entry in source.entries)
+        if (entry.key != 'semantic') entry.key: entry.value,
+    };
+  }
+
   bool _migrateLegacySemanticData() {
     var changed = false;
     for (var index = 0; index < _todos.length; index += 1) {
@@ -2916,6 +3084,12 @@ TodoStatus _todoStatusFromName(String? value) => switch (value) {
       _ => TodoStatus.open,
     };
 
+TodoStatus _todoStatusForAction(PetActionKind kind) => switch (kind) {
+      PetActionKind.markDone => TodoStatus.done,
+      PetActionKind.postpone => TodoStatus.postponed,
+      PetActionKind.skip => TodoStatus.skipped,
+    };
+
 ReminderKind _reminderKindFromName(String? value) => switch (value) {
       'vaccine' => ReminderKind.vaccine,
       'deworming' => ReminderKind.deworming,
@@ -2931,6 +3105,12 @@ ReminderStatus _reminderStatusFromName(String? value) => switch (value) {
       'postponed' => ReminderStatus.postponed,
       'overdue' => ReminderStatus.overdue,
       _ => ReminderStatus.pending,
+    };
+
+ReminderStatus _reminderStatusForAction(PetActionKind kind) => switch (kind) {
+      PetActionKind.markDone => ReminderStatus.done,
+      PetActionKind.postpone => ReminderStatus.postponed,
+      PetActionKind.skip => ReminderStatus.skipped,
     };
 
 NotificationLeadTime _notificationLeadTimeFromName(String? value) =>

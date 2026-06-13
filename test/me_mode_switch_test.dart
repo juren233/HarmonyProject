@@ -86,6 +86,50 @@ void main() {
     expect(find.byKey(const ValueKey('me_mode_selected_pet')), findsOneWidget);
   });
 
+  testWidgets('模式滑块拖动到目标并松手后才弹出确认', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+
+    await tester.pumpWidget(buildMePage(settings));
+    await tester.pumpAndSettle();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('me_mode_owner'))),
+    );
+    await gesture.moveBy(const Offset(220, 0));
+    await tester.pump();
+
+    expect(find.text('切换宠物模式'), findsNothing);
+    expect(find.byKey(const ValueKey('me_mode_selected_pet')), findsOneWidget);
+    expect(settings.deviceRole, DeviceRole.owner);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('切换宠物模式'), findsOneWidget);
+    expect(settings.deviceRole, DeviceRole.owner);
+  });
+
+  testWidgets('模式滑块未拖到目标段时松手不弹出确认', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+
+    await tester.pumpWidget(buildMePage(settings));
+    await tester.pumpAndSettle();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('me_mode_owner'))),
+    );
+    await gesture.moveBy(const Offset(1, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('切换宠物模式'), findsNothing);
+    expect(settings.deviceRole, DeviceRole.owner);
+    expect(find.byKey(const ValueKey('me_mode_selected_owner')), findsOneWidget);
+  });
+
   testWidgets('无 settingsController 时不显示模式卡片', (tester) async {
     await tester.pumpWidget(buildMePage(null));
     await tester.pumpAndSettle();

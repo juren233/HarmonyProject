@@ -26,10 +26,11 @@ class PairingFlow {
     required String serverUrl,
     required String code,
     required String deviceName,
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
   }) async {
     final normalizedCode = code.trim();
-    if (normalizedCode.length != 6) {
-      throw const PairingException('请输入 6 位配对码');
+    if (normalizedCode.length != 4) {
+      throw const PairingException('请输入 4 位配对码');
     }
     final transport = _transportFactory(serverUrl.trim());
     late final StreamSubscription<SyncMessage> subscription;
@@ -54,6 +55,8 @@ class PairingFlow {
           'code': normalizedCode,
           'deviceId': await settingsController.ensureDeviceId(),
           'deviceName': deviceName.trim().isEmpty ? '宠物端设备' : deviceName.trim(),
+          'role': settingsController.deviceRole.name,
+          'dataPolicy': dataPolicy.name,
         }),
       );
       final message = await completer.future.timeout(timeout);
@@ -72,7 +75,7 @@ class PairingFlow {
       );
       final sharedKeyBase64 = await crypto.exportKeyBase64();
       await _secretStore.saveSharedKey(sharedKeyBase64);
-      await settingsController.setDeviceRole(DeviceRole.pet);
+      await settingsController.setPendingInitialSyncPolicy(dataPolicy);
       await settingsController.saveSyncPairing(
         serverUrl: serverUrl.trim(),
         householdId: householdId,

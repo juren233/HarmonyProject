@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
@@ -19,6 +20,7 @@ import 'package:petnote/app/add_sheet/form_controls/choice_wrap.dart';
 import 'package:petnote/app/add_sheet/form_controls/pet_selector.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_service.dart';
 
 part 'petnote_pages_overview.dart';
 part 'petnote_pages_pets.dart';
@@ -84,6 +86,7 @@ class ChecklistPage extends StatelessWidget {
         PageHeader(
           title: '清单',
           subtitle: '今天 ${today.items.length} 项待处理',
+          trailing: const SyncFailureChip(),
         ),
         HeroPanel(
           title: '今日照护概况',
@@ -160,6 +163,107 @@ class ChecklistPage extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+Future<SyncMergeSide> showSyncMergeConflictDialog(
+  BuildContext context,
+  SyncMergeConflict conflict,
+) async {
+  final side = await showDialog<SyncMergeSide>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('${conflict.collectionLabel}冲突'),
+      content: Text('本机：${conflict.localLabel}\n对方：${conflict.remoteLabel}'),
+      actions: [
+        TextButton(
+          key: const ValueKey('sync_merge_keep_local'),
+          onPressed: () => Navigator.of(context).pop(SyncMergeSide.local),
+          child: const Text('保留本机'),
+        ),
+        FilledButton(
+          key: const ValueKey('sync_merge_keep_remote'),
+          onPressed: () => Navigator.of(context).pop(SyncMergeSide.remote),
+          child: const Text('保留对方'),
+        ),
+      ],
+    ),
+  );
+  return side ?? SyncMergeSide.local;
+}
+
+class SyncFailureChip extends StatelessWidget {
+  const SyncFailureChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = SyncService.instance;
+    if (service == null) {
+      return const SizedBox.shrink();
+    }
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) => _SyncFailureCountChip(
+        listenable: service.failedSyncCount,
+      ),
+    );
+  }
+}
+
+class _SyncFailureCountChip extends StatelessWidget {
+  const _SyncFailureCountChip({required this.listenable});
+
+  final ValueListenable<int>? listenable;
+
+  @override
+  Widget build(BuildContext context) {
+    final listenable = this.listenable;
+    if (listenable == null) {
+      return const SizedBox.shrink();
+    }
+    return ValueListenableBuilder<int>(
+      valueListenable: listenable,
+      builder: (context, count, _) {
+        if (count <= 0) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: ActionChip(
+            key: const ValueKey('sync_failure_chip'),
+            avatar: const Icon(Icons.sync_problem_rounded, size: 18),
+            label: const Text('同步失败'),
+            onPressed: () => _showSyncFailureDialog(context, count),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showSyncFailureDialog(BuildContext context, int count) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('同步失败'),
+        content: Text('$count 条数据同步失败'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            key: const ValueKey('sync_failure_retry_button'),
+            onPressed: () {
+              final service = SyncService.instance;
+              service?.ownerEngine?.retryFailedSync();
+              service?.petController?.retryFailedSync();
+              Navigator.of(context).pop();
+            },
+            child: const Text('重新同步'),
+          ),
+        ],
+      ),
     );
   }
 }

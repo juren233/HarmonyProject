@@ -25,14 +25,15 @@ class SyncMessage {
 class SyncMessageTypes {
   // 配对
   static const pairCreate =
-      'pair_create'; // owner→srv {householdId?, deviceId, deviceName}
+      'pair_create'; // device→srv {householdId?, authToken?, deviceId, deviceName, role?}
   static const pairCreated =
-      'pair_created'; // srv→owner {code, saltBase64, authToken, expiresAtMs, householdId}
-  static const pairJoin = 'pair_join'; // pet→srv {code, deviceId, deviceName}
+      'pair_created'; // srv→device {code, saltBase64, authToken, expiresAtMs, householdId}
+  static const pairJoin =
+      'pair_join'; // device→srv {code, deviceId, deviceName, role?}
   static const pairJoined =
-      'pair_joined'; // srv→pet {householdId, saltBase64, authToken}
+      'pair_joined'; // srv→device {householdId, saltBase64, authToken}
   static const pairPeerJoined =
-      'pair_peer_joined'; // srv→owner {deviceId, deviceName}
+      'pair_peer_joined'; // srv→已在线设备 {deviceId, deviceName}
   static const pairError = 'pair_error'; // srv→client {message}
   // 会话
   static const hello =
@@ -40,21 +41,25 @@ class SyncMessageTypes {
   static const helloAck = 'hello_ack'; // srv→client {snapshotVersion}
   // 快照同步
   static const snapshotPush =
-      'snapshot_push'; // owner→srv {version, ciphertext}
-  static const snapshot = 'snapshot'; // srv→pet {version, ciphertext}
-  static const snapshotRequest = 'snapshot_request'; // pet→srv {}
-  // 宠物端动作
-  static const actionPush = 'action_push'; // pet→srv {actionId, ciphertext}
-  static const action = 'action'; // srv→owner {actionId, ciphertext}
-  static const actionAck = 'action_ack'; // owner→srv {actionId}
+      'snapshot_push'; // device→srv {version, ciphertext, completedItemKeys?}
+  static const snapshot = 'snapshot'; // srv→device {version, ciphertext}
+  static const snapshotRequest = 'snapshot_request'; // device→srv {}
+  // 设备动作
+  static const actionPush =
+      'action_push'; // device→srv {actionId, ciphertext, kind, sourceType, itemId}
+  static const action =
+      'action'; // srv→device {actionId, ciphertext, kind?, sourceType?, itemId?}
+  static const actionAck = 'action_ack'; // device→srv {actionId}
+  static const syncReceived =
+      'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?}
   // 设备管理
-  static const devicesRequest = 'devices_request'; // owner→srv {}
-  static const devices = 'devices'; // srv→owner {devices: [...]}
+  static const devicesRequest = 'devices_request'; // device→srv {}
+  static const devices = 'devices'; // srv→device {devices: [...]}
   static const deviceUpdate =
       'device_update'; // owner→srv {deviceId, name?, servedPetId?}
   static const deviceRemove = 'device_remove'; // owner→srv {deviceId}
   static const deviceConfig =
-      'device_config'; // srv→pet {servedPetId?, removed?}
+      'device_config'; // srv→device {servedPetId?, removed?}
   // 二期视频信令（本期定义 + 服务器按 targetDeviceId 透传）
   static const callInvite =
       'call_invite'; // {callId, mode: call|watch, sdp, targetDeviceId}
@@ -67,18 +72,31 @@ class SyncMessageTypes {
 
 enum PetActionKind { markDone, postpone, skip }
 
-/// 宠物端回传的操作（加密后放进 action_push.ciphertext）。
+enum SyncDataPolicy { remoteWins, localWins, merge }
+
+/// 设备回传的操作（加密后放进 action_push.ciphertext）。
 class PetAction {
-  const PetAction(
-      {required this.kind, required this.sourceType, required this.itemId});
+  const PetAction({
+    required this.kind,
+    required this.sourceType,
+    required this.itemId,
+    this.occurredAtMs,
+  });
 
   final PetActionKind kind;
   final String
       sourceType; // 'todo' | 'reminder'，与 PetNoteStore.markChecklistDone 一致
   final String itemId;
+  final int? occurredAtMs;
 
-  Map<String, dynamic> toJson() =>
-      {'kind': kind.name, 'sourceType': sourceType, 'itemId': itemId};
+  String get dedupeKey => '$sourceType:$itemId:${kind.name}';
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind.name,
+        'sourceType': sourceType,
+        'itemId': itemId,
+        if (occurredAtMs != null) 'occurredAtMs': occurredAtMs,
+      };
 
   factory PetAction.fromJson(Map<String, dynamic> json) {
     final sourceType = json['sourceType'];
@@ -93,6 +111,7 @@ class PetAction {
       ),
       sourceType: sourceType,
       itemId: itemId,
+      occurredAtMs: (json['occurredAtMs'] as num?)?.toInt(),
     );
   }
 }
@@ -110,7 +129,7 @@ class SyncedDeviceInfo {
 
   final String deviceId;
   final String name;
-  final String role; // 'owner' | 'pet'
+  final String role; // 'owner' | 'pet' | 'unknown'
   final String? servedPetId;
   final bool online;
   final int? lastSeenMs;
@@ -128,7 +147,7 @@ class SyncedDeviceInfo {
     return SyncedDeviceInfo(
       deviceId: json['deviceId'] as String,
       name: json['name'] as String? ?? '未命名设备',
-      role: json['role'] as String? ?? 'pet',
+      role: json['role'] as String? ?? 'unknown',
       servedPetId: json['servedPetId'] as String?,
       online: json['online'] == true,
       lastSeenMs: json['lastSeenMs'] as int?,

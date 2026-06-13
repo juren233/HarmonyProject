@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
@@ -88,9 +89,15 @@ class _PetSelector extends StatelessWidget {
                 ),
               ),
             ),
-            IconButton(
-              onPressed: onOpenSettings,
-              icon: const Icon(Icons.settings_rounded, color: Colors.white),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SyncFailureChip(),
+                IconButton(
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.settings_rounded, color: Colors.white),
+                ),
+              ],
             ),
           ],
         ),
@@ -157,12 +164,18 @@ class _DashboardContent extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             SizedBox(
-              width: 72,
+              width: 216,
               child: _Sticker(
-                child: IconButton(
-                  key: const ValueKey('pet_dashboard_settings'),
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_rounded),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SyncFailureChip(),
+                    IconButton(
+                      key: const ValueKey('pet_dashboard_settings'),
+                      onPressed: onOpenSettings,
+                      icon: const Icon(Icons.settings_rounded),
+                    ),
+                  ],
                 ),
               ),
             ),

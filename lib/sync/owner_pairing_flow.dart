@@ -7,7 +7,11 @@ import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
-typedef PairingPeerJoined = void Function(String deviceId, String deviceName);
+typedef PairingPeerJoined = void Function(
+  String deviceId,
+  String deviceName,
+  SyncDataPolicy dataPolicy,
+);
 
 class OwnerPairingSession {
   const OwnerPairingSession({
@@ -60,7 +64,11 @@ class OwnerPairingFlow {
       if (message.type == SyncMessageTypes.pairPeerJoined) {
         final deviceId = message.payload['deviceId'] as String? ?? '';
         final peerName = message.payload['deviceName'] as String? ?? '宠物端设备';
-        _onPeerJoined?.call(deviceId, peerName);
+        final dataPolicy = SyncDataPolicy.values.firstWhere(
+          (policy) => policy.name == message.payload['dataPolicy'],
+          orElse: () => SyncDataPolicy.merge,
+        );
+        _onPeerJoined?.call(deviceId, peerName, dataPolicy);
       }
     }, onError: (Object error) {
       if (!completer.isCompleted) {
@@ -69,13 +77,13 @@ class OwnerPairingFlow {
     });
 
     await transport.connect();
-    await settingsController.setDeviceRole(DeviceRole.owner);
     transport.send(
       SyncMessage(SyncMessageTypes.pairCreate, {
         'householdId': settingsController.householdId,
         'authToken': settingsController.householdAuthToken,
         'deviceId': await settingsController.ensureDeviceId(),
         'deviceName': deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
+        'role': settingsController.deviceRole.name,
       }),
     );
 
@@ -83,9 +91,6 @@ class OwnerPairingFlow {
       final message = await completer.future.timeout(timeout);
       if (message.type == SyncMessageTypes.pairError) {
         throw PairingException(message.payload['message'] as String? ?? '配对失败');
-      }
-      if (message.payload['hasPetDevice'] == true) {
-        throw const PairingException('请先解绑现有宠物端设备');
       }
       final code = message.payload['code'] as String?;
       final saltBase64 = message.payload['saltBase64'] as String?;

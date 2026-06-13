@@ -1319,7 +1319,7 @@ void main() {
 
     expect(
       _iconColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
-      const Color(0xFFF2A65A),
+      const Color(0xFF4A9DDA),
     );
     expect(
       _selectedIndicatorColor(tester),
@@ -1338,6 +1338,42 @@ void main() {
     expect(
       _selectedIndicatorColor(tester),
       const Color(0xFFF2A65A),
+    );
+  });
+
+  testWidgets('role selection page cannot be swiped into owner onboarding page',
+      (tester) async {
+    await tester.pumpWidget(const PetNoteApp());
+    await _advanceIntroToRolePage(tester);
+
+    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('first_launch_intro_page_view')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_3_content')), findsNothing);
+  });
+
+  testWidgets('role selection hero uses soft blue icon and shell colors',
+      (tester) async {
+    await tester.pumpWidget(const PetNoteApp());
+    await _advanceIntroToRolePage(tester);
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_page_2_hero_icon')),
+    );
+
+    expect(
+      _backgroundColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
+      const Color(0xFFD7ECFF),
+    );
+    expect(
+      _iconColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
+      const Color(0xFF4A9DDA),
     );
   });
 
@@ -4522,6 +4558,15 @@ Color? _selectedIndicatorColor(WidgetTester tester) {
   return null;
 }
 
+Color? _backgroundColorByKey(WidgetTester tester, ValueKey<String> key) {
+  final container = tester.widget<Container>(find.byKey(key));
+  final decoration = container.decoration;
+  if (decoration is BoxDecoration) {
+    return decoration.color;
+  }
+  return null;
+}
+
 Finder _introHeroIconFinder() {
   return find.byWidgetPredicate(
     (widget) =>
@@ -4759,6 +4804,27 @@ Future<void> _advanceIntroToFinalPage(WidgetTester tester) async {
   );
   await tester.pump(const Duration(milliseconds: 2200));
   await tester.pump();
+}
+
+Future<void> _advanceIntroToRolePage(WidgetTester tester) async {
+  await _pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey('intro_page_0_content')),
+  );
+  await tester.pump(const Duration(milliseconds: 1500));
+  await tester.pump();
+  for (var i = 0; i < 2; i++) {
+    final continueButton =
+        find.byKey(const ValueKey('first_launch_intro_continue_button'));
+    await _pumpUntilFound(tester, continueButton);
+    await tester.tap(continueButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 360));
+  }
+  await _pumpUntilFound(
+    tester,
+    find.byKey(const ValueKey('intro_page_2_content')),
+  );
 }
 
 Future<void> _enterOnboardingFromIntro(WidgetTester tester) async {

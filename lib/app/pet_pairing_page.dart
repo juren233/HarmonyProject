@@ -4,6 +4,7 @@ import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/pairing_flow.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 class PetPairingPage extends StatefulWidget {
   PetPairingPage({
@@ -92,7 +93,7 @@ class _PetPairingPageState extends State<PetPairingPage> {
                     key: const ValueKey('pairing_code_field'),
                     controller: _codeController,
                     keyboardType: TextInputType.number,
-                    maxLength: 6,
+                    maxLength: 4,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           color: tokens.primaryText,
                           fontWeight: FontWeight.w800,
@@ -141,8 +142,16 @@ class _PetPairingPageState extends State<PetPairingPage> {
   }
 
   Future<void> _submit() async {
-    setState(() => _loading = true);
     final messenger = ScaffoldMessenger.of(context);
+    final roleAtSubmit = widget.settingsController.deviceRole;
+    final dataPolicy = await _confirmDataPolicy();
+    if (dataPolicy == null) {
+      return;
+    }
+    if (!mounted || widget.settingsController.deviceRole != roleAtSubmit) {
+      return;
+    }
+    setState(() => _loading = true);
     try {
       final serverUrl = await _resolveServerUrl();
       final flow = widget._pairingFlow ??
@@ -151,6 +160,7 @@ class _PetPairingPageState extends State<PetPairingPage> {
         serverUrl: serverUrl,
         code: _codeController.text,
         deviceName: _deviceNameController.text,
+        dataPolicy: dataPolicy,
       );
     } on PairingException catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));
@@ -161,6 +171,60 @@ class _PetPairingPageState extends State<PetPairingPage> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<SyncDataPolicy?> _confirmDataPolicy() {
+    var selected = SyncDataPolicy.merge;
+    return showDialog<SyncDataPolicy>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('数据同步'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<SyncDataPolicy>(
+                  key: const ValueKey('pairing_policy_remote_wins'),
+                  value: SyncDataPolicy.remoteWins,
+                  groupValue: selected,
+                  onChanged: (value) =>
+                      setDialogState(() => selected = value ?? selected),
+                  title: const Text('以另一台设备为准'),
+                ),
+                RadioListTile<SyncDataPolicy>(
+                  key: const ValueKey('pairing_policy_local_wins'),
+                  value: SyncDataPolicy.localWins,
+                  groupValue: selected,
+                  onChanged: (value) =>
+                      setDialogState(() => selected = value ?? selected),
+                  title: const Text('以当前设备为准'),
+                ),
+                RadioListTile<SyncDataPolicy>(
+                  key: const ValueKey('pairing_policy_merge'),
+                  value: SyncDataPolicy.merge,
+                  groupValue: selected,
+                  onChanged: (value) =>
+                      setDialogState(() => selected = value ?? selected),
+                  title: const Text('合并数据'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+              FilledButton(
+                key: const ValueKey('pairing_policy_confirm'),
+                onPressed: () => Navigator.of(context).pop(selected),
+                child: const Text('确认'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<String> _resolveServerUrl() async {

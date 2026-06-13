@@ -348,7 +348,7 @@ class _DeviceModeCardState extends State<_DeviceModeCard> {
   }
 }
 
-class _DeviceModeSlider extends StatelessWidget {
+class _DeviceModeSlider extends StatefulWidget {
   const _DeviceModeSlider({
     required this.isPet,
     required this.onSelectOwner,
@@ -360,10 +360,28 @@ class _DeviceModeSlider extends StatelessWidget {
   final VoidCallback onSelectPet;
 
   @override
+  State<_DeviceModeSlider> createState() => _DeviceModeSliderState();
+}
+
+class _DeviceModeSliderState extends State<_DeviceModeSlider> {
+  double? _dragValue;
+  double? _dragStartValue;
+
+  @override
+  void didUpdateWidget(covariant _DeviceModeSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPet != widget.isPet) {
+      _dragValue = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = context.petNoteTokens;
     final isDark = theme.brightness == Brightness.dark;
+    final sliderValue = _dragValue ?? (widget.isPet ? 1.0 : 0.0);
+    final previewIsPet = sliderValue.round() == 1;
     final sliderSurfaceColor = isDark ? tokens.listRowBackground : Colors.white;
     final selectedPillColor =
         isDark ? const Color(0xFFF3F1EC) : const Color(0xFF171717);
@@ -400,12 +418,12 @@ class _DeviceModeSlider extends StatelessWidget {
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
-                left: (isPet ? 1 : 0) * pillWidth,
+                left: (previewIsPet ? 1 : 0) * pillWidth,
                 top: 0,
                 width: pillWidth,
                 height: selectedPillHeight,
                 child: DecoratedBox(
-                  key: isPet
+                  key: previewIsPet
                       ? const ValueKey('me_mode_selected_pet')
                       : const ValueKey('me_mode_selected_owner'),
                   decoration: BoxDecoration(
@@ -427,17 +445,17 @@ class _DeviceModeSlider extends StatelessWidget {
                     key: const ValueKey('me_mode_owner'),
                     label: '主人',
                     icon: Icons.person_rounded,
-                    selected: !isPet,
+                    selected: !previewIsPet,
                     useDarkSurface: isDark,
-                    onTap: onSelectOwner,
+                    onTap: widget.onSelectOwner,
                   ),
                   _ThemeSegmentOption(
                     key: const ValueKey('me_mode_pet'),
                     label: '宠物',
                     icon: Icons.pets_rounded,
-                    selected: isPet,
+                    selected: previewIsPet,
                     useDarkSurface: isDark,
-                    onTap: onSelectPet,
+                    onTap: widget.onSelectPet,
                   ),
                 ],
               ),
@@ -456,10 +474,10 @@ class _DeviceModeSlider extends StatelessWidget {
                     min: 0,
                     max: 1,
                     divisions: 1,
-                    value: isPet ? 1 : 0,
-                    onChanged: (value) => value.round() == 1
-                        ? onSelectPet()
-                        : onSelectOwner(),
+                    value: sliderValue,
+                    onChangeStart: _beginDragValue,
+                    onChanged: _updateDragValue,
+                    onChangeEnd: _commitDragValue,
                   ),
                 ),
               ),
@@ -468,6 +486,36 @@ class _DeviceModeSlider extends StatelessWidget {
         );
       },
     );
+  }
+
+  void _beginDragValue(double value) {
+    _dragStartValue = widget.isPet ? 1.0 : 0.0;
+    setState(() => _dragValue = _dragStartValue);
+  }
+
+  void _updateDragValue(double value) {
+    final startValue = _dragStartValue ?? (widget.isPet ? 1.0 : 0.0);
+    setState(() {
+      _dragValue = value;
+      if ((value - startValue).abs() >= 0.5) {
+        _dragValue = value.roundToDouble();
+      }
+    });
+  }
+
+  void _commitDragValue(double value) {
+    final startValue = _dragStartValue ?? (widget.isPet ? 1.0 : 0.0);
+    final targetValue =
+        (value - startValue).abs() >= 0.5 ? value.roundToDouble() : startValue;
+    setState(() {
+      _dragValue = null;
+      _dragStartValue = null;
+    });
+    if (targetValue == 1) {
+      widget.onSelectPet();
+    } else {
+      widget.onSelectOwner();
+    }
   }
 }
 

@@ -44,8 +44,9 @@ void main() {
 
   test('已有 household 的 hello 缺少 token 会拒绝', () async {
     final created = app.pairing.createCode(
-      ownerDeviceId: 'owner-1',
-      ownerDeviceName: '主人手机',
+      issuerDeviceId: 'owner-1',
+      issuerDeviceName: '主人手机',
+      issuerRole: 'owner',
     );
     final ws = IOWebSocketChannel.connect('ws://127.0.0.1:${server.port}/ws');
     ws.sink.add(SyncMessage(SyncMessageTypes.hello, {

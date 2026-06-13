@@ -39,7 +39,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     transport.incoming.add(
       SyncMessage(SyncMessageTypes.pairCreated, {
-        'code': '123456',
+        'code': '1234',
         'saltBase64': SyncCrypto.generateSaltBase64(),
         'authToken': 'auth-token-1',
         'expiresAtMs': DateTime.now()
@@ -52,7 +52,7 @@ void main() {
 
     final session = await future;
 
-    expect(session.code, '123456');
+    expect(session.code, '1234');
     expect(
       transport.sent
           .singleWhere((message) => message.type == SyncMessageTypes.pairCreate)
@@ -71,7 +71,7 @@ void main() {
     await flow.dispose();
   });
 
-  test('服务端报告已有宠物端时阻止继续生成配对码', () async {
+  test('服务端报告已有宠物端时仍允许继续生成配对码', () async {
     final settings = await AppSettingsController.load();
     final transport = FakePairingTransport();
     final flow = OwnerPairingFlow(
@@ -87,7 +87,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     transport.incoming.add(
       SyncMessage(SyncMessageTypes.pairCreated, {
-        'code': '123456',
+        'code': '1234',
         'saltBase64': SyncCrypto.generateSaltBase64(),
         'authToken': 'auth-token-1',
         'expiresAtMs': DateTime.now()
@@ -98,16 +98,9 @@ void main() {
       }),
     );
 
-    await expectLater(
-      future,
-      throwsA(
-        isA<PairingException>().having(
-          (error) => error.message,
-          'message',
-          '请先解绑现有宠物端设备',
-        ),
-      ),
-    );
+    final session = await future;
+
+    expect(session.code, '1234');
 
     await flow.dispose();
   });
@@ -134,7 +127,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     transport.incoming.add(
       SyncMessage(SyncMessageTypes.pairCreated, {
-        'code': '123456',
+        'code': '1234',
         'saltBase64': SyncCrypto.generateSaltBase64(),
         'authToken': 'auth-token-1',
         'expiresAtMs': DateTime.now()
@@ -152,6 +145,51 @@ void main() {
     );
     expect(pairCreate.payload['householdId'], 'house-1');
     expect(pairCreate.payload['authToken'], 'auth-token-1');
+
+    await flow.dispose();
+  });
+
+  test('已配对宠物端重新生成配对码时保留当前设备角色', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setSharedKeyBase64('existing-key');
+    final transport = FakePairingTransport();
+    final secretStore = InMemorySyncSecretStore();
+    await secretStore.saveSharedKey('existing-key');
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    final future = flow.createAsOwner(
+      serverUrl: 'ws://127.0.0.1/ws',
+      deviceName: '客厅平板',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final pairCreate = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.pairCreate,
+    );
+    expect(pairCreate.payload['role'], 'pet');
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.pairCreated, {
+        'code': '5678',
+        'saltBase64': SyncCrypto.generateSaltBase64(),
+        'authToken': 'auth-token-1',
+        'expiresAtMs': DateTime.now()
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'householdId': 'house-1',
+        'hasPetDevice': true,
+      }),
+    );
+    await future;
+
+    expect(settings.deviceRole, DeviceRole.pet);
 
     await flow.dispose();
   });

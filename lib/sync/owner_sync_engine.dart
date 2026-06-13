@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_failure_queue.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
@@ -11,6 +13,7 @@ class OwnerSyncEngine {
     required this.store,
     required this.transport,
     required this.crypto,
+    this.resolveMergeConflict,
     this.throttle = const Duration(seconds: 2),
     int? initialVersion,
   }) : _version =
@@ -19,15 +22,22 @@ class OwnerSyncEngine {
   final PetNoteStore store;
   final SyncTransport transport;
   final SyncCrypto crypto;
+  final SyncMergeConflictResolver? resolveMergeConflict;
   final Duration throttle;
 
   final ValueNotifier<List<SyncedDeviceInfo>> devices =
       ValueNotifier<List<SyncedDeviceInfo>>(const <SyncedDeviceInfo>[]);
   final ValueNotifier<Object?> lastError = ValueNotifier<Object?>(null);
+  final ValueNotifier<int> failedSyncCount = ValueNotifier<int>(0);
 
   StreamSubscription<SyncMessage>? _subscription;
   Timer? _pushTimer;
-  String? _lastPushedJson;
+  late final SyncFailureQueue _failureQueue = SyncFailureQueue(
+    transport: transport,
+    failedCount: failedSyncCount,
+    lastError: lastError,
+  );
+  String? _lastPushedSnapshotKey;
   int _version;
   var _started = false;
 
@@ -47,10 +57,12 @@ class OwnerSyncEngine {
     }
   }
 
-  Future<void> pushSnapshotNow() async {
+  Future<void> pushSnapshotNow({
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
+  }) async {
     _pushTimer?.cancel();
     _pushTimer = null;
-    await _pushSnapshot();
+    await _pushSnapshot(dataPolicy: dataPolicy);
   }
 
   void _onStoreChanged() {
@@ -60,18 +72,24 @@ class OwnerSyncEngine {
     });
   }
 
-  Future<void> _pushSnapshot() async {
+  Future<void> _pushSnapshot({
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
+  }) async {
     try {
+      retryFailedSync();
       final json = jsonEncode(store.exportDataState().toJson());
-      if (json == _lastPushedJson) {
+      final snapshotKey = '${dataPolicy.name}:$json';
+      if (snapshotKey == _lastPushedSnapshotKey) {
         return;
       }
-      _lastPushedJson = json;
+      _lastPushedSnapshotKey = snapshotKey;
       _version += 1;
-      transport.send(
+      _failureQueue.sendOrQueue(
         SyncMessage(SyncMessageTypes.snapshotPush, {
           'version': _version,
           'ciphertext': await crypto.encryptString(json),
+          'dataPolicy': dataPolicy.name,
+          'completedItemKeys': store.completedItemKeys(),
         }),
       );
     } on Object catch (error) {
@@ -85,8 +103,16 @@ class OwnerSyncEngine {
         _applyHelloAck(message);
       case SyncMessageTypes.action:
         await _applyAction(message);
+      case SyncMessageTypes.snapshot:
+        await _applySnapshot(message);
+      case SyncMessageTypes.snapshotRequest:
+        await pushSnapshotNow(
+          dataPolicy: _snapshotRequestDataPolicy(message),
+        );
       case SyncMessageTypes.devices:
         _applyDevices(message);
+      case SyncMessageTypes.syncReceived:
+        break;
     }
   }
 
@@ -127,15 +153,9 @@ class OwnerSyncEngine {
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
       final action =
           PetAction.fromJson(Map<String, dynamic>.from(decoded as Map));
-      switch (action.kind) {
-        case PetActionKind.markDone:
-          await store.markChecklistDone(action.sourceType, action.itemId);
-        case PetActionKind.postpone:
-          await store.postponeChecklist(action.sourceType, action.itemId);
-        case PetActionKind.skip:
-          await store.skipChecklist(action.sourceType, action.itemId);
-      }
-      transport.send(
+      await store.applyPetAction(action);
+      _sendReceivedIfNeeded(message);
+      _failureQueue.sendOrQueue(
         SyncMessage(SyncMessageTypes.actionAck, {'actionId': actionId}),
       );
     } on Object catch (error) {
@@ -143,12 +163,51 @@ class OwnerSyncEngine {
     }
   }
 
+  Future<void> _applySnapshot(SyncMessage message) async {
+    try {
+      final ciphertext = message.payload['ciphertext'];
+      if (ciphertext is! String) {
+        throw const FormatException('missing snapshot ciphertext');
+      }
+      final decoded = jsonDecode(await crypto.decryptString(ciphertext));
+      final state =
+          PetNoteDataState.fromJson(Map<String, dynamic>.from(decoded as Map));
+      if (message.payload['dataPolicy'] == SyncDataPolicy.remoteWins.name) {
+        await store.replaceAllData(state);
+      } else {
+        await store.mergeData(state, resolveConflict: resolveMergeConflict);
+      }
+      final version = (message.payload['version'] as num?)?.toInt();
+      if (version != null && version > _version) {
+        _version = version;
+      }
+      _sendReceivedIfNeeded(message);
+    } on Object catch (error) {
+      lastError.value = error;
+    }
+  }
+
   void requestDevices() {
-    transport.send(const SyncMessage(SyncMessageTypes.devicesRequest, {}));
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
+      const SyncMessage(SyncMessageTypes.devicesRequest, {}),
+    );
+  }
+
+  void requestSnapshot({
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
+  }) {
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
+      SyncMessage(SyncMessageTypes.snapshotRequest, {
+        'dataPolicy': dataPolicy.name,
+      }),
+    );
   }
 
   void renameDevice(String deviceId, String name) {
-    transport.send(
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
       SyncMessage(SyncMessageTypes.deviceUpdate, {
         'deviceId': deviceId,
         'name': name,
@@ -157,7 +216,8 @@ class OwnerSyncEngine {
   }
 
   void assignPet(String deviceId, String? petId) {
-    transport.send(
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
       SyncMessage(SyncMessageTypes.deviceUpdate, {
         'deviceId': deviceId,
         'servedPetId': petId,
@@ -166,8 +226,32 @@ class OwnerSyncEngine {
   }
 
   void removeDevice(String deviceId) {
-    transport.send(
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
       SyncMessage(SyncMessageTypes.deviceRemove, {'deviceId': deviceId}),
+    );
+  }
+
+  void retryFailedSync() {
+    _failureQueue.retry();
+  }
+
+  void _sendReceivedIfNeeded(SyncMessage message) {
+    final syncId = message.payload['syncId'];
+    if (syncId is! String || syncId.isEmpty) {
+      return;
+    }
+    _failureQueue.sendOrQueue(SyncMessage(SyncMessageTypes.syncReceived, {
+      'syncId': syncId,
+      'originDeviceId': message.payload['originDeviceId'],
+    }));
+  }
+
+  SyncDataPolicy _snapshotRequestDataPolicy(SyncMessage message) {
+    final rawPolicy = message.payload['dataPolicy'];
+    return SyncDataPolicy.values.firstWhere(
+      (policy) => policy.name == rawPolicy,
+      orElse: () => SyncDataPolicy.merge,
     );
   }
 
@@ -175,7 +259,9 @@ class OwnerSyncEngine {
     _pushTimer?.cancel();
     _subscription?.cancel();
     store.removeListener(_onStoreChanged);
+    _failureQueue.dispose();
     devices.dispose();
     lastError.dispose();
+    failedSyncCount.dispose();
   }
 }
