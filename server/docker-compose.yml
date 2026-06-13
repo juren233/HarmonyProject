@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
+      args:
+        DART_IMAGE: ${DART_IMAGE:-dart:3.6}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
     restart: unless-stopped
     environment:
       PORT: "8787"

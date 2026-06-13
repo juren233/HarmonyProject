@@ -14,6 +14,19 @@ docker compose -f server/docker-compose.yml up -d --build
 
 Compose 的 build context 必须是仓库根目录，因为镜像构建需要同时复制 `server/` 与 `packages/petnote_sync_protocol/`。
 
+如果构建停在 `load metadata for docker.io/library/dart:3.6` 并出现 `DeadlineExceeded`、`i/o timeout`，说明服务器无法稳定访问 Docker Hub，不是 Dart 编译错误。先在服务器确认基础镜像是否能拉取：
+
+```bash
+docker pull dart:3.6
+docker pull debian:bookworm-slim
+```
+
+如果仍然超时，请先配置服务器 Docker daemon 的 registry mirror，或临时用当前服务器可访问的等价镜像覆盖构建参数：
+
+```bash
+DART_IMAGE=<可访问镜像源>/library/dart:3.6 RUNTIME_IMAGE=<可访问镜像源>/library/debian:bookworm-slim docker compose -f server/docker-compose.yml up -d --build
+```
+
 ## 反代 TLS
 
 建议由 Caddy 或 nginx 负责 TLS，服务本身监听 `8787`：
