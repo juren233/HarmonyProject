@@ -77,6 +77,41 @@ void main() {
     expect(find.text('1234'), findsOneWidget);
   });
 
+  testWidgets('Settings 通知重建根 App 时保留设备页路由', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('petnote.juren233.top');
+    final flow = _FakeOwnerPairingFlow(settings, persistPairing: true);
+    final navigatorKey = GlobalKey<NavigatorState>();
+
+    await tester.pumpWidget(
+      _SettingsAwareShell(
+        settingsController: settings,
+        navigatorKey: navigatorKey,
+      ),
+    );
+    await tester.pump();
+
+    navigatorKey.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => DevicesPage(
+          settingsController: settings,
+          ownerPairingFlow: flow,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(DevicesPage), findsOneWidget);
+    expect(find.text('1234'), findsOneWidget);
+    expect(settings.householdId, 'house-1');
+  });
+
   testWidgets('配对成功回调只关闭配对码弹窗而不退出设备页', (tester) async {
     final settings = await AppSettingsController.load();
     await settings.setSyncServerMode(SyncServerMode.custom);
@@ -182,10 +217,35 @@ void main() {
   });
 }
 
+class _SettingsAwareShell extends StatelessWidget {
+  const _SettingsAwareShell({
+    required this.settingsController,
+    required this.navigatorKey,
+  });
+
+  final AppSettingsController settingsController;
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: settingsController,
+      builder: (context, _) {
+        return MaterialApp(
+          navigatorKey: navigatorKey,
+          theme: buildPetNoteTheme(Brightness.light),
+          home: const Scaffold(body: SizedBox.shrink()),
+        );
+      },
+    );
+  }
+}
+
 class _FakeOwnerPairingFlow extends OwnerPairingFlow {
   _FakeOwnerPairingFlow(
     AppSettingsController settingsController, {
     this.expiresAfter = const Duration(minutes: 5),
+    this.persistPairing = false,
     DateTime Function()? now,
   })  : now = now ?? DateTime.now,
         super(
@@ -194,6 +254,7 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
         );
 
   final Duration expiresAfter;
+  final bool persistPairing;
   final DateTime Function() now;
   String? serverUrl;
   PairingPeerJoined? onPeerJoined;
@@ -206,6 +267,15 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
   }) async {
     this.serverUrl = serverUrl;
     this.onPeerJoined = onPeerJoined;
+    if (persistPairing) {
+      await settingsController.saveSyncPairing(
+        serverUrl: serverUrl,
+        householdId: 'house-1',
+        sharedKeyBase64: 'shared-key-1',
+        householdAuthToken: 'auth-token-1',
+        deviceName: deviceName,
+      );
+    }
     return OwnerPairingSession(
       code: '1234',
       expiresAtMs: now().add(expiresAfter).millisecondsSinceEpoch,

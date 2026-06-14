@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +18,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('已有家庭组但无宠物端时仍可向服务端请求配对码', () async {
+  test('已有家庭组但缺少认证 token 时按新家庭组生成配对码', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
     await settings.setSyncServerUrl('ws://127.0.0.1/ws');
@@ -45,7 +46,7 @@ void main() {
         'expiresAtMs': DateTime.now()
             .add(const Duration(minutes: 5))
             .millisecondsSinceEpoch,
-        'householdId': 'house-1',
+        'householdId': 'house-2',
         'hasPetDevice': false,
       }),
     );
@@ -57,7 +58,7 @@ void main() {
       transport.sent
           .singleWhere((message) => message.type == SyncMessageTypes.pairCreate)
           .payload['householdId'],
-      'house-1',
+      isNull,
     );
     expect(
       transport.sent
@@ -65,8 +66,10 @@ void main() {
           .payload['authToken'],
       isNull,
     );
+    expect(settings.householdId, 'house-2');
     expect(settings.householdAuthToken, 'auth-token-1');
-    expect(await secretStore.loadSharedKey(), 'existing-key');
+    expect(await secretStore.loadSharedKey(), isNot('existing-key'));
+    expect(settings.sharedKeyBase64, isNot('existing-key'));
 
     await flow.dispose();
   });
@@ -193,9 +196,41 @@ void main() {
 
     await flow.dispose();
   });
+
+  test('同步服务器握手失败时转换为配对错误并断开连接', () async {
+    final settings = await AppSettingsController.load();
+    final transport = FakePairingTransport(
+      connectError: const HandshakeException('Connection terminated'),
+    );
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+
+    await expectLater(
+      flow.createAsOwner(
+        serverUrl: 'wss://petnote.juren233.top/ws',
+        deviceName: '主人手机',
+      ),
+      throwsA(
+        isA<PairingException>().having(
+          (error) => error.message,
+          'message',
+          '无法连接同步服务器，请检查网络或服务器地址',
+        ),
+      ),
+    );
+
+    expect(transport.disconnected, isTrue);
+    expect(transport.sent, isEmpty);
+  });
 }
 
 class FakePairingTransport implements SyncTransport {
+  FakePairingTransport({this.connectError});
+
+  final Object? connectError;
   final List<SyncMessage> sent = <SyncMessage>[];
   final StreamController<SyncMessage> incoming =
       StreamController<SyncMessage>.broadcast();
@@ -212,14 +247,20 @@ class FakePairingTransport implements SyncTransport {
   ValueListenable<SyncConnectionState> get state => _state;
   final ValueNotifier<SyncConnectionState> _state =
       ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+  bool disconnected = false;
 
   @override
   Future<void> connect() async {
+    final error = connectError;
+    if (error != null) {
+      throw error;
+    }
     _state.value = SyncConnectionState.connected;
   }
 
   @override
   Future<void> disconnect() async {
+    disconnected = true;
     _state.value = SyncConnectionState.disconnected;
   }
 

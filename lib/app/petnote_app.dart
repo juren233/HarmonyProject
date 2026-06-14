@@ -43,6 +43,8 @@ class _PetNoteAppState extends State<PetNoteApp> {
   AppSettingsController? _settingsController;
   late AppVersionInfo _appVersionInfo;
   PetNoteStore? _preloadedStore;
+  final _ownerNavigatorKey = GlobalKey<NavigatorState>();
+  final _petNavigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -129,33 +131,8 @@ class _PetNoteAppState extends State<PetNoteApp> {
     return AnimatedBuilder(
       animation: settingsController,
       builder: (context, _) {
-        final secretStore =
-            widget.aiSecretStore ?? MethodChannelAiSecretStore();
-        final home = settingsController.deviceRole == DeviceRole.pet
-            ? PetDeviceHome(
-                settingsController: settingsController,
-                storeLoader: _loadStore,
-              )
-            : PetNoteRoot(
-                appVersionInfo: _appVersionInfo,
-                settingsController: settingsController,
-                nativePetPhotoPicker: widget.nativePetPhotoPicker,
-                storeLoader: _loadStore,
-                aiSettingsCoordinator: AiSettingsCoordinator(
-                  settingsController: settingsController,
-                  secretStore: secretStore,
-                  connectionTester:
-                      widget.aiConnectionTester ?? AiConnectionTester(),
-                ),
-                aiInsightsService: widget.aiInsightsService ??
-                    NetworkAiInsightsService(
-                      clientFactory: AiClientFactory(
-                        settingsController: settingsController,
-                        secretStore: secretStore,
-                      ),
-                    ),
-              );
         return MaterialApp(
+          navigatorKey: _navigatorKeyFor(settingsController.deviceRole),
           title: _appTaskTitle,
           debugShowCheckedModeBanner: false,
           locale: const Locale('zh', 'CN'),
@@ -171,9 +148,41 @@ class _PetNoteAppState extends State<PetNoteApp> {
           theme: buildPetNoteTheme(Brightness.light),
           darkTheme: buildPetNoteTheme(Brightness.dark),
           themeMode: settingsController.themeMode,
-          home: home,
+          home: _buildHome(settingsController),
         );
       },
+    );
+  }
+
+  GlobalKey<NavigatorState> _navigatorKeyFor(DeviceRole role) {
+    return role == DeviceRole.pet ? _petNavigatorKey : _ownerNavigatorKey;
+  }
+
+  Widget _buildHome(AppSettingsController settingsController) {
+    final secretStore = widget.aiSecretStore ?? MethodChannelAiSecretStore();
+    if (settingsController.deviceRole == DeviceRole.pet) {
+      return PetDeviceHome(
+        settingsController: settingsController,
+        storeLoader: _loadStore,
+      );
+    }
+    return PetNoteRoot(
+      appVersionInfo: _appVersionInfo,
+      settingsController: settingsController,
+      nativePetPhotoPicker: widget.nativePetPhotoPicker,
+      storeLoader: _loadStore,
+      aiSettingsCoordinator: AiSettingsCoordinator(
+        settingsController: settingsController,
+        secretStore: secretStore,
+        connectionTester: widget.aiConnectionTester ?? AiConnectionTester(),
+      ),
+      aiInsightsService: widget.aiInsightsService ??
+          NetworkAiInsightsService(
+            clientFactory: AiClientFactory(
+              settingsController: settingsController,
+              secretStore: secretStore,
+            ),
+          ),
     );
   }
 

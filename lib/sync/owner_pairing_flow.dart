@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/sync/pairing_flow.dart';
@@ -53,6 +54,10 @@ class OwnerPairingFlow {
     final transport = _transportFactory(serverUrl.trim());
     _transport = transport;
     final completer = Completer<SyncMessage>();
+    final existingHouseholdId = settingsController.householdId;
+    final existingAuthToken = settingsController.householdAuthToken;
+    final canReuseExistingHousehold =
+        existingHouseholdId != null && existingAuthToken != null;
     _subscription = transport.messages.listen((message) {
       if (message.type == SyncMessageTypes.pairCreated ||
           message.type == SyncMessageTypes.pairError) {
@@ -76,18 +81,19 @@ class OwnerPairingFlow {
       }
     });
 
-    await transport.connect();
-    transport.send(
-      SyncMessage(SyncMessageTypes.pairCreate, {
-        'householdId': settingsController.householdId,
-        'authToken': settingsController.householdAuthToken,
-        'deviceId': await settingsController.ensureDeviceId(),
-        'deviceName': deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
-        'role': settingsController.deviceRole.name,
-      }),
-    );
-
+    var keepTransportAlive = false;
     try {
+      await transport.connect();
+      transport.send(
+        SyncMessage(SyncMessageTypes.pairCreate, {
+          'householdId': canReuseExistingHousehold ? existingHouseholdId : null,
+          'authToken': canReuseExistingHousehold ? existingAuthToken : null,
+          'deviceId': await settingsController.ensureDeviceId(),
+          'deviceName':
+              deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
+          'role': settingsController.deviceRole.name,
+        }),
+      );
       final message = await completer.future.timeout(timeout);
       if (message.type == SyncMessageTypes.pairError) {
         throw PairingException(message.payload['message'] as String? ?? '配对失败');
@@ -104,8 +110,10 @@ class OwnerPairingFlow {
           expiresAtMs == null) {
         throw const PairingException('配对响应不完整');
       }
-      final existingKey = await _secretStore.loadSharedKey() ??
-          settingsController.sharedKeyBase64;
+      final existingKey = canReuseExistingHousehold
+          ? await _secretStore.loadSharedKey() ??
+              settingsController.sharedKeyBase64
+          : null;
       final sharedKeyBase64 = existingKey ??
           await (await SyncCrypto.deriveFromPairingCode(
             code: code,
@@ -122,13 +130,22 @@ class OwnerPairingFlow {
         householdAuthToken: authToken,
         deviceName: deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
       );
+      keepTransportAlive = true;
       return OwnerPairingSession(
         code: code,
         expiresAtMs: expiresAtMs,
         householdId: householdId,
       );
+    } on PairingException {
+      rethrow;
     } on TimeoutException {
       throw const PairingException('生成配对码超时');
+    } on Object catch (error) {
+      throw PairingException(_connectionFailureMessage(error));
+    } finally {
+      if (!keepTransportAlive) {
+        await dispose();
+      }
     }
   }
 
@@ -139,4 +156,11 @@ class OwnerPairingFlow {
     _transport = null;
     _onPeerJoined = null;
   }
+}
+
+String _connectionFailureMessage(Object error) {
+  if (error is HandshakeException || error is SocketException) {
+    return '无法连接同步服务器，请检查网络或服务器地址';
+  }
+  return '生成配对码失败：$error';
 }

@@ -71,6 +71,7 @@ class SyncClient implements SyncTransport {
         },
       );
     } catch (error) {
+      debugPrint('SyncClient connect failed: $url ${error.runtimeType}: $error');
       _errors.add(error);
       _scheduleReconnect();
       rethrow;
