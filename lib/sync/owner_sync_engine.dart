@@ -40,6 +40,7 @@ class OwnerSyncEngine {
   String? _lastPushedSnapshotKey;
   int _version;
   var _started = false;
+  var _applyingRemoteMutationDepth = 0;
 
   void start({bool pushInitialSnapshot = true}) {
     if (_started) {
@@ -66,6 +67,9 @@ class OwnerSyncEngine {
   }
 
   void _onStoreChanged() {
+    if (_applyingRemoteMutationDepth > 0) {
+      return;
+    }
     _pushTimer?.cancel();
     _pushTimer = Timer(throttle, () {
       unawaited(_pushSnapshot());
@@ -153,11 +157,8 @@ class OwnerSyncEngine {
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
       final action =
           PetAction.fromJson(Map<String, dynamic>.from(decoded as Map));
-      await store.applyPetAction(action);
+      await _applyRemoteStoreMutation(() => store.applyPetAction(action));
       _sendReceivedIfNeeded(message);
-      _failureQueue.sendOrQueue(
-        SyncMessage(SyncMessageTypes.actionAck, {'actionId': actionId}),
-      );
     } on Object catch (error) {
       lastError.value = error;
     }
@@ -173,9 +174,11 @@ class OwnerSyncEngine {
       final state =
           PetNoteDataState.fromJson(Map<String, dynamic>.from(decoded as Map));
       if (message.payload['dataPolicy'] == SyncDataPolicy.remoteWins.name) {
-        await store.replaceAllData(state);
+        await _applyRemoteStoreMutation(() => store.replaceAllData(state));
       } else {
-        await store.mergeData(state, resolveConflict: resolveMergeConflict);
+        await _applyRemoteStoreMutation(
+          () => store.mergeData(state, resolveConflict: resolveMergeConflict),
+        );
       }
       final version = (message.payload['version'] as num?)?.toInt();
       if (version != null && version > _version) {
@@ -184,6 +187,17 @@ class OwnerSyncEngine {
       _sendReceivedIfNeeded(message);
     } on Object catch (error) {
       lastError.value = error;
+    }
+  }
+
+  Future<void> _applyRemoteStoreMutation(
+    Future<void> Function() mutation,
+  ) async {
+    _applyingRemoteMutationDepth += 1;
+    try {
+      await mutation();
+    } finally {
+      _applyingRemoteMutationDepth -= 1;
     }
   }
 

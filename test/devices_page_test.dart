@@ -146,6 +146,36 @@ void main() {
     expect(find.text('客厅平板 已配对 ✓'), findsOneWidget);
   });
 
+  testWidgets('配对成功后按加入端选择保存主人端初始同步策略', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('petnote.juren233.top');
+    final flow = _FakeOwnerPairingFlow(settings);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          ownerPairingFlow: flow,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
+    await tester.pump();
+    await tester.pump();
+
+    flow.joinPeer(
+      'pet-1',
+      '客厅平板',
+      dataPolicy: SyncDataPolicy.remoteWins,
+    );
+    await tester.pump();
+
+    expect(settings.pendingInitialSyncPolicy, SyncDataPolicy.localWins);
+  });
+
   testWidgets('配对码过期后关闭弹窗并需要重新生成', (tester) async {
     final settings = await AppSettingsController.load();
     await settings.setSyncServerMode(SyncServerMode.custom);
@@ -283,7 +313,11 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
     );
   }
 
-  void joinPeer(String deviceId, String deviceName) {
-    onPeerJoined?.call(deviceId, deviceName, SyncDataPolicy.merge);
+  void joinPeer(
+    String deviceId,
+    String deviceName, {
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
+  }) {
+    onPeerJoined?.call(deviceId, deviceName, dataPolicy);
   }
 }

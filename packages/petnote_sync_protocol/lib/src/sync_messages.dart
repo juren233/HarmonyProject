@@ -51,7 +51,7 @@ class SyncMessageTypes {
       'action'; // srv→device {actionId, ciphertext, kind?, sourceType?, itemId?}
   static const actionAck = 'action_ack'; // device→srv {actionId}
   static const syncReceived =
-      'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?}
+      'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?, actionId?, kind?, sourceType?, itemId?}
   // 设备管理
   static const devicesRequest = 'devices_request'; // device→srv {}
   static const devices = 'devices'; // srv→device {devices: [...]}

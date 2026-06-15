@@ -35,6 +35,7 @@ class PetDeviceDashboard extends StatelessWidget {
           child: selectedPet == null
               ? _PetSelector(
                   pets: pets,
+                  syncStatusLabel: syncStatusLabel,
                   onSelectServedPet: onSelectServedPet,
                   onOpenSettings: onOpenSettings,
                 )
@@ -64,11 +65,13 @@ Pet? _findPet(List<Pet> pets, String? petId) {
 class _PetSelector extends StatelessWidget {
   const _PetSelector({
     required this.pets,
+    required this.syncStatusLabel,
     required this.onSelectServedPet,
     required this.onOpenSettings,
   });
 
   final List<Pet> pets;
+  final String syncStatusLabel;
   final ValueChanged<String> onSelectServedPet;
   final VoidCallback onOpenSettings;
 
@@ -102,7 +105,31 @@ class _PetSelector extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 20),
-        for (final pet in pets)
+        if (pets.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  if (syncStatusLabel.contains('同步中') ||
+                      syncStatusLabel.contains('连接中'))
+                    const CircularProgressIndicator()
+                  else
+                    const Icon(Icons.pets, size: 64, color: Colors.white70),
+                  const SizedBox(height: 16),
+                  Text(
+                    syncStatusLabel.contains('同步中') ||
+                            syncStatusLabel.contains('连接中')
+                        ? '正在从主人端同步数据...'
+                        : '还没有添加宠物',
+                    style: const TextStyle(fontSize: 18, color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          for (final pet in pets)
           Card(
             key: ValueKey('dashboard_select_pet_${pet.id}'),
             child: ListTile(

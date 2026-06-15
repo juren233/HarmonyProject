@@ -163,6 +163,14 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
 
   String _syncStatusLabel(SyncService? service) {
     final transport = service?.transport;
+    final controller = service?.petController;
+
+    // 首次同步判断：连接成功但还没有收到过数据
+    if (transport?.state.value == SyncConnectionState.connected &&
+        controller?.lastSyncedAt.value == null) {
+      return '同步中...';
+    }
+
     return switch (transport?.state.value) {
       SyncConnectionState.connected => '已连接',
       SyncConnectionState.connecting => '连接中',

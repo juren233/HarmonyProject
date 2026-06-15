@@ -141,7 +141,7 @@ void main() {
     engine.dispose();
   });
 
-  test('收到 action 后调用 store 并回发 ack', () async {
+  test('收到 action 后调用 store 并回传已收到且不回声快照', () async {
     final store = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
     final crypto = await SyncCrypto.deriveFromPairingCode(
@@ -153,7 +153,7 @@ void main() {
       transport: transport,
       crypto: crypto,
       throttle: const Duration(milliseconds: 50),
-    )..start();
+    )..start(pushInitialSnapshot: false);
 
     final todo =
         store.todos.firstWhere((item) => item.status == TodoStatus.open);
@@ -165,6 +165,8 @@ void main() {
     transport.incoming.add(
       SyncMessage(SyncMessageTypes.action, {
         'actionId': 'action-1',
+        'syncId': 'sync-action-1',
+        'originDeviceId': 'pet-1',
         'ciphertext': await crypto.encryptString(jsonEncode(action.toJson())),
       }),
     );
@@ -172,9 +174,15 @@ void main() {
 
     expect(store.todoById(todo.id)?.status, TodoStatus.done);
     expect(
-      transport.sent
-          .any((message) => message.type == SyncMessageTypes.actionAck),
+      transport.sent.any((message) =>
+          message.type == SyncMessageTypes.syncReceived &&
+          message.payload['syncId'] == 'sync-action-1'),
       isTrue,
+    );
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.snapshotPush),
+      isEmpty,
     );
 
     engine.dispose();
@@ -312,6 +320,11 @@ void main() {
           message.type == SyncMessageTypes.syncReceived &&
           message.payload['syncId'] == 'snapshot-sync-1'),
       isTrue,
+    );
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.snapshotPush),
+      isEmpty,
     );
 
     engine.dispose();

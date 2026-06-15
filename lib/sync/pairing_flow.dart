@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/sync/sync_client.dart';
 import 'package:petnote/sync/sync_secret_store.dart';

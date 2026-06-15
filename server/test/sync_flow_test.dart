@@ -218,6 +218,13 @@ void main() {
       'syncId': replayedAction.payload['syncId'],
       'originDeviceId': replayedAction.payload['originDeviceId'],
     });
+    final petReceipt = await pet.expectType(SyncMessageTypes.syncReceived);
+    expect(petReceipt.payload['syncId'], replayedAction.payload['syncId']);
+    expect(petReceipt.payload['receivedDeviceId'], 'owner-1');
+    expect(petReceipt.payload['actionId'], 'action-1');
+    expect(petReceipt.payload['kind'], PetActionKind.markDone.name);
+    expect(petReceipt.payload['sourceType'], 'todo');
+    expect(petReceipt.payload['itemId'], 'todo-1');
     replayOwner.send(SyncMessageTypes.snapshotRequest, {});
     await replayOwner.expectNoType(SyncMessageTypes.action);
 

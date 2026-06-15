@@ -103,7 +103,7 @@ class PetReplicaController {
       case SyncMessageTypes.deviceConfig:
         await _applyDeviceConfig(message);
       case SyncMessageTypes.syncReceived:
-        break;
+        _applySyncReceived(message);
     }
   }
 
@@ -158,11 +158,14 @@ class PetReplicaController {
       itemId: action.itemId,
       occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
     );
+    final ciphertext =
+        await crypto.encryptString(jsonEncode(outgoing.toJson()));
+    await store.applyPetAction(outgoing);
     retryFailedSync();
     _failureQueue.sendOrQueue(
       SyncMessage(SyncMessageTypes.actionPush, {
         'actionId': actionId,
-        'ciphertext': await crypto.encryptString(jsonEncode(outgoing.toJson())),
+        'ciphertext': ciphertext,
         'kind': outgoing.kind.name,
         'sourceType': outgoing.sourceType,
         'itemId': outgoing.itemId,
@@ -198,6 +201,28 @@ class PetReplicaController {
     } on Object catch (error) {
       lastError.value = error;
     }
+  }
+
+  void _applySyncReceived(SyncMessage message) {
+    final sourceType = message.payload['sourceType'];
+    final itemId = message.payload['itemId'];
+    if (sourceType is! String ||
+        sourceType.isEmpty ||
+        itemId is! String ||
+        itemId.isEmpty) {
+      return;
+    }
+    final itemKey = '$sourceType:$itemId';
+    final kind = message.payload['kind'];
+    if (kind is String && kind.isNotEmpty) {
+      _pendingActionKeys.remove('$itemKey:$kind');
+    } else {
+      _pendingActionKeys.removeWhere((key) => key.startsWith('$itemKey:'));
+    }
+    pendingItemKeys.value = {
+      for (final key in pendingItemKeys.value)
+        if (key != itemKey) key,
+    };
   }
 
   void retryFailedSync() {

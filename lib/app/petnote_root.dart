@@ -87,6 +87,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   _OnboardingEntryPoint _onboardingEntryPoint = _OnboardingEntryPoint.manual;
   _OverlayTransition _overlayTransition = _OverlayTransition.none;
   late final AnimationController _overlayTransitionController;
+  VoidCallback? _settingsListener;
   late final OverviewBottomCtaController _overviewBottomCtaController;
   int? _lastNotificationSyncVersion;
   Future<void> _pendingNotificationSync = Future<void>.value();
@@ -161,6 +162,15 @@ class _PetNoteRootState extends State<PetNoteRoot>
     store.startTimeDerivedDataRefresh();
     final settingsController = widget.settingsController;
     if (settingsController != null) {
+      // 移除旧的监听器
+      if (_settingsListener != null) {
+        settingsController.removeListener(_settingsListener!);
+      }
+      // 添加 settings 监听器，当配对策略变化时重启同步服务
+      _settingsListener = () {
+        unawaited(_restartSyncIfPolicyChanged());
+      };
+      settingsController.addListener(_settingsListener!);
       final syncService =
           SyncService.instance ??= SyncService(settings: settingsController);
       syncService.resolveMergeConflict = (conflict) async {
@@ -174,6 +184,22 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _overlayTransitionController.value = 0;
     _notificationInitializationTask = _initializeNotifications(store);
     unawaited(_notificationInitializationTask!);
+  }
+
+  Future<void> _restartSyncIfPolicyChanged() async {
+    final settingsController = widget.settingsController;
+    final store = _store;
+    if (settingsController == null || store == null) {
+      return;
+    }
+    // 如果有待处理的初始同步策略，重启同步服务以应用该策略
+    if (settingsController.pendingInitialSyncPolicy != null) {
+      final syncService = SyncService.instance;
+      if (syncService != null) {
+        await syncService.stop();
+        await syncService.ensureStartedForOwner(store: store);
+      }
+    }
   }
 
   Future<void> _initializeNotifications(PetNoteStore store) async {
@@ -825,6 +851,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.setNotificationSyncHandler(null);
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
+    if (_settingsListener != null) {
+      widget.settingsController?.removeListener(_settingsListener!);
+      _settingsListener = null;
+    }
     if (widget.settingsController?.deviceRole == DeviceRole.owner) {
       unawaited(SyncService.instance?.stop() ?? Future<void>.value());
     }

@@ -374,18 +374,45 @@ class SessionHandler {
     final originDeviceId = _optionalString(message.payload['originDeviceId']) ??
         event.originDeviceId;
     if (originDeviceId.isNotEmpty && originDeviceId != deviceId) {
+      final receiptPayload = _syncReceivedPayload(
+        event,
+        syncId: syncId,
+        receivedDeviceId: deviceId!,
+      );
       app.hub.sendTo(
         householdId!,
         originDeviceId,
-        SyncMessage(SyncMessageTypes.syncReceived, {
-          'syncId': syncId,
-          'originDeviceId': event.originDeviceId,
-          'receivedDeviceId': deviceId,
-        }).encode(),
+        SyncMessage(SyncMessageTypes.syncReceived, receiptPayload).encode(),
       );
     }
     _pruneReceivedSyncEvents(household);
     unawaited(app.store.flush());
+  }
+
+  Map<String, dynamic> _syncReceivedPayload(
+    SyncEventReceipt event, {
+    required String syncId,
+    required String receivedDeviceId,
+  }) {
+    final payload = <String, dynamic>{
+      'syncId': syncId,
+      'originDeviceId': event.originDeviceId,
+      'receivedDeviceId': receivedDeviceId,
+    };
+    for (final key in <String>[
+      'actionId',
+      'kind',
+      'sourceType',
+      'itemId',
+      'version',
+      'dataPolicy',
+    ]) {
+      final value = event.payload[key];
+      if (value != null) {
+        payload[key] = value;
+      }
+    }
+    return payload;
   }
 
   void _sendDevices() {

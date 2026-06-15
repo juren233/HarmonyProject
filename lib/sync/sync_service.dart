@@ -38,6 +38,7 @@ class SyncService extends ChangeNotifier {
   PetReplicaController? petController;
   DeviceRole? _activeRole;
   void Function()? _transportStateListener;
+  bool _initialConnectionCompleted = false;
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
@@ -79,6 +80,10 @@ class SyncService extends ChangeNotifier {
     )..start(pushInitialSnapshot: false);
     _activeRole = DeviceRole.owner;
     notifyListeners();
+
+    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    await settings.setPendingInitialSyncPolicy(null);
+
     await transport.connect();
     _sendHello(
       transport: transport,
@@ -90,20 +95,22 @@ class SyncService extends ChangeNotifier {
       config: config,
       role: DeviceRole.owner,
     );
-    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
-    await settings.setPendingInitialSyncPolicy(null);
+
+    // 首次连接完成后，根据配对时选择的策略执行同步
     if (policy == SyncDataPolicy.remoteWins) {
+      // 以对方为准：请求对方数据并覆盖本机
       ownerEngine?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
-    } else {
+    } else if (policy == SyncDataPolicy.localWins) {
+      // 以本机为准：推送本机数据覆盖对方
       await ownerEngine?.pushSnapshotNow(
-        dataPolicy: policy == SyncDataPolicy.localWins
-            ? SyncDataPolicy.remoteWins
-            : SyncDataPolicy.merge,
+        dataPolicy: SyncDataPolicy.remoteWins,
       );
-      if (policy == SyncDataPolicy.merge) {
-        ownerEngine?.requestSnapshot();
-      }
+    } else {
+      // 合并：双向传输，对方没有的数据会被添加
+      await ownerEngine?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
+      ownerEngine?.requestSnapshot();
     }
+    _initialConnectionCompleted = true;
   }
 
   Future<void> ensureStartedForPet({required PetNoteStore store}) async {
@@ -128,6 +135,10 @@ class SyncService extends ChangeNotifier {
     )..start(requestInitialSnapshot: false);
     _activeRole = DeviceRole.pet;
     notifyListeners();
+
+    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    await settings.setPendingInitialSyncPolicy(null);
+
     await transport.connect();
     _sendHello(
       transport: transport,
@@ -139,21 +150,22 @@ class SyncService extends ChangeNotifier {
       config: config,
       role: DeviceRole.pet,
     );
-    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
-    await settings.setPendingInitialSyncPolicy(null);
+
+    // 首次连接完成后，根据配对时选择的策略执行同步
     if (policy == SyncDataPolicy.localWins) {
+      // 以本机为准：推送本机数据覆盖对方
       await petController?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.remoteWins);
-    } else {
+    } else if (policy == SyncDataPolicy.remoteWins) {
+      // 以对方为准：请求对方数据并覆盖本机
       petController?.requestSnapshot(
-        dataPolicy: policy == SyncDataPolicy.remoteWins
-            ? SyncDataPolicy.remoteWins
-            : SyncDataPolicy.merge,
-      );
-      if (policy == SyncDataPolicy.merge) {
-        await petController?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
-      }
+        dataPolicy: SyncDataPolicy.remoteWins);
+    } else {
+      // 合并：双向传输，对方没有的数据会被添加
+      petController?.requestSnapshot(dataPolicy: SyncDataPolicy.merge);
+      await petController?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
     }
+    _initialConnectionCompleted = true;
   }
 
   Future<void> stop() async {
@@ -171,6 +183,7 @@ class SyncService extends ChangeNotifier {
     await _transport?.disconnect();
     _transport = null;
     _activeRole = null;
+    _initialConnectionCompleted = false;
     if (shouldNotify) {
       notifyListeners();
     }
@@ -211,13 +224,19 @@ class SyncService extends ChangeNotifier {
         return;
       }
       _sendHello(transport: transport, config: config, role: role);
-      switch (role) {
-        case DeviceRole.owner:
-          ownerEngine?.requestSnapshot();
-        case DeviceRole.pet:
-          petController?.requestSnapshot();
-        case DeviceRole.undecided:
-          break;
+
+      // 只在重连时（非首次连接）主动请求快照
+      if (_initialConnectionCompleted) {
+        switch (role) {
+          case DeviceRole.owner:
+            ownerEngine?.retryFailedSync();
+            ownerEngine?.requestSnapshot();
+          case DeviceRole.pet:
+            petController?.retryFailedSync();
+            petController?.requestSnapshot();
+          case DeviceRole.undecided:
+            break;
+        }
       }
     }
 

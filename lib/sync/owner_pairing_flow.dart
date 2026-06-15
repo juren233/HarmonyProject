@@ -8,7 +8,7 @@ import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
-typedef PairingPeerJoined = void Function(
+typedef PairingPeerJoined = FutureOr<void> Function(
   String deviceId,
   String deviceName,
   SyncDataPolicy dataPolicy,
@@ -73,7 +73,9 @@ class OwnerPairingFlow {
           (policy) => policy.name == message.payload['dataPolicy'],
           orElse: () => SyncDataPolicy.merge,
         );
-        _onPeerJoined?.call(deviceId, peerName, dataPolicy);
+        unawaited(Future<void>.sync(() async {
+          await _onPeerJoined?.call(deviceId, peerName, dataPolicy);
+        }));
       }
     }, onError: (Object error) {
       if (!completer.isCompleted) {
@@ -89,8 +91,7 @@ class OwnerPairingFlow {
           'householdId': canReuseExistingHousehold ? existingHouseholdId : null,
           'authToken': canReuseExistingHousehold ? existingAuthToken : null,
           'deviceId': await settingsController.ensureDeviceId(),
-          'deviceName':
-              deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
+          'deviceName': deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
           'role': settingsController.deviceRole.name,
         }),
       );

@@ -166,12 +166,68 @@ void main() {
     expect(actionMessages.single.payload['kind'], PetActionKind.markDone.name);
     expect(actionMessages.single.payload['sourceType'], 'todo');
     expect(actionMessages.single.payload['itemId'], 'todo-1');
+    expect(replicaStore.todoById('todo-1')?.status, TodoStatus.done);
     expect(controller.pendingItemKeys.value, contains('todo:todo-1'));
 
     controller.dispose();
   });
 
-  test('收到快照后释放 action 去重并允许重新发送', () async {
+  test('本地先应用完成延后跳过后收到同状态快照不触发冲突', () async {
+    const scenarios = <PetActionKind, TodoStatus>{
+      PetActionKind.markDone: TodoStatus.done,
+      PetActionKind.postpone: TodoStatus.postponed,
+      PetActionKind.skip: TodoStatus.skipped,
+    };
+
+    for (final scenario in scenarios.entries) {
+      final ownerStore = PetNoteStore.seeded();
+      final replicaStore = PetNoteStore.seeded();
+      final transport = FakeSyncTransport();
+      final crypto = await SyncCrypto.deriveFromPairingCode(
+        code: '123456',
+        saltBase64: SyncCrypto.generateSaltBase64(),
+      );
+      var conflictCount = 0;
+      final controller = PetReplicaController(
+        store: replicaStore,
+        transport: transport,
+        crypto: crypto,
+        resolveMergeConflict: (value) async {
+          conflictCount += 1;
+          return SyncMergeSide.remote;
+        },
+      )..start(requestInitialSnapshot: false);
+      final action = PetAction(
+        kind: scenario.key,
+        sourceType: 'todo',
+        itemId: 'todo-1',
+      );
+
+      await controller.sendAction(action);
+      await ownerStore.applyPetAction(action);
+      transport.incoming.add(
+        SyncMessage(SyncMessageTypes.snapshot, {
+          'version': 2,
+          'ciphertext': await crypto
+              .encryptString(jsonEncode(ownerStore.exportDataState().toJson())),
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await controller.sendAction(action);
+
+      final actionMessages = transport.sent
+          .where((message) => message.type == SyncMessageTypes.actionPush)
+          .toList();
+      expect(replicaStore.todoById('todo-1')?.status, scenario.value);
+      expect(conflictCount, 0);
+      expect(controller.pendingItemKeys.value, isNot(contains('todo:todo-1')));
+      expect(actionMessages, hasLength(1));
+
+      controller.dispose();
+    }
+  });
+
+  test('收到 action 已送达回执后释放 pending', () async {
     final replicaStore = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
     final crypto = await SyncCrypto.deriveFromPairingCode(
@@ -183,28 +239,29 @@ void main() {
       transport: transport,
       crypto: crypto,
     )..start(requestInitialSnapshot: false);
-    const action = PetAction(
-      kind: PetActionKind.markDone,
-      sourceType: 'todo',
-      itemId: 'todo-1',
-    );
 
-    await controller.sendAction(action);
+    await controller.sendAction(
+      const PetAction(
+        kind: PetActionKind.markDone,
+        sourceType: 'todo',
+        itemId: 'todo-1',
+      ),
+    );
+    expect(controller.pendingItemKeys.value, contains('todo:todo-1'));
+
     transport.incoming.add(
-      SyncMessage(SyncMessageTypes.snapshot, {
-        'version': 2,
-        'ciphertext': await crypto
-            .encryptString(jsonEncode(replicaStore.exportDataState().toJson())),
+      const SyncMessage(SyncMessageTypes.syncReceived, {
+        'syncId': 'sync-action-1',
+        'actionId': 'action-1',
+        'kind': 'markDone',
+        'sourceType': 'todo',
+        'itemId': 'todo-1',
+        'receivedDeviceId': 'owner-1',
       }),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    await controller.sendAction(action);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    final actionMessages = transport.sent
-        .where((message) => message.type == SyncMessageTypes.actionPush)
-        .toList();
-    expect(controller.pendingItemKeys.value, contains('todo:todo-1'));
-    expect(actionMessages, hasLength(2));
+    expect(controller.pendingItemKeys.value, isNot(contains('todo:todo-1')));
 
     controller.dispose();
   });

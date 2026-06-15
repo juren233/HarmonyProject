@@ -181,19 +181,19 @@ class _DevicesPageState extends State<DevicesPage> {
       final session = await flow.createAsOwner(
         serverUrl: serverUrl,
         deviceName: widget.settingsController.deviceName ?? '主人设备',
-        onPeerJoined: (_, name, dataPolicy) {
-          if (dataPolicy != SyncDataPolicy.localWins) {
-            SyncService.instance?.ownerEngine?.pushSnapshotNow(
-              dataPolicy: dataPolicy == SyncDataPolicy.remoteWins
-                  ? SyncDataPolicy.remoteWins
-                  : SyncDataPolicy.merge,
+        onPeerJoined: (_, name, petDataPolicy) async {
+          final ownerPolicy = ownerInitialPolicyForPeerSelection(petDataPolicy);
+          if (SyncService.instance?.ownerEngine != null) {
+            await _applyOwnerInitialSyncPolicy(ownerPolicy);
+          } else {
+            await widget.settingsController.setPendingInitialSyncPolicy(
+              ownerPolicy,
             );
           }
-          final dialogContext = _pairingDialogContext;
-          if (dialogContext != null) {
-            Navigator.of(dialogContext).pop();
-            _pairingDialogContext = null;
+          if (!mounted) {
+            return;
           }
+          _closePairingDialog();
           messenger.showSnackBar(SnackBar(content: Text('$name 已配对 ✓')));
         },
       );
@@ -315,6 +315,34 @@ class _DevicesPageState extends State<DevicesPage> {
     }
     return '未指定';
   }
+
+  Future<void> _applyOwnerInitialSyncPolicy(SyncDataPolicy policy) async {
+    final engine = SyncService.instance?.ownerEngine;
+    if (engine == null) {
+      return;
+    }
+    if (policy == SyncDataPolicy.remoteWins) {
+      engine.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
+      return;
+    }
+    if (policy == SyncDataPolicy.localWins) {
+      await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.remoteWins);
+      return;
+    }
+    await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
+    engine.requestSnapshot(dataPolicy: SyncDataPolicy.merge);
+  }
+}
+
+/// 将加入端选择转换为主人端应执行的初始同步策略。
+SyncDataPolicy ownerInitialPolicyForPeerSelection(SyncDataPolicy peerPolicy) {
+  if (peerPolicy == SyncDataPolicy.remoteWins) {
+    return SyncDataPolicy.localWins;
+  }
+  if (peerPolicy == SyncDataPolicy.localWins) {
+    return SyncDataPolicy.remoteWins;
+  }
+  return SyncDataPolicy.merge;
 }
 
 class _DeviceRow extends StatelessWidget {
