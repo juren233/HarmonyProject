@@ -152,6 +152,65 @@ void main() {
     await flow.dispose();
   });
 
+  test('旧家庭认证被拒绝时清除配对并重新生成新家庭配对码', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('removed-house');
+    await settings.setHouseholdAuthToken('removed-auth-token');
+    await settings.setSharedKeyBase64('removed-shared-key');
+    final transports = <FakePairingTransport>[];
+    final secretStore = InMemorySyncSecretStore();
+    await secretStore.saveSharedKey('removed-shared-key');
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakePairingTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+
+    final future = flow.createAsOwner(
+      serverUrl: 'ws://127.0.0.1/ws',
+      deviceName: '主人手机',
+    );
+    await Future<void>.delayed(Duration.zero);
+    transports.first.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}),
+    );
+    await Future<void>.delayed(Duration.zero);
+    transports.last.incoming.add(
+      SyncMessage(SyncMessageTypes.pairCreated, {
+        'code': '5678',
+        'saltBase64': SyncCrypto.generateSaltBase64(),
+        'authToken': 'auth-token-2',
+        'expiresAtMs': DateTime.now()
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'householdId': 'house-2',
+        'hasPetDevice': false,
+      }),
+    );
+
+    final session = await future;
+
+    expect(session.code, '5678');
+    expect(transports, hasLength(2));
+    expect(
+      transports.first.sent.single.payload['householdId'],
+      'removed-house',
+    );
+    expect(transports.last.sent.single.payload['householdId'], isNull);
+    expect(transports.last.sent.single.payload['authToken'], isNull);
+    expect(settings.householdId, 'house-2');
+    expect(settings.householdAuthToken, 'auth-token-2');
+    expect(await secretStore.loadSharedKey(), isNot('removed-shared-key'));
+
+    await flow.dispose();
+  });
+
   test('已配对宠物端重新生成配对码时保留当前设备角色', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.pet);

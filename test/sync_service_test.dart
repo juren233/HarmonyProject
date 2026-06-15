@@ -432,6 +432,38 @@ void main() {
     await service.stop();
   });
 
+  test('owner 收到当前设备被移除配置时清除本地配对', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.householdId, isNull);
+    expect(settings.householdAuthToken, isNull);
+
+    await service.stop();
+  });
+
   test('连接恢复后重新发送 hello 并主动请求同步', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);

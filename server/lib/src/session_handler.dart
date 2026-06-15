@@ -420,6 +420,7 @@ class SessionHandler {
     if (household == null) return;
     _send(SyncMessage(SyncMessageTypes.devices, {
       'devices': household.devices.values
+          .where((device) => device.deviceId != deviceId)
           .map((device) => SyncedDeviceInfo(
                 deviceId: device.deviceId,
                 name: device.name,
@@ -474,6 +475,10 @@ class SessionHandler {
     if (!_requireRole('owner')) return;
     final removedDeviceId = _requiredString(message, 'deviceId');
     if (removedDeviceId == null) return;
+    if (removedDeviceId == deviceId) {
+      _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
+      return;
+    }
     household.devices.remove(removedDeviceId);
     app.hub.sendTo(
       householdId!,

@@ -81,6 +81,7 @@ class SyncService extends ChangeNotifier {
       transport: transport,
       crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
       resolveMergeConflict: resolveMergeConflict,
+      settings: settings,
     )..start(pushInitialSnapshot: false);
     _activeRole = DeviceRole.owner;
     notifyListeners();

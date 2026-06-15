@@ -18,6 +18,7 @@ class DevicesPage extends StatefulWidget {
     this.store,
     this.initialDevices,
     this.ownerPairingFlow,
+    this.pairingFlow,
     DateTime Function()? now,
     OfficialSyncServerResolver? officialServerResolver,
   })  : officialServerResolver =
@@ -28,6 +29,7 @@ class DevicesPage extends StatefulWidget {
   final PetNoteStore? store;
   final List<SyncedDeviceInfo>? initialDevices;
   final OwnerPairingFlow? ownerPairingFlow;
+  final PairingFlow? pairingFlow;
   final DateTime Function() now;
   final OfficialSyncServerResolver officialServerResolver;
 
@@ -78,8 +80,12 @@ class _DevicesPageState extends State<DevicesPage> {
           child: AnimatedBuilder(
             animation: engine?.devices ?? const AlwaysStoppedAnimation(null),
             builder: (context, _) {
-              final devices =
-                  widget.initialDevices ?? engine?.devices.value ?? const [];
+              final currentDeviceId = widget.settingsController.deviceId;
+              final devices = (widget.initialDevices ??
+                      engine?.devices.value ??
+                      const <SyncedDeviceInfo>[])
+                  .where((device) => device.deviceId != currentDeviceId)
+                  .toList(growable: false);
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                 children: [
@@ -130,23 +136,30 @@ class _DevicesPageState extends State<DevicesPage> {
                   ),
                   SectionCard(
                     title: '已配对设备',
-                    children: devices.isEmpty
-                        ? const [ListRow(title: '暂无设备', subtitle: '未配对')]
-                        : [
-                            for (final device in devices)
-                              _DeviceRow(
-                                key: ValueKey('device_item_${device.deviceId}'),
-                                device: device,
-                                petName: _petName(device.servedPetId),
-                                onRename: (name) =>
-                                    engine?.renameDevice(device.deviceId, name),
-                                onAssignPet: (petId) =>
-                                    engine?.assignPet(device.deviceId, petId),
-                                onRemove: () =>
-                                    engine?.removeDevice(device.deviceId),
-                                pets: widget.store?.pets ?? const <Pet>[],
-                              ),
-                          ],
+                    children: [
+                      ListRow(
+                        key: const ValueKey('devices_join_code_entry'),
+                        title: '输入配对码',
+                        subtitle: '加入另一台设备',
+                        onTap: _showJoinCodeDialog,
+                      ),
+                      if (devices.isEmpty)
+                        const ListRow(title: '暂无设备', subtitle: '未配对')
+                      else
+                        for (final device in devices)
+                          _DeviceRow(
+                            key: ValueKey('device_item_${device.deviceId}'),
+                            device: device,
+                            petName: _petName(device.servedPetId),
+                            onRename: (name) =>
+                                engine?.renameDevice(device.deviceId, name),
+                            onAssignPet: (petId) =>
+                                engine?.assignPet(device.deviceId, petId),
+                            onRemove: () =>
+                                engine?.removeDevice(device.deviceId),
+                            pets: widget.store?.pets ?? const <Pet>[],
+                          ),
+                    ],
                   ),
                 ],
               );
@@ -234,6 +247,115 @@ class _DevicesPageState extends State<DevicesPage> {
     await widget.settingsController.setSyncServerUrl(serverUrl);
     _serverController.text = serverUrl;
     return serverUrl;
+  }
+
+  Future<void> _showJoinCodeDialog() async {
+    final codeController = TextEditingController();
+    var selectedPolicy = SyncDataPolicy.merge;
+    var joining = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              final messenger = ScaffoldMessenger.of(dialogContext);
+              final navigator = Navigator.of(dialogContext);
+              setDialogState(() => joining = true);
+              var dialogClosed = false;
+              try {
+                final serverUrl = await _resolveServerUrl();
+                final flow = widget.pairingFlow ??
+                    PairingFlow(
+                      settingsController: widget.settingsController,
+                    );
+                await flow.joinAsPet(
+                  serverUrl: serverUrl,
+                  code: codeController.text,
+                  deviceName:
+                      widget.settingsController.deviceName ?? '当前设备',
+                  dataPolicy: selectedPolicy,
+                );
+                if (!mounted) {
+                  return;
+                }
+                navigator.pop();
+                dialogClosed = true;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('配对成功')),
+                );
+              } on PairingException catch (error) {
+                messenger.showSnackBar(SnackBar(content: Text(error.message)));
+              } on OfficialSyncServerException catch (error) {
+                messenger.showSnackBar(SnackBar(content: Text(error.message)));
+              } finally {
+                if (mounted && !dialogClosed) {
+                  setDialogState(() => joining = false);
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('输入配对码'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    key: const ValueKey('devices_join_code_field'),
+                    controller: codeController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 4,
+                    decoration: const InputDecoration(
+                      labelText: '配对码',
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _PairingPolicyRow(
+                    key: const ValueKey('devices_join_policy_remote'),
+                    title: '以另一台设备为准',
+                    selected: selectedPolicy == SyncDataPolicy.remoteWins,
+                    onTap: () => setDialogState(
+                      () => selectedPolicy = SyncDataPolicy.remoteWins,
+                    ),
+                  ),
+                  _PairingPolicyRow(
+                    key: const ValueKey('devices_join_policy_local'),
+                    title: '以当前设备为准',
+                    selected: selectedPolicy == SyncDataPolicy.localWins,
+                    onTap: () => setDialogState(
+                      () => selectedPolicy = SyncDataPolicy.localWins,
+                    ),
+                  ),
+                  _PairingPolicyRow(
+                    key: const ValueKey('devices_join_policy_merge'),
+                    title: '合并数据',
+                    selected: selectedPolicy == SyncDataPolicy.merge,
+                    onTap: () => setDialogState(
+                      () => selectedPolicy = SyncDataPolicy.merge,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      joining ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  key: const ValueKey('devices_join_submit'),
+                  onPressed: joining ? null : submit,
+                  child: Text(joining ? '配对中' : '开始配对'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    codeController.dispose();
   }
 
   void _showCodeDialog(OwnerPairingSession session) {
@@ -331,6 +453,59 @@ class _DevicesPageState extends State<DevicesPage> {
     }
     await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
     engine.requestSnapshot(dataPolicy: SyncDataPolicy.merge);
+  }
+}
+
+class _PairingPolicyRow extends StatelessWidget {
+  const _PairingPolicyRow({
+    super.key,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    final colorScheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.10)
+              : tokens.listRowBackground,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? colorScheme.primary : Colors.transparent,
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: tokens.primaryText,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            Icon(
+              selected ? Icons.check_circle : Icons.circle_outlined,
+              color: selected ? colorScheme.primary : tokens.secondaryText,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

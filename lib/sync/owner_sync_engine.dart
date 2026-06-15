@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_failure_queue.dart';
 import 'package:petnote/sync/sync_transport.dart';
@@ -14,6 +15,7 @@ class OwnerSyncEngine {
     required this.transport,
     required this.crypto,
     this.resolveMergeConflict,
+    this.settings,
     this.throttle = const Duration(seconds: 2),
     int? initialVersion,
   }) : _version =
@@ -23,6 +25,7 @@ class OwnerSyncEngine {
   final SyncTransport transport;
   final SyncCrypto crypto;
   final SyncMergeConflictResolver? resolveMergeConflict;
+  final AppSettingsController? settings;
   final Duration throttle;
 
   final ValueNotifier<List<SyncedDeviceInfo>> devices =
@@ -115,6 +118,8 @@ class OwnerSyncEngine {
         );
       case SyncMessageTypes.devices:
         _applyDevices(message);
+      case SyncMessageTypes.deviceConfig:
+        await _applyDeviceConfig(message);
       case SyncMessageTypes.syncReceived:
         break;
     }
@@ -141,6 +146,12 @@ class OwnerSyncEngine {
           .toList(growable: false);
     } on Object catch (error) {
       lastError.value = error;
+    }
+  }
+
+  Future<void> _applyDeviceConfig(SyncMessage message) async {
+    if (message.payload['removed'] == true) {
+      await settings?.clearSyncPairing();
     }
   }
 

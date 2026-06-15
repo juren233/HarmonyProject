@@ -6,6 +6,7 @@ import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/owner_pairing_flow.dart';
+import 'package:petnote/sync/pairing_flow.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -245,6 +246,98 @@ void main() {
     expect(find.text('重命名'), findsOneWidget);
     expect(find.text('解绑'), findsOneWidget);
   });
+
+  testWidgets('已配对设备列表顶部展示输入配对码入口', (tester) async {
+    final settings = await AppSettingsController.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          initialDevices: [
+            SyncedDeviceInfo(
+              deviceId: 'pet-device',
+              name: '客厅平板',
+              role: 'pet',
+              online: true,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final entryFinder = find.byKey(const ValueKey('devices_join_code_entry'));
+    final deviceFinder = find.byKey(const ValueKey('device_item_pet-device'));
+
+    expect(entryFinder, findsOneWidget);
+    expect(deviceFinder, findsOneWidget);
+    expect(
+      tester.getTopLeft(entryFinder).dy,
+      lessThan(tester.getTopLeft(deviceFinder).dy),
+    );
+  });
+
+  testWidgets('主人端可通过已配对列表入口输入配对码', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setDeviceName('我的手机');
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('petnote.juren233.top');
+    final flow = _FakePairingFlow(settings);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          pairingFlow: flow,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('devices_join_code_entry')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('devices_join_code_field')),
+      '4321',
+    );
+    await tester.tap(find.byKey(const ValueKey('devices_join_policy_remote')));
+    await tester.tap(find.byKey(const ValueKey('devices_join_submit')));
+    await tester.pump();
+
+    expect(flow.serverUrl, 'wss://petnote.juren233.top/ws');
+    expect(flow.code, '4321');
+    expect(flow.deviceName, '我的手机');
+    expect(flow.dataPolicy, SyncDataPolicy.remoteWins);
+    expect(settings.deviceRole, DeviceRole.owner);
+  });
+
+  testWidgets('设备列表不展示当前设备', (tester) async {
+    final settings = await AppSettingsController.load();
+    final currentDeviceId = await settings.ensureDeviceId();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          initialDevices: [
+            SyncedDeviceInfo(
+              deviceId: currentDeviceId,
+              name: '本机',
+              role: 'owner',
+              online: true,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.byKey(ValueKey('device_item_$currentDeviceId')), findsNothing);
+    expect(find.text('暂无设备'), findsOneWidget);
+    expect(find.text('未配对'), findsOneWidget);
+  });
 }
 
 class _SettingsAwareShell extends StatelessWidget {
@@ -268,6 +361,32 @@ class _SettingsAwareShell extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _FakePairingFlow extends PairingFlow {
+  _FakePairingFlow(AppSettingsController settingsController)
+      : super(
+          settingsController: settingsController,
+          transportFactory: (_) => throw StateError('测试不应建立真实同步连接'),
+        );
+
+  String? serverUrl;
+  String? code;
+  String? deviceName;
+  SyncDataPolicy? dataPolicy;
+
+  @override
+  Future<void> joinAsPet({
+    required String serverUrl,
+    required String code,
+    required String deviceName,
+    SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
+  }) async {
+    this.serverUrl = serverUrl;
+    this.code = code;
+    this.deviceName = deviceName;
+    this.dataPolicy = dataPolicy;
   }
 }
 

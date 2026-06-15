@@ -4,13 +4,19 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/owner_sync_engine.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
 
   test('启动后立即推送当前全量快照', () async {
     final store = PetNoteStore.seeded();
@@ -498,6 +504,37 @@ void main() {
         contains(SyncMessageTypes.deviceUpdate));
     expect(transport.sent.map((message) => message.type),
         contains(SyncMessageTypes.deviceRemove));
+
+    engine.dispose();
+  });
+
+  test('当前设备被移除时清除本地配对', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerUrl('wss://example.com/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setSharedKeyBase64('shared-key');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.householdId, isNull);
+    expect(settings.sharedKeyBase64, isNull);
+    expect(settings.householdAuthToken, isNull);
 
     engine.dispose();
   });

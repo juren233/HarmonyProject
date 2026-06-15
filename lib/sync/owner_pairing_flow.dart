@@ -49,6 +49,20 @@ class OwnerPairingFlow {
     required String deviceName,
     PairingPeerJoined? onPeerJoined,
   }) async {
+    return _createAsOwner(
+      serverUrl: serverUrl,
+      deviceName: deviceName,
+      onPeerJoined: onPeerJoined,
+      retryAfterForbidden: true,
+    );
+  }
+
+  Future<OwnerPairingSession> _createAsOwner({
+    required String serverUrl,
+    required String deviceName,
+    PairingPeerJoined? onPeerJoined,
+    required bool retryAfterForbidden,
+  }) async {
     await dispose();
     _onPeerJoined = onPeerJoined;
     final transport = _transportFactory(serverUrl.trim());
@@ -97,7 +111,20 @@ class OwnerPairingFlow {
       );
       final message = await completer.future.timeout(timeout);
       if (message.type == SyncMessageTypes.pairError) {
-        throw PairingException(message.payload['message'] as String? ?? '配对失败');
+        final errorMessage = message.payload['message'] as String? ?? '配对失败';
+        if (retryAfterForbidden &&
+            canReuseExistingHousehold &&
+            errorMessage == 'forbidden') {
+          await settingsController.clearSyncPairing();
+          keepTransportAlive = true;
+          return _createAsOwner(
+            serverUrl: serverUrl,
+            deviceName: deviceName,
+            onPeerJoined: onPeerJoined,
+            retryAfterForbidden: false,
+          );
+        }
+        throw PairingException(errorMessage);
       }
       final code = message.payload['code'] as String?;
       final saltBase64 = message.payload['saltBase64'] as String?;

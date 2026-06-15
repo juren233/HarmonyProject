@@ -234,7 +234,12 @@ void main() {
     expect(
       (devices.payload['devices'] as List<dynamic>)
           .map((device) => (device as Map<String, dynamic>)['deviceId']),
-      containsAll(<String>['owner-1', 'pet-1']),
+      contains('pet-1'),
+    );
+    expect(
+      (devices.payload['devices'] as List<dynamic>)
+          .map((device) => (device as Map<String, dynamic>)['deviceId']),
+      isNot(contains('owner-1')),
     );
 
     replayOwner.send(SyncMessageTypes.deviceUpdate, {
@@ -269,6 +274,41 @@ void main() {
     expect(persisted, contains('encrypted-action'));
     expect(persisted, contains('completedActions'));
     expect(persisted, isNot(contains('"syncEvents":{"')));
+  });
+
+  test('主人端不能在设备管理里移除当前设备', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.deviceRemove, {'deviceId': 'owner-1'});
+    expect(
+      (await owner.expectType(SyncMessageTypes.pairError)).payload['message'],
+      'forbidden',
+    );
+
+    owner.send(SyncMessageTypes.devicesRequest, {});
+    final devices = await owner.expectType(SyncMessageTypes.devices);
+    expect(
+      (devices.payload['devices'] as List<dynamic>)
+          .map((device) => (device as Map<String, dynamic>)['deviceId']),
+      isNot(contains('owner-1')),
+    );
   });
 
   test('宠物端能中转快照和查看设备列表但不能移除设备', () async {
@@ -310,7 +350,12 @@ void main() {
     expect(
       (devices.payload['devices'] as List<dynamic>)
           .map((device) => (device as Map<String, dynamic>)['deviceId']),
-      containsAll(<String>['owner-1', 'pet-1']),
+      contains('owner-1'),
+    );
+    expect(
+      (devices.payload['devices'] as List<dynamic>)
+          .map((device) => (device as Map<String, dynamic>)['deviceId']),
+      isNot(contains('pet-1')),
     );
 
     pet.send(SyncMessageTypes.deviceRemove, {'deviceId': 'owner-1'});
@@ -527,11 +572,16 @@ void main() {
     for (final client in <TestClient>[owner, firstPetSession]) {
       client.send(SyncMessageTypes.devicesRequest, {});
       final devices = await client.expectType(SyncMessageTypes.devices);
-      expect(
-        (devices.payload['devices'] as List<dynamic>)
-            .map((device) => (device as Map<String, dynamic>)['deviceId']),
-        containsAll(<String>['owner-1', 'pet-1', 'pet-2']),
-      );
+      final deviceIds = (devices.payload['devices'] as List<dynamic>)
+          .map((device) => (device as Map<String, dynamic>)['deviceId'])
+          .toList();
+      if (client == owner) {
+        expect(deviceIds, isNot(contains('owner-1')));
+        expect(deviceIds, containsAll(<String>['pet-1', 'pet-2']));
+      } else {
+        expect(deviceIds, isNot(contains('pet-1')));
+        expect(deviceIds, containsAll(<String>['owner-1', 'pet-2']));
+      }
     }
   });
 
