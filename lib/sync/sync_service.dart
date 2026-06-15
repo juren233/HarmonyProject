@@ -60,11 +60,15 @@ class SyncService extends ChangeNotifier {
     if (store == null) {
       return;
     }
+    final pendingPolicy = settings.pendingInitialSyncPolicy;
     if (_activeRole == DeviceRole.pet) {
       await stop();
     }
     if (isActive) {
-      return;
+      if (pendingPolicy == null) {
+        return;
+      }
+      await stop();
     }
     final config = await _loadConfig();
     if (config == null) {
@@ -81,7 +85,7 @@ class SyncService extends ChangeNotifier {
     _activeRole = DeviceRole.owner;
     notifyListeners();
 
-    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    final policy = pendingPolicy ?? SyncDataPolicy.merge;
     await settings.setPendingInitialSyncPolicy(null);
 
     await transport.connect();
@@ -114,11 +118,15 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<void> ensureStartedForPet({required PetNoteStore store}) async {
+    final pendingPolicy = settings.pendingInitialSyncPolicy;
     if (_activeRole == DeviceRole.owner) {
       await stop();
     }
     if (isActive) {
-      return;
+      if (pendingPolicy == null) {
+        return;
+      }
+      await stop();
     }
     final config = await _loadConfig();
     if (config == null) {
@@ -136,7 +144,7 @@ class SyncService extends ChangeNotifier {
     _activeRole = DeviceRole.pet;
     notifyListeners();
 
-    final policy = settings.pendingInitialSyncPolicy ?? SyncDataPolicy.merge;
+    final policy = pendingPolicy ?? SyncDataPolicy.merge;
     await settings.setPendingInitialSyncPolicy(null);
 
     await transport.connect();
@@ -158,8 +166,7 @@ class SyncService extends ChangeNotifier {
           dataPolicy: SyncDataPolicy.remoteWins);
     } else if (policy == SyncDataPolicy.remoteWins) {
       // 以对方为准：请求对方数据并覆盖本机
-      petController?.requestSnapshot(
-        dataPolicy: SyncDataPolicy.remoteWins);
+      petController?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
     } else {
       // 合并：双向传输，对方没有的数据会被添加
       petController?.requestSnapshot(dataPolicy: SyncDataPolicy.merge);

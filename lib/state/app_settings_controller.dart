@@ -307,6 +307,7 @@ class AppSettingsController extends ChangeNotifier {
     String? householdAuthToken,
     String? servedPetId,
     String? deviceName,
+    SyncDataPolicy? pendingInitialSyncPolicy,
   }) async {
     _syncServerUrl = _nonBlank(serverUrl);
     _householdId = _nonBlank(householdId);
@@ -314,6 +315,8 @@ class AppSettingsController extends ChangeNotifier {
     _householdAuthToken = _nonBlank(householdAuthToken) ?? _householdAuthToken;
     _servedPetId = _nonBlank(servedPetId);
     _deviceName = _nonBlank(deviceName) ?? _deviceName;
+    _pendingInitialSyncPolicy =
+        pendingInitialSyncPolicy ?? _pendingInitialSyncPolicy;
     await _writeOptionalString(syncServerUrlStorageKey, _syncServerUrl);
     await _writeOptionalString(syncHouseholdIdStorageKey, _householdId);
     await _writeOptionalString(sharedKeyBase64StorageKey, _sharedKeyBase64);
@@ -321,6 +324,10 @@ class AppSettingsController extends ChangeNotifier {
         householdAuthTokenStorageKey, _householdAuthToken);
     await _writeOptionalString(servedPetIdStorageKey, _servedPetId);
     await _writeOptionalString(deviceNameStorageKey, _deviceName);
+    await _writeOptionalString(
+      pendingInitialSyncPolicyStorageKey,
+      _pendingInitialSyncPolicy?.name,
+    );
     notifyListeners();
   }
 

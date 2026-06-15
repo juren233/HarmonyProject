@@ -178,6 +178,94 @@ void main() {
     await service.stop();
   });
 
+  test('pet 已有同步连接时新配对的远端覆盖策略仍会重启并请求快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setHouseholdId('new-house');
+    await settings.setHouseholdAuthToken('new-auth-token');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.remoteWins);
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final request = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(settings.pendingInitialSyncPolicy, isNull);
+
+    await service.stop();
+  });
+
+  test('owner 已有同步连接时新配对的远端覆盖策略仍会重启并请求快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setHouseholdId('new-house');
+    await settings.setHouseholdAuthToken('new-auth-token');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.remoteWins);
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final request = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(settings.pendingInitialSyncPolicy, isNull);
+
+    await service.stop();
+  });
+
   test('pet 选择以当前设备为准时主动推送 remoteWins 快照', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.pet);
@@ -209,6 +297,137 @@ void main() {
       transport.sent.map((message) => message.type),
       isNot(contains(SyncMessageTypes.snapshotRequest)),
     );
+
+    await service.stop();
+  });
+
+  test('owner 选择以当前设备为准时主动推送 remoteWins 快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(
+      transport.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.snapshotRequest)),
+    );
+
+    await service.stop();
+  });
+
+  test('pet 已有同步连接时新配对的本机覆盖策略仍会重启并推送快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setHouseholdId('new-house');
+    await settings.setHouseholdAuthToken('new-auth-token');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final push = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(
+      transports.last.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.snapshotRequest)),
+    );
+    expect(settings.pendingInitialSyncPolicy, isNull);
+
+    await service.stop();
+  });
+
+  test('owner 已有同步连接时新配对的本机覆盖策略仍会重启并推送快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setHouseholdId('new-house');
+    await settings.setHouseholdAuthToken('new-auth-token');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final push = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(
+      transports.last.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.snapshotRequest)),
+    );
+    expect(settings.pendingInitialSyncPolicy, isNull);
 
     await service.stop();
   });

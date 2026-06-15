@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/sync/sync_client.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
@@ -76,13 +75,13 @@ class PairingFlow {
       );
       final sharedKeyBase64 = await crypto.exportKeyBase64();
       await _secretStore.saveSharedKey(sharedKeyBase64);
-      await settingsController.setPendingInitialSyncPolicy(dataPolicy);
       await settingsController.saveSyncPairing(
         serverUrl: serverUrl.trim(),
         householdId: householdId,
         sharedKeyBase64: sharedKeyBase64,
         householdAuthToken: authToken,
         deviceName: deviceName.trim().isEmpty ? '宠物端设备' : deviceName.trim(),
+        pendingInitialSyncPolicy: dataPolicy,
       );
     } on TimeoutException {
       throw const PairingException('配对超时，请重新生成配对码');
