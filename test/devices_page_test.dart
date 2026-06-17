@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/app_theme.dart';
@@ -7,6 +10,9 @@ import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/owner_pairing_flow.dart';
 import 'package:petnote/sync/pairing_flow.dart';
+import 'package:petnote/sync/sync_secret_store.dart';
+import 'package:petnote/sync/sync_service.dart';
+import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +21,12 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    SyncService.instance = null;
+  });
+
+  tearDown(() async {
+    await SyncService.instance?.stop();
+    SyncService.instance = null;
   });
 
   testWidgets('设备页保存服务器地址并展示配对码倒计时', (tester) async {
@@ -175,6 +187,85 @@ void main() {
     await tester.pump();
 
     expect(settings.pendingInitialSyncPolicy, SyncDataPolicy.localWins);
+  });
+
+  testWidgets('主人端重绑收到宠物端加入后重启同步服务使用新配对配置', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final oldCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '1234',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final oldSharedKey = await oldCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(oldSharedKey);
+    final newCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '5678',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final newSharedKey = await newCrypto.exportKeyBase64();
+    final transports = <_FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = _FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    SyncService.instance = service;
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.saveSyncPairing(
+      serverUrl: 'ws://127.0.0.1/ws',
+      householdId: 'new-house',
+      sharedKeyBase64: newSharedKey,
+      householdAuthToken: 'new-auth-token',
+      deviceName: '主人手机',
+    );
+    await secretStore.saveSharedKey(newSharedKey);
+    final flow = _FakeOwnerPairingFlow(settings);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          store: store,
+          ownerPairingFlow: flow,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
+    await tester.pump();
+    flow.joinPeer(
+      'pet-1',
+      '客厅平板',
+      dataPolicy: SyncDataPolicy.remoteWins,
+    );
+    await tester.pump();
+
+    expect(settings.pendingInitialSyncPolicy, isNull);
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final push = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    final ciphertext = push.payload['ciphertext'] as String;
+    expect(await newCrypto.decryptString(ciphertext), contains('pets'));
+    await expectLater(
+      oldCrypto.decryptString(ciphertext),
+      throwsA(isA<Object>()),
+    );
   });
 
   testWidgets('配对码过期后关闭弹窗并需要重新生成', (tester) async {
@@ -439,4 +530,39 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
   }) {
     onPeerJoined?.call(deviceId, deviceName, dataPolicy);
   }
+}
+
+class _FakeSyncTransport implements SyncTransport {
+  final List<SyncMessage> sent = <SyncMessage>[];
+  final StreamController<SyncMessage> incoming =
+      StreamController<SyncMessage>.broadcast();
+  final StreamController<Object> errorController =
+      StreamController<Object>.broadcast();
+  var connected = false;
+
+  @override
+  Stream<Object> get errors => errorController.stream;
+
+  @override
+  Stream<SyncMessage> get messages => incoming.stream;
+
+  @override
+  ValueListenable<SyncConnectionState> get state => _state;
+  final ValueNotifier<SyncConnectionState> _state =
+      ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+
+  @override
+  Future<void> connect() async {
+    connected = true;
+    _state.value = SyncConnectionState.connected;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    connected = false;
+    _state.value = SyncConnectionState.disconnected;
+  }
+
+  @override
+  void send(SyncMessage message) => sent.add(message);
 }

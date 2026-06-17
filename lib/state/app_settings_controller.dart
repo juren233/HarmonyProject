@@ -355,10 +355,14 @@ class AppSettingsController extends ChangeNotifier {
     _sharedKeyBase64 = null;
     _householdAuthToken = null;
     _servedPetId = null;
+    _pendingInitialSyncPolicy = null;
+    _pendingResetSnapshotSyncId = null;
     await _preferences?.remove(syncHouseholdIdStorageKey);
     await _preferences?.remove(sharedKeyBase64StorageKey);
     await _preferences?.remove(householdAuthTokenStorageKey);
     await _preferences?.remove(servedPetIdStorageKey);
+    await _preferences?.remove(pendingInitialSyncPolicyStorageKey);
+    await _preferences?.remove(pendingResetSnapshotSyncIdStorageKey);
     notifyListeners();
   }
 

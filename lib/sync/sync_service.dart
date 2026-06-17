@@ -40,6 +40,7 @@ class SyncService extends ChangeNotifier {
   SyncTransport? _transport;
   OwnerSyncEngine? ownerEngine;
   PetReplicaController? petController;
+  _SyncConfig? _activeConfig;
   DeviceRole? _activeRole;
   void Function()? _transportStateListener;
   VoidCallback? _engineFailedCountListener;
@@ -113,18 +114,22 @@ class SyncService extends ChangeNotifier {
     if (_activeRole == DeviceRole.pet) {
       await stop();
     }
+    final config = await _loadConfig();
+    if (config == null) {
+      if (isActive) {
+        await stop();
+      }
+      return;
+    }
     if (isActive) {
-      if (pendingPolicy == null) {
+      if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
         return;
       }
       await stop();
     }
-    final config = await _loadConfig();
-    if (config == null) {
-      return;
-    }
     final transport = _transportFactory(config.url);
     _transport = transport;
+    _activeConfig = config;
     final engine = OwnerSyncEngine(
       store: store,
       transport: transport,
@@ -195,18 +200,22 @@ class SyncService extends ChangeNotifier {
     if (_activeRole == DeviceRole.owner) {
       await stop();
     }
+    final config = await _loadConfig();
+    if (config == null) {
+      if (isActive) {
+        await stop();
+      }
+      return;
+    }
     if (isActive) {
-      if (pendingPolicy == null) {
+      if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
         return;
       }
       await stop();
     }
-    final config = await _loadConfig();
-    if (config == null) {
-      return;
-    }
     final transport = _transportFactory(config.url);
     _transport = transport;
+    _activeConfig = config;
     final controller = PetReplicaController(
       store: store,
       transport: transport,
@@ -286,6 +295,7 @@ class SyncService extends ChangeNotifier {
     petController = null;
     await _transport?.disconnect();
     _transport = null;
+    _activeConfig = null;
     _activeRole = null;
     _initialConnectionCompleted = false;
     if (shouldNotify) {
@@ -296,8 +306,23 @@ class SyncService extends ChangeNotifier {
 
   void _stopAfterRemoval() {
     scheduleMicrotask(() {
-      unawaited(stop());
+      unawaited(_clearSecretsAndStopAfterRemoval());
     });
+  }
+
+  Future<void> _clearSecretsAndStopAfterRemoval() async {
+    try {
+      await _secretStore.deleteSharedKey();
+    } on Object catch (error, stackTrace) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'petnote sync',
+        context: ErrorDescription('清除解绑后的同步密钥时失败'),
+      ));
+    } finally {
+      await stop();
+    }
   }
 
   Future<_SyncConfig?> _loadConfig() async {
@@ -308,12 +333,12 @@ class SyncService extends ChangeNotifier {
     final householdId = settings.householdId;
     final authToken = settings.householdAuthToken;
     final deviceId = await settings.ensureDeviceId();
+    if (url == null || householdId == null || authToken == null) {
+      return null;
+    }
     final sharedKeyBase64 =
         await _secretStore.loadSharedKey() ?? settings.sharedKeyBase64;
-    if (url == null ||
-        householdId == null ||
-        authToken == null ||
-        sharedKeyBase64 == null) {
+    if (sharedKeyBase64 == null) {
       return null;
     }
     return _SyncConfig(
@@ -467,4 +492,12 @@ class _SyncConfig {
   final String authToken;
   final String deviceId;
   final String sharedKeyBase64;
+
+  bool matches(_SyncConfig other) {
+    return url == other.url &&
+        householdId == other.householdId &&
+        authToken == other.authToken &&
+        deviceId == other.deviceId &&
+        sharedKeyBase64 == other.sharedKeyBase64;
+  }
 }

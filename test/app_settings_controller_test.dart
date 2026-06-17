@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -55,5 +56,35 @@ void main() {
     final reloaded = await AppSettingsController.load();
     expect(controller.updateReminderEnabled, isTrue);
     expect(reloaded.updateReminderEnabled, isTrue);
+  });
+
+  test('清除配对时同步清除一次性同步状态', () async {
+    final controller = await AppSettingsController.load();
+    await controller.saveSyncPairing(
+      serverUrl: 'wss://sync.example.test',
+      householdId: 'house-old',
+      sharedKeyBase64: 'shared-key-old',
+      householdAuthToken: 'auth-token-old',
+      servedPetId: 'pet-old',
+      pendingInitialSyncPolicy: SyncDataPolicy.localWins,
+    );
+    await controller.setPendingResetSnapshotSyncId('reset-old');
+
+    await controller.clearSyncPairing();
+
+    expect(controller.householdId, isNull);
+    expect(controller.sharedKeyBase64, isNull);
+    expect(controller.householdAuthToken, isNull);
+    expect(controller.servedPetId, isNull);
+    expect(controller.pendingInitialSyncPolicy, isNull);
+    expect(controller.pendingResetSnapshotSyncId, isNull);
+
+    final reloaded = await AppSettingsController.load();
+    expect(reloaded.householdId, isNull);
+    expect(reloaded.sharedKeyBase64, isNull);
+    expect(reloaded.householdAuthToken, isNull);
+    expect(reloaded.servedPetId, isNull);
+    expect(reloaded.pendingInitialSyncPolicy, isNull);
+    expect(reloaded.pendingResetSnapshotSyncId, isNull);
   });
 }

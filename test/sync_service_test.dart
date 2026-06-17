@@ -574,7 +574,253 @@ void main() {
     await service.stop();
   });
 
-  test('owner 收到当前设备被移除配置时清除本地配对', () async {
+  test('owner 解绑后重绑不会用旧一次性策略提前重启同步', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    final secretStore = InMemorySyncSecretStore();
+    final oldCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final oldSharedKey = await oldCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(oldSharedKey);
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    expect(settings.pendingInitialSyncPolicy, isNull);
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    await settings.clearSyncPairing();
+    final newCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '654321',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final newSharedKey = await newCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(newSharedKey);
+    await settings.saveSyncPairing(
+      serverUrl: 'ws://127.0.0.1/ws',
+      householdId: 'new-house',
+      sharedKeyBase64: newSharedKey,
+      householdAuthToken: 'new-auth-token',
+      deviceName: '主人手机',
+    );
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.connected, isTrue);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    expect(
+      transports.last.sent.map((message) => message.type),
+      contains(SyncMessageTypes.snapshotRequest),
+    );
+
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.localWins);
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(3));
+    expect(transports[1].connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    final push = transports.last.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(push.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    final ciphertext = push.payload['ciphertext'] as String;
+    expect(await newCrypto.decryptString(ciphertext), contains('pets'));
+    await expectLater(
+      oldCrypto.decryptString(ciphertext),
+      throwsA(isA<Object>()),
+    );
+    expect(settings.pendingInitialSyncPolicy, isNull);
+
+    await service.stop();
+  });
+
+  test('owner 清除配对后再次启动会停止旧同步连接', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.clearSyncPairing();
+    await service.ensureStarted(store: store);
+
+    expect(transport.connected, isFalse);
+    expect(service.isActive, isFalse);
+
+    await service.stop();
+  });
+
+  test('owner 清除配对后安全密钥不可读也会停止旧同步连接', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final secretStore = _ToggleableSyncSecretStore(
+      await crypto.exportKeyBase64(),
+    );
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.clearSyncPairing();
+    secretStore.shouldThrowOnLoad = true;
+    await service.ensureStarted(store: store);
+
+    expect(transport.connected, isFalse);
+    expect(service.isActive, isFalse);
+
+    await service.stop();
+  });
+
+  test('owner 重新配对后即使没有一次性策略也会切换到新家庭配置', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final oldCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final oldSharedKey = await oldCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(oldSharedKey);
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (url) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.clearSyncPairing();
+    final newCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '654321',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final newSharedKey = await newCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(newSharedKey);
+    await settings.saveSyncPairing(
+      serverUrl: 'ws://127.0.0.1/ws',
+      householdId: 'new-house',
+      sharedKeyBase64: newSharedKey,
+      householdAuthToken: 'new-auth-token',
+      deviceName: '主人手机',
+    );
+    await service.ensureStarted(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(
+      transports.first.sent.map((message) => message.type),
+      contains(SyncMessageTypes.hello),
+    );
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    expect(transports.last.sent.first.payload['authToken'], 'new-auth-token');
+    expect(
+      transports.last.sent.map((message) => message.type),
+      contains(SyncMessageTypes.snapshotRequest),
+    );
+    expect(await secretStore.loadSharedKey(), newSharedKey);
+
+    await service.stop();
+  });
+
+  test('owner 配对配置变更后再次启动会切换到新家庭配置', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final oldCrypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final oldSharedKey = await oldCrypto.exportKeyBase64();
+    await secretStore.saveSharedKey(oldSharedKey);
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setHouseholdId('new-house');
+    await settings.setHouseholdAuthToken('new-auth-token');
+    await settings.setSharedKeyBase64(oldSharedKey);
+    await service.ensureStartedForOwner(store: store);
+
+    expect(transports, hasLength(2));
+    expect(transports.first.connected, isFalse);
+    expect(transports.last.sent.first.type, SyncMessageTypes.hello);
+    expect(transports.last.sent.first.payload['householdId'], 'new-house');
+    expect(transports.last.sent.first.payload['authToken'], 'new-auth-token');
+    expect(transports.last.sent.first.payload['deviceId'],
+        transports.first.sent.first.payload['deviceId']);
+
+    await service.stop();
+  });
+
+  test('owner 收到当前设备被移除配置时清除本地配对与安全密钥', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
     await settings.setSyncServerMode(SyncServerMode.custom);
@@ -602,6 +848,41 @@ void main() {
 
     expect(settings.householdId, isNull);
     expect(settings.householdAuthToken, isNull);
+    expect(await secretStore.loadSharedKey(), isNull);
+
+    await service.stop();
+  });
+
+  test('pet 收到主人端移除配置时清除本地配对与安全密钥', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.householdId, isNull);
+    expect(settings.householdAuthToken, isNull);
+    expect(await secretStore.loadSharedKey(), isNull);
+    expect(service.isActive, isFalse);
 
     await service.stop();
   });
@@ -908,5 +1189,30 @@ class QueuedFakeSyncTransport implements SyncTransport {
     _state.value = SyncConnectionState.connected;
     sent.addAll(queued);
     queued.clear();
+  }
+}
+
+class _ToggleableSyncSecretStore implements SyncSecretStore {
+  _ToggleableSyncSecretStore(this._sharedKey);
+
+  String? _sharedKey;
+  bool shouldThrowOnLoad = false;
+
+  @override
+  Future<void> deleteSharedKey() async {
+    _sharedKey = null;
+  }
+
+  @override
+  Future<String?> loadSharedKey() async {
+    if (shouldThrowOnLoad) {
+      throw const SyncSecretStoreException('secure storage unavailable');
+    }
+    return _sharedKey;
+  }
+
+  @override
+  Future<void> saveSharedKey(String keyBase64) async {
+    _sharedKey = keyBase64;
   }
 }

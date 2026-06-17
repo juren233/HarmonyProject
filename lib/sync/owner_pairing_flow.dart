@@ -116,6 +116,7 @@ class OwnerPairingFlow {
             canReuseExistingHousehold &&
             errorMessage == 'forbidden') {
           await settingsController.clearSyncPairing();
+          await _secretStore.deleteSharedKey();
           keepTransportAlive = true;
           return _createAsOwner(
             serverUrl: serverUrl,
@@ -138,19 +139,12 @@ class OwnerPairingFlow {
           expiresAtMs == null) {
         throw const PairingException('配对响应不完整');
       }
-      final existingKey = canReuseExistingHousehold
-          ? await _secretStore.loadSharedKey() ??
-              settingsController.sharedKeyBase64
-          : null;
-      final sharedKeyBase64 = existingKey ??
-          await (await SyncCrypto.deriveFromPairingCode(
-            code: code,
-            saltBase64: saltBase64,
-          ))
-              .exportKeyBase64();
-      if (existingKey == null) {
-        await _secretStore.saveSharedKey(sharedKeyBase64);
-      }
+      final sharedKeyBase64 = await (await SyncCrypto.deriveFromPairingCode(
+        code: code,
+        saltBase64: saltBase64,
+      ))
+          .exportKeyBase64();
+      await _secretStore.saveSharedKey(sharedKeyBase64);
       await settingsController.saveSyncPairing(
         serverUrl: serverUrl.trim(),
         householdId: householdId,

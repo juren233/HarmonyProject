@@ -196,12 +196,13 @@ class _DevicesPageState extends State<DevicesPage> {
         deviceName: widget.settingsController.deviceName ?? '主人设备',
         onPeerJoined: (_, name, petDataPolicy) async {
           final ownerPolicy = ownerInitialPolicyForPeerSelection(petDataPolicy);
-          if (SyncService.instance?.ownerEngine != null) {
-            await _applyOwnerInitialSyncPolicy(ownerPolicy);
-          } else {
-            await widget.settingsController.setPendingInitialSyncPolicy(
-              ownerPolicy,
-            );
+          await widget.settingsController.setPendingInitialSyncPolicy(
+            ownerPolicy,
+          );
+          final service = SyncService.instance;
+          final store = widget.store;
+          if (service != null && store != null) {
+            await service.ensureStarted(store: store);
           }
           if (!mounted) {
             return;
@@ -273,8 +274,7 @@ class _DevicesPageState extends State<DevicesPage> {
                 await flow.joinAsPet(
                   serverUrl: serverUrl,
                   code: codeController.text,
-                  deviceName:
-                      widget.settingsController.deviceName ?? '当前设备',
+                  deviceName: widget.settingsController.deviceName ?? '当前设备',
                   dataPolicy: selectedPolicy,
                 );
                 if (!mounted) {
@@ -436,26 +436,6 @@ class _DevicesPageState extends State<DevicesPage> {
       }
     }
     return '未指定';
-  }
-
-  Future<void> _applyOwnerInitialSyncPolicy(SyncDataPolicy policy) async {
-    final engine = SyncService.instance?.ownerEngine;
-    if (engine == null) {
-      return;
-    }
-    if (policy == SyncDataPolicy.remoteWins) {
-      engine.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
-      return;
-    }
-    if (policy == SyncDataPolicy.localWins) {
-      await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.remoteWins);
-      return;
-    }
-    await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
-    engine.requestSnapshot(
-      dataPolicy: SyncDataPolicy.merge,
-      resolveConflicts: true,
-    );
   }
 }
 

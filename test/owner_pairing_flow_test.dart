@@ -152,6 +152,53 @@ void main() {
     await flow.dispose();
   });
 
+  test('已有家庭组重新生成配对码时保存与配对码一致的共享密钥', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setSharedKeyBase64('existing-key');
+    final transport = FakePairingTransport();
+    final secretStore = InMemorySyncSecretStore();
+    await secretStore.saveSharedKey('existing-key');
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final saltBase64 = SyncCrypto.generateSaltBase64();
+
+    final future = flow.createAsOwner(
+      serverUrl: 'ws://127.0.0.1/ws',
+      deviceName: '主人手机',
+    );
+    await Future<void>.delayed(Duration.zero);
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.pairCreated, {
+        'code': '1234',
+        'saltBase64': saltBase64,
+        'authToken': 'auth-token-1',
+        'expiresAtMs': DateTime.now()
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'householdId': 'house-1',
+        'hasPetDevice': false,
+      }),
+    );
+
+    await future;
+
+    final expectedSharedKey = await (await SyncCrypto.deriveFromPairingCode(
+      code: '1234',
+      saltBase64: saltBase64,
+    ))
+        .exportKeyBase64();
+    expect(await secretStore.loadSharedKey(), expectedSharedKey);
+    expect(settings.sharedKeyBase64, expectedSharedKey);
+
+    await flow.dispose();
+  });
+
   test('旧家庭认证被拒绝时清除配对并重新生成新家庭配对码', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
@@ -160,7 +207,7 @@ void main() {
     await settings.setHouseholdAuthToken('removed-auth-token');
     await settings.setSharedKeyBase64('removed-shared-key');
     final transports = <FakePairingTransport>[];
-    final secretStore = InMemorySyncSecretStore();
+    final secretStore = _RecordingSyncSecretStore();
     await secretStore.saveSharedKey('removed-shared-key');
     final flow = OwnerPairingFlow(
       settingsController: settings,
@@ -181,6 +228,8 @@ void main() {
       const SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}),
     );
     await Future<void>.delayed(Duration.zero);
+    expect(secretStore.deleteCount, 1);
+    expect(await secretStore.loadSharedKey(), isNull);
     transports.last.incoming.add(
       SyncMessage(SyncMessageTypes.pairCreated, {
         'code': '5678',
@@ -325,4 +374,23 @@ class FakePairingTransport implements SyncTransport {
 
   @override
   void send(SyncMessage message) => sent.add(message);
+}
+
+class _RecordingSyncSecretStore implements SyncSecretStore {
+  String? _sharedKey;
+  var deleteCount = 0;
+
+  @override
+  Future<void> deleteSharedKey() async {
+    deleteCount += 1;
+    _sharedKey = null;
+  }
+
+  @override
+  Future<String?> loadSharedKey() async => _sharedKey;
+
+  @override
+  Future<void> saveSharedKey(String keyBase64) async {
+    _sharedKey = keyBase64;
+  }
 }

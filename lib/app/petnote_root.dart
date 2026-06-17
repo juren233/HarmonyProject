@@ -88,6 +88,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   _OverlayTransition _overlayTransition = _OverlayTransition.none;
   late final AnimationController _overlayTransitionController;
   VoidCallback? _settingsListener;
+  AppSettingsController? _syncSettingsController;
   late final OverviewBottomCtaController _overviewBottomCtaController;
   int? _lastNotificationSyncVersion;
   Future<void> _pendingNotificationSync = Future<void>.value();
@@ -120,6 +121,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     if (!identical(oldWidget.settingsController, widget.settingsController)) {
+      _detachSettingsListener();
       _dataStorageCoordinator = widget.settingsController == null
           ? null
           : DataStorageCoordinator(
@@ -127,6 +129,12 @@ class _PetNoteRootState extends State<PetNoteRoot>
               settingsController: widget.settingsController!,
               onBackupRestored: _pushRestoredBackupSnapshot,
             );
+      final settingsController = widget.settingsController;
+      if (settingsController == null) {
+        unawaited(_stopSyncServiceForSettings(oldWidget.settingsController));
+      } else {
+        unawaited(_activateSyncForSettings(store, settingsController));
+      }
     }
   }
 
@@ -164,44 +172,101 @@ class _PetNoteRootState extends State<PetNoteRoot>
     store.startTimeDerivedDataRefresh();
     final settingsController = widget.settingsController;
     if (settingsController != null) {
-      // 移除旧的监听器
-      if (_settingsListener != null) {
-        settingsController.removeListener(_settingsListener!);
-      }
-      // 添加 settings 监听器，当配对策略变化时重启同步服务
-      _settingsListener = () {
-        unawaited(_restartSyncIfPolicyChanged());
-      };
-      settingsController.addListener(_settingsListener!);
-      final syncService =
-          SyncService.instance ??= SyncService(settings: settingsController);
-      syncService.resolveMergeConflict = (conflict) async {
-        if (!mounted) {
-          return SyncMergeSide.local;
-        }
-        return showSyncMergeConflictDialog(context, conflict);
-      };
-      unawaited(syncService.ensureStartedForOwner(store: store));
+      unawaited(_activateSyncForSettings(store, settingsController));
     }
     _overlayTransitionController.value = 0;
     _notificationInitializationTask = _initializeNotifications(store);
     unawaited(_notificationInitializationTask!);
   }
 
-  Future<void> _restartSyncIfPolicyChanged() async {
+  Future<void> _restartSyncIfPairingChanged() async {
     final settingsController = widget.settingsController;
     final store = _store;
     if (settingsController == null || store == null) {
       return;
     }
-    // 如果有待处理的初始同步策略，重启同步服务以应用该策略
-    if (settingsController.pendingInitialSyncPolicy != null) {
-      final syncService = SyncService.instance;
-      if (syncService != null) {
-        await syncService.stop();
-        await syncService.ensureStartedForOwner(store: store);
-      }
+    if (settingsController.deviceRole != DeviceRole.owner) {
+      return;
     }
+    final syncService = await _syncServiceForSettings(settingsController);
+    await syncService.ensureStartedForOwner(store: store);
+  }
+
+  Future<void> _activateSyncForSettings(
+    PetNoteStore store,
+    AppSettingsController settingsController,
+  ) async {
+    if (!mounted || !identical(widget.settingsController, settingsController)) {
+      return;
+    }
+    _attachSettingsListener(settingsController);
+    final syncService = await _syncServiceForSettings(settingsController);
+    if (!mounted || !identical(widget.settingsController, settingsController)) {
+      await _stopSyncServiceForSettings(settingsController);
+      return;
+    }
+    syncService.resolveMergeConflict = (conflict) async {
+      if (!mounted) {
+        return SyncMergeSide.local;
+      }
+      return showSyncMergeConflictDialog(context, conflict);
+    };
+    if (settingsController.deviceRole == DeviceRole.owner) {
+      await syncService.ensureStartedForOwner(store: store);
+    }
+  }
+
+  void _attachSettingsListener(AppSettingsController settingsController) {
+    if (identical(_syncSettingsController, settingsController) &&
+        _settingsListener != null) {
+      return;
+    }
+    _detachSettingsListener();
+    _settingsListener = () {
+      unawaited(_restartSyncIfPairingChanged());
+    };
+    _syncSettingsController = settingsController;
+    settingsController.addListener(_settingsListener!);
+  }
+
+  void _detachSettingsListener() {
+    final listener = _settingsListener;
+    final controller = _syncSettingsController;
+    if (listener != null && controller != null) {
+      controller.removeListener(listener);
+    }
+    _settingsListener = null;
+    _syncSettingsController = null;
+  }
+
+  Future<SyncService> _syncServiceForSettings(
+    AppSettingsController settingsController,
+  ) async {
+    final existing = SyncService.instance;
+    if (existing != null && !identical(existing.settings, settingsController)) {
+      if (identical(SyncService.instance, existing)) {
+        SyncService.instance = null;
+      }
+      await existing.stop();
+      existing.dispose();
+    }
+    return SyncService.instance ??= SyncService(settings: settingsController);
+  }
+
+  Future<void> _stopSyncServiceForSettings(
+    AppSettingsController? settingsController,
+  ) async {
+    final existing = SyncService.instance;
+    if (existing == null ||
+        settingsController == null ||
+        !identical(existing.settings, settingsController)) {
+      return;
+    }
+    if (identical(SyncService.instance, existing)) {
+      SyncService.instance = null;
+    }
+    await existing.stop();
+    existing.dispose();
   }
 
   Future<void> _pushRestoredBackupSnapshot(PetNoteStore store) async {
@@ -865,12 +930,9 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.setNotificationSyncHandler(null);
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
-    if (_settingsListener != null) {
-      widget.settingsController?.removeListener(_settingsListener!);
-      _settingsListener = null;
-    }
+    _detachSettingsListener();
     if (widget.settingsController?.deviceRole == DeviceRole.owner) {
-      unawaited(SyncService.instance?.stop() ?? Future<void>.value());
+      unawaited(_stopSyncServiceForSettings(widget.settingsController));
     }
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
