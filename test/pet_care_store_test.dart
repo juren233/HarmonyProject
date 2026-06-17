@@ -3,6 +3,7 @@ import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:sembast/sembast_memory.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -1205,7 +1206,8 @@ void main() {
         note: todo.note,
       );
       expect(store.pendingLocalMutations, isNotEmpty);
-      expect(storage.readTable(PetNoteLocalTable.pendingMutations), isNot('[]'));
+      expect(
+          storage.readTable(PetNoteLocalTable.pendingMutations), isNot('[]'));
 
       await store.replaceAllData(PetNoteStore.seeded().exportDataState());
 
@@ -1267,6 +1269,142 @@ void main() {
 
       expect(store.todoById(todo.id)?.status, TodoStatus.done);
       expect(store.reminderById(reminder.id)?.status, ReminderStatus.done);
+    });
+
+    test('初始配对合并保留同 id 但内容不同的来源数据', () async {
+      final store =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      final incoming =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      await store.addPet(
+        name: 'A 设备猫',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '少量多餐',
+        allergies: '无',
+        note: 'A 原数据',
+      );
+      await incoming.addPet(
+        name: 'B 设备狗',
+        type: PetType.dog,
+        breed: '柯基',
+        sex: '公',
+        birthday: '2023-11-01',
+        weightKg: 8.5,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '一天两餐',
+        allergies: '牛肉敏感',
+        note: 'B 原数据',
+      );
+      await store.addTodo(
+        title: 'A 设备待办',
+        petId: store.pets.single.id,
+        dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+        note: '',
+      );
+      await incoming.addTodo(
+        title: 'B 设备待办',
+        petId: incoming.pets.single.id,
+        dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+        note: '',
+      );
+
+      await store.mergeDataPreservingConflictingIds(
+        incoming.exportDataState(),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+      await store.mergeDataPreservingConflictingIds(
+        incoming.exportDataState(),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+
+      expect(
+          store.pets.map((pet) => pet.name), containsAll(['A 设备猫', 'B 设备狗']));
+      expect(store.pets, hasLength(2));
+      final incomingPet = store.pets.singleWhere((pet) => pet.name == 'B 设备狗');
+      expect(incomingPet.id, isNot('pet-1'));
+      expect(store.todos.map((item) => item.title),
+          containsAll(['A 设备待办', 'B 设备待办']));
+      expect(store.todos, hasLength(2));
+      expect(store.todos.singleWhere((item) => item.title == 'B 设备待办').petId,
+          incomingPet.id);
+    });
+
+    test('初始配对合并后同源修改更新已合并实体', () async {
+      final store =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      final incoming =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      await store.addPet(
+        name: 'A 设备猫',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '少量多餐',
+        allergies: '无',
+        note: 'A 原数据',
+      );
+      await incoming.addPet(
+        name: 'B 设备狗',
+        type: PetType.dog,
+        breed: '柯基',
+        sex: '公',
+        birthday: '2023-11-01',
+        weightKg: 8.5,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '一天两餐',
+        allergies: '牛肉敏感',
+        note: 'B 原数据',
+      );
+      await store.addTodo(
+        title: 'A 设备待办',
+        petId: store.pets.single.id,
+        dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+        note: '',
+      );
+      await incoming.addTodo(
+        title: 'B 设备待办',
+        petId: incoming.pets.single.id,
+        dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+        note: '',
+      );
+
+      await store.mergeDataPreservingConflictingIds(
+        incoming.exportDataState(),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+      final mergedTodo =
+          store.todos.singleWhere((item) => item.title == 'B 设备待办');
+      final remoteTodo = incoming.todos.single;
+      await store.applyMutation(
+        PetNoteMutation(
+          id: 'remote-update-1',
+          entityType: PetNoteEntityType.todo,
+          entityId: remoteTodo.id,
+          kind: PetNoteMutationKind.upsert,
+          data: remoteTodo.toJson()
+            ..['title'] = 'B 设备待办已修改'
+            ..['note'] = '来自 B 后续修改',
+        ),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+
+      expect(store.todos, hasLength(2));
+      expect(store.todoById(mergedTodo.id)?.title, 'B 设备待办已修改');
+      expect(store.todoById(mergedTodo.id)?.note, '来自 B 后续修改');
+      expect(store.todos.where((item) => item.title.startsWith('B 设备待办')),
+          hasLength(1));
     });
 
     test('mergeData 保留本机总览宠物筛选偏好', () async {

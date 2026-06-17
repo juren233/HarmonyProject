@@ -96,19 +96,26 @@ class MultiDeviceSyncController {
     SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
     bool force = false,
     String? syncId,
+    bool preserveConflictingIds = false,
   }) async {
     if (_pairingRemoved) {
       return;
     }
     _pushTimer?.cancel();
     _pushTimer = null;
-    await _pushSnapshot(dataPolicy: dataPolicy, force: force, syncId: syncId);
+    await _pushSnapshot(
+      dataPolicy: dataPolicy,
+      force: force,
+      syncId: syncId,
+      preserveConflictingIds: preserveConflictingIds,
+    );
   }
 
   Future<void> _pushSnapshot({
     SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
     bool force = false,
     String? syncId,
+    bool preserveConflictingIds = false,
   }) async {
     try {
       if (_pairingRemoved) {
@@ -116,7 +123,7 @@ class MultiDeviceSyncController {
       }
       retryFailedSync();
       final json = jsonEncode(store.exportDataState().toJson());
-      final snapshotKey = '${dataPolicy.name}:$json';
+      final snapshotKey = '${dataPolicy.name}:$preserveConflictingIds:$json';
       if (!force && snapshotKey == _lastPushedSnapshotKey) {
         return;
       }
@@ -127,6 +134,7 @@ class MultiDeviceSyncController {
           'version': _version,
           'ciphertext': await crypto.encryptString(json),
           'dataPolicy': dataPolicy.name,
+          if (preserveConflictingIds) 'mergeMode': 'preserveConflictingIds',
           'completedItemKeys': store.completedItemKeys(),
           if (syncId != null && syncId.isNotEmpty) 'syncId': syncId,
         }),
@@ -149,6 +157,7 @@ class MultiDeviceSyncController {
       case SyncMessageTypes.snapshotRequest:
         await pushSnapshotNow(
           dataPolicy: _snapshotRequestDataPolicy(message),
+          preserveConflictingIds: _shouldPreserveConflictingIds(message),
         );
       case SyncMessageTypes.devices:
         _applyDevices(message);
@@ -237,9 +246,13 @@ class MultiDeviceSyncController {
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
       final action =
           PetAction.fromJson(Map<String, dynamic>.from(decoded as Map));
-      await store.applyRemotePetAction(action);
+      final appliedAction = await store.applyRemotePetAction(
+        action,
+        sourceNamespace: _sourceNamespace(message),
+        localNamespace: _localNamespace,
+      );
       _sendReceivedIfNeeded(message);
-      await _mutationOutbox.markRemoteActionApplied(action);
+      await _mutationOutbox.markRemoteActionApplied(appliedAction);
       lastSyncedAt.value = DateTime.now();
     } on Object catch (error) {
       lastError.value = error;
@@ -259,7 +272,11 @@ class MultiDeviceSyncController {
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
       final mutation =
           PetNoteMutation.fromJson(Map<String, dynamic>.from(decoded as Map));
-      await store.applyMutation(mutation);
+      await store.applyMutation(
+        mutation,
+        sourceNamespace: _sourceNamespace(message),
+        localNamespace: _localNamespace,
+      );
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
     } on Object catch (error) {
@@ -281,6 +298,13 @@ class MultiDeviceSyncController {
       _resolveNextMergeSnapshotConflict = false;
       if (message.payload['dataPolicy'] == SyncDataPolicy.remoteWins.name) {
         await store.replaceAllDataFromRemote(state);
+      } else if (_shouldPreserveConflictingIds(message) ||
+          store.hasStableMergedEntitiesForSource(_sourceNamespace(message))) {
+        await store.mergeDataPreservingConflictingIds(
+          state,
+          sourceNamespace: _sourceNamespace(message),
+          localNamespace: _localNamespace,
+        );
       } else {
         final resolver =
             shouldResolveMergeConflict ? resolveMergeConflict : null;
@@ -324,6 +348,8 @@ class MultiDeviceSyncController {
     _failureQueue.sendOrQueue(
       SyncMessage(SyncMessageTypes.snapshotRequest, {
         'dataPolicy': dataPolicy.name,
+        if (dataPolicy == SyncDataPolicy.merge && resolveConflicts)
+          'mergeMode': 'preserveConflictingIds',
       }),
     );
   }
@@ -409,6 +435,22 @@ class MultiDeviceSyncController {
       (policy) => policy.name == rawPolicy,
       orElse: () => SyncDataPolicy.merge,
     );
+  }
+
+  bool _shouldPreserveConflictingIds(SyncMessage message) {
+    return message.payload['mergeMode'] == 'preserveConflictingIds';
+  }
+
+  String? _sourceNamespace(SyncMessage message) {
+    final originDeviceId = message.payload['originDeviceId'];
+    return originDeviceId is String && originDeviceId.isNotEmpty
+        ? originDeviceId
+        : null;
+  }
+
+  String? get _localNamespace {
+    final deviceId = settings?.deviceId;
+    return deviceId == null || deviceId.isEmpty ? null : deviceId;
   }
 
   void dispose() {

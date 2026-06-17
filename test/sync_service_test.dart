@@ -820,6 +820,79 @@ void main() {
     await service.stop();
   });
 
+  test('owner 配对合并时会透传保留冲突 ID 的合并模式', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.merge);
+    await service.ensureStartedForOwner(store: store);
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(push.payload['mergeMode'], 'preserveConflictingIds');
+
+    await service.stop();
+  });
+
+  test('pet 配对合并时会透传保留冲突 ID 的合并模式', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setPendingInitialSyncPolicy(SyncDataPolicy.merge);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(push.payload['mergeMode'], 'preserveConflictingIds');
+
+    await service.stop();
+  });
+
   test('owner 收到当前设备被移除配置时清除本地配对与安全密钥', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);

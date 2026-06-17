@@ -1537,12 +1537,22 @@ class PetNoteStore extends ChangeNotifier {
     }
   }
 
-  Future<void> applyRemotePetAction(PetAction action) async {
+  Future<PetAction> applyRemotePetAction(
+    PetAction action, {
+    String? sourceNamespace,
+    String? localNamespace,
+  }) async {
     _applyingRemoteMutationDepth += 1;
     final navigationState = _captureNavigationState();
     _remoteNavigationState = navigationState;
+    final mappedAction = _mappedRemoteAction(
+      action,
+      sourceNamespace: sourceNamespace,
+      localNamespace: localNamespace,
+    );
     try {
-      await applyPetAction(action);
+      await applyPetAction(mappedAction);
+      return mappedAction;
     } finally {
       _restoreNavigationState(navigationState);
       _remoteNavigationState = null;
@@ -1568,26 +1578,35 @@ class PetNoteStore extends ChangeNotifier {
     );
   }
 
-  Future<void> applyMutation(PetNoteMutation mutation) async {
+  Future<void> applyMutation(
+    PetNoteMutation mutation, {
+    String? sourceNamespace,
+    String? localNamespace,
+  }) async {
     _applyingRemoteMutationDepth += 1;
     final navigationState = _captureNavigationState();
     _remoteNavigationState = navigationState;
     try {
+      final mappedMutation = _mappedRemoteMutation(
+        mutation,
+        sourceNamespace: sourceNamespace,
+        localNamespace: localNamespace,
+      );
       switch (mutation.kind) {
         case PetNoteMutationKind.upsert:
-          await _applyUpsertMutation(mutation);
+          await _applyUpsertMutation(mappedMutation);
         case PetNoteMutationKind.delete:
-          await _applyDeleteMutation(mutation);
+          await _applyDeleteMutation(mappedMutation);
         case PetNoteMutationKind.checklistAction:
-          final actionKind = mutation.actionKind;
+          final actionKind = mappedMutation.actionKind;
           if (actionKind == null) {
             throw const FormatException('missing checklist action kind');
           }
           await applyPetAction(PetAction(
             kind: actionKind,
-            sourceType: _sourceTypeForEntityType(mutation.entityType),
-            itemId: mutation.entityId,
-            occurredAtMs: mutation.occurredAtMs,
+            sourceType: _sourceTypeForEntityType(mappedMutation.entityType),
+            itemId: mappedMutation.entityId,
+            occurredAtMs: mappedMutation.occurredAtMs,
           ));
       }
     } finally {
@@ -2259,6 +2278,154 @@ class PetNoteStore extends ChangeNotifier {
       reminders: true,
       records: true,
     );
+  }
+
+  Future<void> mergeDataPreservingConflictingIds(
+    PetNoteDataState state, {
+    String? sourceNamespace,
+    String? localNamespace,
+  }) async {
+    _validateDataState(state);
+    final normalizedState = _normalizedDataState(state);
+    final remappedPetIds = <String, String>{};
+    final importedPetKeys = <String>{};
+    final importedTodoKeys = <String>{};
+    final importedReminderKeys = <String>{};
+    final importedRecordKeys = <String>{};
+    for (final pet in normalizedState.pets) {
+      final petKey = _mergeEntityKey('pet', pet.id, pet.toJson());
+      if (!importedPetKeys.add(petKey)) {
+        remappedPetIds[pet.id] =
+            _matchImportedEntityId(_pets, pet, (item) => item.id);
+        continue;
+      }
+      final mergedId = _mergedIdFor(
+        prefix: 'pet',
+        sourceId: pet.id,
+        json: pet.toJson(),
+        sourceNamespace: sourceNamespace,
+        localNamespace: localNamespace,
+        index: _petsById,
+      );
+      final existingPet = _petsById[pet.id];
+      if (existingPet == null && mergedId == pet.id) {
+        _pets.add(pet);
+        _petsById[pet.id] = pet;
+        remappedPetIds[pet.id] = pet.id;
+        continue;
+      }
+      if (existingPet != null &&
+          mergedId == pet.id &&
+          _jsonEquals(existingPet.toJson(), pet.toJson())) {
+        remappedPetIds[pet.id] = existingPet.id;
+        continue;
+      }
+      final importedPet = _petsById[mergedId];
+      if (importedPet != null) {
+        final cloned = _petWithId(pet, mergedId);
+        final index = _pets.indexWhere((item) => item.id == mergedId);
+        if (index == -1) {
+          _pets.add(cloned);
+        } else {
+          _pets[index] = cloned;
+        }
+        _petsById[mergedId] = cloned;
+        remappedPetIds[pet.id] = mergedId;
+        continue;
+      }
+      final cloned = _petWithId(pet, mergedId);
+      _pets.add(cloned);
+      _petsById[cloned.id] = cloned;
+      remappedPetIds[pet.id] = cloned.id;
+    }
+
+    _mergeIncomingEntitiesPreservingConflictingIds<TodoItem>(
+      current: _todos,
+      incoming: normalizedState.todos,
+      idOf: (item) => item.id,
+      index: _todosById,
+      jsonOf: (item) => item.toJson(),
+      cloneWithIds: (item, id) => _todoWithIds(
+        item,
+        id: id,
+        petId: remappedPetIds[item.petId] ?? item.petId,
+      ),
+      idPrefix: 'todo',
+      sourceNamespace: sourceNamespace,
+      localNamespace: localNamespace,
+      importedKeys: importedTodoKeys,
+    );
+    _mergeIncomingEntitiesPreservingConflictingIds<ReminderItem>(
+      current: _reminders,
+      incoming: normalizedState.reminders,
+      idOf: (item) => item.id,
+      index: _remindersById,
+      jsonOf: (item) => item.toJson(),
+      cloneWithIds: (item, id) => _reminderWithIds(
+        item,
+        id: id,
+        petId: remappedPetIds[item.petId] ?? item.petId,
+      ),
+      idPrefix: 'reminder',
+      sourceNamespace: sourceNamespace,
+      localNamespace: localNamespace,
+      importedKeys: importedReminderKeys,
+    );
+    _mergeIncomingEntitiesPreservingConflictingIds<PetRecord>(
+      current: _records,
+      incoming: normalizedState.records,
+      idOf: (item) => item.id,
+      index: _recordsById,
+      jsonOf: (item) => item.toJson(),
+      cloneWithIds: (item, id) => _recordWithIds(
+        item,
+        id: id,
+        petId: remappedPetIds[item.petId] ?? item.petId,
+      ),
+      idPrefix: 'record',
+      sourceNamespace: sourceNamespace,
+      localNamespace: localNamespace,
+      importedKeys: importedRecordKeys,
+    );
+
+    if (_selectedPetId.isEmpty && _pets.isNotEmpty) {
+      _selectedPetId = _pets.first.id;
+    }
+    _invalidateAllDerivedData();
+    _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+    );
+  }
+
+  bool hasStableMergedEntitiesForSource(String? sourceNamespace) {
+    final normalizedNamespace = _normalizedSourceNamespace(sourceNamespace);
+    if (normalizedNamespace == null) {
+      return false;
+    }
+    return _hasStableMergedEntityForSource(
+          ids: _petsById.keys,
+          prefix: 'pet',
+          namespace: normalizedNamespace,
+        ) ||
+        _hasStableMergedEntityForSource(
+          ids: _todosById.keys,
+          prefix: 'todo',
+          namespace: normalizedNamespace,
+        ) ||
+        _hasStableMergedEntityForSource(
+          ids: _remindersById.keys,
+          prefix: 'reminder',
+          namespace: normalizedNamespace,
+        ) ||
+        _hasStableMergedEntityForSource(
+          ids: _recordsById.keys,
+          prefix: 'record',
+          namespace: normalizedNamespace,
+        );
   }
 
   Future<void> clearAllData() async {
@@ -3336,6 +3503,63 @@ class PetNoteStore extends ChangeNotifier {
     }
   }
 
+  void _mergeIncomingEntitiesPreservingConflictingIds<T>({
+    required List<T> current,
+    required List<T> incoming,
+    required String Function(T item) idOf,
+    required Map<String, T> index,
+    required Map<String, dynamic> Function(T item) jsonOf,
+    required T Function(T item, String id) cloneWithIds,
+    required String idPrefix,
+    required String? sourceNamespace,
+    required String? localNamespace,
+    required Set<String> importedKeys,
+  }) {
+    for (final item in incoming) {
+      final id = idOf(item);
+      final preparedItem = cloneWithIds(item, id);
+      final mergeKey = _mergeEntityKey(idPrefix, id, jsonOf(preparedItem));
+      if (!importedKeys.add(mergeKey)) {
+        continue;
+      }
+      final mergedId = _mergedIdFor(
+        prefix: idPrefix,
+        sourceId: id,
+        json: jsonOf(preparedItem),
+        sourceNamespace: sourceNamespace,
+        localNamespace: localNamespace,
+        index: index,
+      );
+      final existingItem = index[id];
+      if (existingItem == null && mergedId == id) {
+        current.add(preparedItem);
+        index[id] = preparedItem;
+        continue;
+      }
+      if (existingItem != null &&
+          mergedId == id &&
+          _jsonEquals(jsonOf(existingItem), jsonOf(preparedItem))) {
+        continue;
+      }
+      final importedItem = index[mergedId];
+      if (importedItem != null) {
+        final cloned = cloneWithIds(item, mergedId);
+        final existingIndex =
+            current.indexWhere((currentItem) => idOf(currentItem) == mergedId);
+        if (existingIndex == -1) {
+          current.add(cloned);
+        } else {
+          current[existingIndex] = cloned;
+        }
+        index[mergedId] = cloned;
+        continue;
+      }
+      final cloned = cloneWithIds(item, mergedId);
+      current.add(cloned);
+      index[idOf(cloned)] = cloned;
+    }
+  }
+
   bool _jsonEquals(Map<String, dynamic> left, Map<String, dynamic> right) {
     return jsonEncode(_conflictComparableJson(left)) ==
         jsonEncode(_conflictComparableJson(right));
@@ -3346,6 +3570,327 @@ class PetNoteStore extends ChangeNotifier {
       for (final entry in source.entries)
         if (entry.key != 'semantic') entry.key: entry.value,
     };
+  }
+
+  String _mergeEntityKey(
+    String prefix,
+    String sourceId,
+    Map<String, dynamic> json,
+  ) {
+    return '$prefix:${_sanitizeIdSegment(sourceId)}:${_entityFingerprint(json)}';
+  }
+
+  String _matchImportedEntityId<T>(
+    Iterable<T> items,
+    T source,
+    String Function(T item) idOf,
+  ) {
+    for (final item in items) {
+      if (idOf(item) == idOf(source)) {
+        return idOf(item);
+      }
+    }
+    return idOf(source);
+  }
+
+  String _mergedIdFor<T>({
+    required String prefix,
+    required String sourceId,
+    required Map<String, dynamic> json,
+    required String? sourceNamespace,
+    required String? localNamespace,
+    required Map<String, T> index,
+  }) {
+    final stableId = _decodeStableMergedId(prefix, sourceId);
+    final normalizedLocalNamespace = _normalizedSourceNamespace(localNamespace);
+    if (stableId != null) {
+      if (stableId.namespace == normalizedLocalNamespace) {
+        return stableId.sourceId;
+      }
+      return sourceId;
+    }
+    final normalizedNamespace = _normalizedSourceNamespace(sourceNamespace);
+    if (normalizedNamespace != null) {
+      return '$prefix-merge-$normalizedNamespace-${_sanitizeIdSegment(sourceId)}';
+    }
+    return '$prefix-merge-${_sanitizeIdSegment(sourceId)}-${_entityFingerprint(json)}';
+  }
+
+  String? _normalizedSourceNamespace(String? sourceNamespace) {
+    if (sourceNamespace == null || sourceNamespace.isEmpty) {
+      return null;
+    }
+    return _sanitizeIdSegment(sourceNamespace);
+  }
+
+  String _remoteStableId({
+    required String prefix,
+    required String sourceId,
+    required String? sourceNamespace,
+  }) {
+    final normalizedNamespace = _normalizedSourceNamespace(sourceNamespace);
+    if (normalizedNamespace == null) {
+      return sourceId;
+    }
+    return '$prefix-merge-$normalizedNamespace-${_sanitizeIdSegment(sourceId)}';
+  }
+
+  bool _hasStableMergedEntityForSource({
+    required Iterable<String> ids,
+    required String prefix,
+    required String namespace,
+  }) {
+    for (final id in ids) {
+      final stableId = _decodeStableMergedId(prefix, id);
+      if (stableId != null && stableId.namespace == namespace) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _mappedRemoteEntityId({
+    required PetNoteEntityType entityType,
+    required String sourceId,
+    required String? sourceNamespace,
+    required String? localNamespace,
+  }) {
+    final prefix = _idPrefixForEntityType(entityType);
+    final stableId = _decodeStableMergedId(prefix, sourceId);
+    final normalizedLocalNamespace = _normalizedSourceNamespace(localNamespace);
+    if (stableId != null) {
+      if (stableId.namespace == normalizedLocalNamespace &&
+          _hasEntityId(entityType, stableId.sourceId)) {
+        return stableId.sourceId;
+      }
+      return sourceId;
+    }
+    final remoteStableId = _remoteStableId(
+      prefix: prefix,
+      sourceId: sourceId,
+      sourceNamespace: sourceNamespace,
+    );
+    if (_hasEntityId(entityType, remoteStableId)) {
+      return remoteStableId;
+    }
+    if (!_hasEntityId(entityType, sourceId)) {
+      return sourceId;
+    }
+    return remoteStableId;
+  }
+
+  PetNoteMutation _mappedRemoteMutation(
+    PetNoteMutation mutation, {
+    required String? sourceNamespace,
+    required String? localNamespace,
+  }) {
+    if (_normalizedSourceNamespace(sourceNamespace) == null) {
+      return mutation;
+    }
+    final mappedEntityId = _mappedRemoteEntityId(
+      entityType: mutation.entityType,
+      sourceId: mutation.entityId,
+      sourceNamespace: sourceNamespace,
+      localNamespace: localNamespace,
+    );
+    final data = mutation.data == null
+        ? null
+        : _mappedRemoteEntityData(
+            entityType: mutation.entityType,
+            data: mutation.data!,
+            sourceNamespace: sourceNamespace,
+            localNamespace: localNamespace,
+          );
+    return PetNoteMutation(
+      id: mutation.id,
+      entityType: mutation.entityType,
+      entityId: mappedEntityId,
+      kind: mutation.kind,
+      data: data,
+      actionKind: mutation.actionKind,
+      occurredAtMs: mutation.occurredAtMs,
+    );
+  }
+
+  Map<String, dynamic> _mappedRemoteEntityData({
+    required PetNoteEntityType entityType,
+    required Map<String, dynamic> data,
+    required String? sourceNamespace,
+    required String? localNamespace,
+  }) {
+    final mapped = Map<String, dynamic>.from(data);
+    final rawId = mapped['id'];
+    if (rawId is String && rawId.isNotEmpty) {
+      mapped['id'] = _mappedRemoteEntityId(
+        entityType: entityType,
+        sourceId: rawId,
+        sourceNamespace: sourceNamespace,
+        localNamespace: localNamespace,
+      );
+    }
+    if (entityType != PetNoteEntityType.pet) {
+      final rawPetId = mapped['petId'];
+      if (rawPetId is String && rawPetId.isNotEmpty) {
+        mapped['petId'] = _mappedRemoteEntityId(
+          entityType: PetNoteEntityType.pet,
+          sourceId: rawPetId,
+          sourceNamespace: sourceNamespace,
+          localNamespace: localNamespace,
+        );
+      }
+    }
+    return mapped;
+  }
+
+  PetAction _mappedRemoteAction(
+    PetAction action, {
+    required String? sourceNamespace,
+    required String? localNamespace,
+  }) {
+    if (_normalizedSourceNamespace(sourceNamespace) == null) {
+      return action;
+    }
+    final entityType = switch (action.sourceType) {
+      'todo' => PetNoteEntityType.todo,
+      'reminder' => PetNoteEntityType.reminder,
+      _ =>
+        throw FormatException('unsupported source type: ${action.sourceType}'),
+    };
+    return PetAction(
+      kind: action.kind,
+      sourceType: action.sourceType,
+      itemId: _mappedRemoteEntityId(
+        entityType: entityType,
+        sourceId: action.itemId,
+        sourceNamespace: sourceNamespace,
+        localNamespace: localNamespace,
+      ),
+      occurredAtMs: action.occurredAtMs,
+    );
+  }
+
+  bool _hasEntityId(PetNoteEntityType entityType, String id) {
+    return switch (entityType) {
+      PetNoteEntityType.pet => _petsById.containsKey(id),
+      PetNoteEntityType.todo => _todosById.containsKey(id),
+      PetNoteEntityType.reminder => _remindersById.containsKey(id),
+      PetNoteEntityType.record => _recordsById.containsKey(id),
+    };
+  }
+
+  String _idPrefixForEntityType(PetNoteEntityType entityType) {
+    return switch (entityType) {
+      PetNoteEntityType.pet => 'pet',
+      PetNoteEntityType.todo => 'todo',
+      PetNoteEntityType.reminder => 'reminder',
+      PetNoteEntityType.record => 'record',
+    };
+  }
+
+  ({String namespace, String sourceId})? _decodeStableMergedId(
+    String prefix,
+    String value,
+  ) {
+    final marker = '$prefix-merge-';
+    if (!value.startsWith(marker)) {
+      return null;
+    }
+    final rest = value.substring(marker.length);
+    final separatorIndex = rest.lastIndexOf('-$prefix-');
+    if (separatorIndex <= 0) {
+      return null;
+    }
+    return (
+      namespace: rest.substring(0, separatorIndex),
+      sourceId: rest.substring(separatorIndex + 1),
+    );
+  }
+
+  String _sanitizeIdSegment(String value) {
+    final sanitized = value.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return sanitized.isEmpty ? 'remote' : sanitized;
+  }
+
+  String _entityFingerprint(Map<String, dynamic> json) {
+    final comparable = Map<String, dynamic>.from(_conflictComparableJson(json))
+      ..remove('id');
+    final encoded = base64Url
+        .encode(utf8.encode(jsonEncode(comparable)))
+        .replaceAll('=', '');
+    final limit = encoded.length < 48 ? encoded.length : 48;
+    return encoded.substring(0, limit);
+  }
+
+  Pet _petWithId(Pet item, String id) {
+    return Pet(
+      id: id,
+      name: item.name,
+      avatarText: item.avatarText,
+      photoPath: item.photoPath,
+      type: item.type,
+      breed: item.breed,
+      sex: item.sex,
+      birthday: item.birthday,
+      ageLabel: item.ageLabel,
+      weightKg: item.weightKg,
+      neuterStatus: item.neuterStatus,
+      feedingPreferences: item.feedingPreferences,
+      allergies: item.allergies,
+      note: item.note,
+    );
+  }
+
+  TodoItem _todoWithIds(TodoItem item,
+      {required String id, required String petId}) {
+    return TodoItem(
+      id: id,
+      petId: petId,
+      title: item.title,
+      dueAt: item.dueAt,
+      notificationLeadTime: item.notificationLeadTime,
+      status: item.status,
+      note: item.note,
+      semantic: item.semantic,
+    );
+  }
+
+  ReminderItem _reminderWithIds(
+    ReminderItem item, {
+    required String id,
+    required String petId,
+  }) {
+    return ReminderItem(
+      id: id,
+      petId: petId,
+      kind: item.kind,
+      title: item.title,
+      scheduledAt: item.scheduledAt,
+      notificationLeadTime: item.notificationLeadTime,
+      recurrence: item.recurrence,
+      status: item.status,
+      note: item.note,
+      semantic: item.semantic,
+    );
+  }
+
+  PetRecord _recordWithIds(
+    PetRecord item, {
+    required String id,
+    required String petId,
+  }) {
+    return PetRecord(
+      id: id,
+      petId: petId,
+      type: item.type,
+      title: item.title,
+      recordDate: item.recordDate,
+      summary: item.summary,
+      note: item.note,
+      purpose: item.purpose,
+      customPurposeLabel: item.customPurposeLabel,
+      photoPaths: item.photoPaths,
+      semantic: item.semantic,
+    );
   }
 
   void _promoteCompletionState<T>(T existingItem, T incomingItem) {

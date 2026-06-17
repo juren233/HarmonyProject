@@ -545,6 +545,7 @@ class SessionHandler {
       'entityId',
       'version',
       'dataPolicy',
+      'mergeMode',
     ]) {
       final value = event.payload[key];
       if (value != null) {
@@ -784,6 +785,7 @@ class SessionHandler {
       'entityId',
       'version',
       'dataPolicy',
+      'mergeMode',
     ]) {
       final value = eventPayload[key];
       if (value != null) {

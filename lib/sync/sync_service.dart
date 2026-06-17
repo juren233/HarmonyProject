@@ -186,7 +186,10 @@ class SyncService extends ChangeNotifier {
       );
     } else {
       // 合并：双向传输，对方没有的数据会被添加
-      await ownerEngine?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
+      await ownerEngine?.pushSnapshotNow(
+        dataPolicy: SyncDataPolicy.merge,
+        preserveConflictingIds: true,
+      );
       ownerEngine?.requestSnapshot(resolveConflicts: true);
     }
     _initialConnectionCompleted = true;
@@ -275,7 +278,10 @@ class SyncService extends ChangeNotifier {
         dataPolicy: SyncDataPolicy.merge,
         resolveConflicts: true,
       );
-      await petController?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
+      await petController?.pushSnapshotNow(
+        dataPolicy: SyncDataPolicy.merge,
+        preserveConflictingIds: true,
+      );
     }
     _initialConnectionCompleted = true;
   }

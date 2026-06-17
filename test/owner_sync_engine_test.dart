@@ -976,6 +976,342 @@ void main() {
     engine.dispose();
   });
 
+  test('初始配对合并快照保留对方同 id 原数据', () async {
+    final sourceStore =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await sourceStore.addPet(
+      name: 'B 设备狗',
+      type: PetType.dog,
+      breed: '柯基',
+      sex: '公',
+      birthday: '2023-11-01',
+      weightKg: 8.5,
+      neuterStatus: PetNeuterStatus.notNeutered,
+      feedingPreferences: '一天两餐',
+      allergies: '牛肉敏感',
+      note: 'B 原数据',
+    );
+    await store.addPet(
+      name: 'A 设备猫',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: 'A 原数据',
+    );
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    engine.requestSnapshot(
+      dataPolicy: SyncDataPolicy.merge,
+      resolveConflicts: true,
+    );
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.merge.name,
+        'mergeMode': 'preserveConflictingIds',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.pets.map((pet) => pet.name), containsAll(['A 设备猫', 'B 设备狗']));
+    expect(store.pets, hasLength(2));
+
+    engine.dispose();
+  });
+
+  test('初始配对合并后远端同源修改更新已合并实体', () async {
+    final sourceStore =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await sourceStore.addPet(
+      name: 'B 设备狗',
+      type: PetType.dog,
+      breed: '柯基',
+      sex: '公',
+      birthday: '2023-11-01',
+      weightKg: 8.5,
+      neuterStatus: PetNeuterStatus.notNeutered,
+      feedingPreferences: '一天两餐',
+      allergies: '牛肉敏感',
+      note: 'B 原数据',
+    );
+    await sourceStore.addTodo(
+      title: 'B 设备待办',
+      petId: sourceStore.pets.single.id,
+      dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+      note: '',
+    );
+    await store.addPet(
+      name: 'A 设备猫',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: 'A 原数据',
+    );
+    await store.addTodo(
+      title: 'A 设备待办',
+      petId: store.pets.single.id,
+      dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+      note: '',
+    );
+    final settings = await AppSettingsController.load();
+    await settings.ensureDeviceId();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'syncId': 'snapshot-b-1',
+        'originDeviceId': 'device-b',
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.merge.name,
+        'mergeMode': 'preserveConflictingIds',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final mergedTodo =
+        store.todos.singleWhere((item) => item.title == 'B 设备待办');
+    final remoteTodo = sourceStore.todos.single;
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.mutation, {
+        'syncId': 'mutation-b-1',
+        'originDeviceId': 'device-b',
+        'mutationId': 'mutation-b-1',
+        'entityType': PetNoteEntityType.todo.name,
+        'entityId': remoteTodo.id,
+        'kind': PetNoteMutationKind.upsert.name,
+        'ciphertext': await crypto.encryptString(jsonEncode(
+          PetNoteMutation(
+            id: 'mutation-b-1',
+            entityType: PetNoteEntityType.todo,
+            entityId: remoteTodo.id,
+            kind: PetNoteMutationKind.upsert,
+            data: remoteTodo.toJson()
+              ..['title'] = 'B 设备待办已修改'
+              ..['note'] = '来自 B 后续修改',
+          ).toJson(),
+        )),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.todos, hasLength(2));
+    expect(store.todoById(mergedTodo.id)?.title, 'B 设备待办已修改');
+    expect(store.todoById(mergedTodo.id)?.note, '来自 B 后续修改');
+
+    engine.dispose();
+  });
+
+  test('初始配对合并后普通快照继续更新已合并实体', () async {
+    final sourceStore =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await sourceStore.addPet(
+      name: 'B 设备狗',
+      type: PetType.dog,
+      breed: '柯基',
+      sex: '公',
+      birthday: '2023-11-01',
+      weightKg: 8.5,
+      neuterStatus: PetNeuterStatus.notNeutered,
+      feedingPreferences: '一天两餐',
+      allergies: '牛肉敏感',
+      note: 'B 原数据',
+    );
+    await sourceStore.addTodo(
+      title: 'B 设备待办',
+      petId: sourceStore.pets.single.id,
+      dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+      note: '',
+    );
+    await store.addPet(
+      name: 'A 设备猫',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: 'A 原数据',
+    );
+    await store.addTodo(
+      title: 'A 设备待办',
+      petId: store.pets.single.id,
+      dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+      note: '',
+    );
+    final settings = await AppSettingsController.load();
+    await settings.ensureDeviceId();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'syncId': 'snapshot-b-1',
+        'originDeviceId': 'device-b',
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.merge.name,
+        'mergeMode': 'preserveConflictingIds',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final mergedTodo =
+        store.todos.singleWhere((item) => item.title == 'B 设备待办');
+    final remoteTodo = sourceStore.todos.single;
+    await sourceStore.updateTodo(
+      todoId: remoteTodo.id,
+      petId: remoteTodo.petId,
+      title: 'B 设备待办普通快照修改',
+      dueAt: remoteTodo.dueAt,
+      notificationLeadTime: remoteTodo.notificationLeadTime,
+      note: '普通快照回流',
+    );
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 4,
+        'syncId': 'snapshot-b-2',
+        'originDeviceId': 'device-b',
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.merge.name,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.todos, hasLength(2));
+    expect(store.todoById(mergedTodo.id)?.title, 'B 设备待办普通快照修改');
+    expect(store.todoById(mergedTodo.id)?.note, '普通快照回流');
+    expect(
+      store.todos.where((item) => item.title.startsWith('B 设备待办')),
+      hasLength(1),
+    );
+
+    engine.dispose();
+  });
+
+  test('稳定合并 id 回传原设备时映射回本机原始数据', () async {
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await store.addPet(
+      name: 'A 设备猫',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: 'A 原数据',
+    );
+    await store.addTodo(
+      title: 'A 设备待办',
+      petId: store.pets.single.id,
+      dueAt: DateTime.parse('2026-03-28T12:00:00+08:00'),
+      note: '',
+    );
+    final settings = await AppSettingsController.load();
+    final localDeviceId = await settings.ensureDeviceId();
+    final todo = store.todos.single;
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+    final stablePetId = 'pet-merge-$localDeviceId-${todo.petId}';
+    final stableTodoId = 'todo-merge-$localDeviceId-${todo.id}';
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.mutation, {
+        'syncId': 'mutation-return-a-1',
+        'originDeviceId': 'device-b',
+        'mutationId': 'mutation-return-a-1',
+        'entityType': PetNoteEntityType.todo.name,
+        'entityId': stableTodoId,
+        'kind': PetNoteMutationKind.upsert.name,
+        'ciphertext': await crypto.encryptString(jsonEncode(
+          PetNoteMutation(
+            id: 'mutation-return-a-1',
+            entityType: PetNoteEntityType.todo,
+            entityId: stableTodoId,
+            kind: PetNoteMutationKind.upsert,
+            data: todo.toJson()
+              ..['id'] = stableTodoId
+              ..['petId'] = stablePetId
+              ..['title'] = 'A 设备待办被对方修改',
+          ).toJson(),
+        )),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.todos, hasLength(1));
+    expect(store.todoById(todo.id)?.title, 'A 设备待办被对方修改');
+    expect(store.todoById(stableTodoId), isNull);
+
+    engine.dispose();
+  });
+
   test('action 解密失败时不回发 ack', () async {
     final store = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
