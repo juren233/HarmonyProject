@@ -46,6 +46,8 @@ class Household {
   final Map<String, HouseholdDevice> devices = <String, HouseholdDevice>{};
   final Map<String, Map<String, dynamic>> completedActions =
       <String, Map<String, dynamic>>{};
+  final Map<String, Map<String, dynamic>> appliedChecklistActions =
+      <String, Map<String, dynamic>>{};
   final Set<String> completedItemKeys = <String>{};
   final Map<String, SyncEventReceipt> syncEvents = <String, SyncEventReceipt>{};
   final Map<String, String> actionSyncEventIds = <String, String>{};
@@ -59,6 +61,7 @@ class Household {
           (deviceId, device) => MapEntry(deviceId, device.toJson()),
         ),
         'completedActions': completedActions,
+        'appliedChecklistActions': appliedChecklistActions,
         'completedItemKeys': completedItemKeys.toList(growable: false),
         'syncEvents': syncEvents.map(
           (syncId, event) => MapEntry(syncId, event.toJson()),
@@ -89,7 +92,21 @@ class Household {
       if (value is Map) {
         household.completedActions[entry.key] =
             Map<String, dynamic>.from(value);
+        household.rememberAppliedChecklistAction(
+          household.completedActions[entry.key]!,
+        );
         household.completedItemKeys.add(entry.key);
+      }
+    }
+    final appliedChecklistActionsJson =
+        json['appliedChecklistActions'] as Map<String, dynamic>? ??
+            <String, dynamic>{};
+    for (final entry in appliedChecklistActionsJson.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        household.rememberAppliedChecklistAction(
+          Map<String, dynamic>.from(value),
+        );
       }
     }
     household.completedItemKeys.addAll(
@@ -150,6 +167,7 @@ class Household {
         if (actionId is String && actionId.isNotEmpty) {
           actionSyncEventIds.putIfAbsent(actionId, () => event.syncId);
         }
+        rememberAppliedChecklistAction(event.payload);
       } else if (event.messageType == SyncMessageTypes.mutation) {
         final mutationId = event.payload['mutationId'];
         if (mutationId is String && mutationId.isNotEmpty) {
@@ -208,6 +226,109 @@ class Household {
         ),
       );
     }
+  }
+
+  String checklistActionKey({
+    required String sourceType,
+    required String itemId,
+    required String kind,
+  }) {
+    return '$sourceType:$itemId:$kind';
+  }
+
+  Map<String, dynamic>? appliedChecklistAction({
+    required String sourceType,
+    required String itemId,
+    required String kind,
+  }) {
+    return appliedChecklistActions[checklistActionKey(
+      sourceType: sourceType,
+      itemId: itemId,
+      kind: kind,
+    )];
+  }
+
+  void rememberAppliedChecklistAction(Map<String, dynamic> payload) {
+    final sourceType = payload['sourceType'];
+    final itemId = payload['itemId'];
+    final kind = payload['kind'];
+    final syncId = payload['syncId'];
+    if (sourceType is! String ||
+        sourceType.isEmpty ||
+        itemId is! String ||
+        itemId.isEmpty ||
+        kind is! String ||
+        kind.isEmpty ||
+        syncId is! String ||
+        syncId.isEmpty) {
+      return;
+    }
+    final actionKey = checklistActionKey(
+      sourceType: sourceType,
+      itemId: itemId,
+      kind: kind,
+    );
+    removeAppliedChecklistActionsForItem(
+      '$sourceType:$itemId',
+      exceptActionKey: actionKey,
+    );
+    appliedChecklistActions[actionKey] = Map<String, dynamic>.from(payload);
+  }
+
+  void removeAppliedChecklistActionsForItem(
+    String itemKey, {
+    String? exceptActionKey,
+  }) {
+    appliedChecklistActions.removeWhere(
+      (key, _) => key.startsWith('$itemKey:') && key != exceptActionKey,
+    );
+  }
+
+  void retainAppliedChecklistActionsForCompletedItems(Set<String> itemKeys) {
+    appliedChecklistActions.removeWhere((_, payload) {
+      final sourceType = payload['sourceType'];
+      final itemId = payload['itemId'];
+      if (sourceType is! String || itemId is! String) {
+        return true;
+      }
+      return !itemKeys.contains('$sourceType:$itemId');
+    });
+  }
+
+  Map<String, dynamic>? latestAppliedChecklistActionForItem(String itemKey) {
+    Map<String, dynamic>? latest;
+    for (final entry in appliedChecklistActions.entries) {
+      if (!entry.key.startsWith('$itemKey:')) {
+        continue;
+      }
+      if (latest == null ||
+          _payloadOccurredAtMs(entry.value) > _payloadOccurredAtMs(latest)) {
+        latest = entry.value;
+      }
+    }
+    return latest;
+  }
+
+  bool isOlderChecklistAction(
+    String itemKey,
+    Map<String, dynamic> payload,
+  ) {
+    final latest = latestAppliedChecklistActionForItem(itemKey);
+    if (latest == null) {
+      return false;
+    }
+    final latestSyncId = latest['syncId'];
+    final payloadSyncId = payload['syncId'];
+    if (latestSyncId is String &&
+        payloadSyncId is String &&
+        latestSyncId == payloadSyncId) {
+      return false;
+    }
+    return _payloadOccurredAtMs(payload) < _payloadOccurredAtMs(latest);
+  }
+
+  int _payloadOccurredAtMs(Map<String, dynamic> payload) {
+    return (payload['occurredAtMs'] as num?)?.toInt() ?? -1;
   }
 
   static String _newAuthToken() {

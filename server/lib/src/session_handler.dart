@@ -279,6 +279,9 @@ class SessionHandler {
         ..addAll(completedItemKeys);
       household.completedActions
           .removeWhere((itemKey, _) => !completedItemKeys.contains(itemKey));
+      household.retainAppliedChecklistActionsForCompletedItems(
+        completedItemKeys,
+      );
     } else {
       household.completedItemKeys.addAll(completedItemKeys);
     }
@@ -341,6 +344,15 @@ class SessionHandler {
       _sendCompletedActionReceiptIfPossible(completedAction);
       return;
     }
+    final existingAppliedAction = household.appliedChecklistAction(
+      sourceType: sourceType,
+      itemId: itemId,
+      kind: kind,
+    );
+    if (existingAppliedAction != null) {
+      _sendAppliedActionReceipt(existingAppliedAction);
+      return;
+    }
     final existingSyncId = household.actionSyncEventIds[actionId];
     if (existingSyncId != null) {
       final existingEvent = household.syncEvents[existingSyncId];
@@ -372,6 +384,19 @@ class SessionHandler {
       'sourceType': sourceType,
       'itemId': itemId,
     };
+    final occurredAtMs = (message.payload['occurredAtMs'] as num?)?.toInt();
+    if (occurredAtMs != null) {
+      outgoingPayload['occurredAtMs'] = occurredAtMs;
+    }
+    if (household.isOlderChecklistAction(itemKey, outgoingPayload)) {
+      final latestAction = household.latestAppliedChecklistActionForItem(
+        itemKey,
+      );
+      if (latestAction != null) {
+        _sendAppliedActionReceipt(latestAction);
+        return;
+      }
+    }
     if (kind == PetActionKind.markDone.name) {
       final event = _registerSyncEvent(
         household,
@@ -379,6 +404,16 @@ class SessionHandler {
         payload: outgoingPayload,
       );
       household.actionSyncEventIds[actionId] = event.syncId;
+      final actionKey = household.checklistActionKey(
+        sourceType: sourceType,
+        itemId: itemId,
+        kind: kind,
+      );
+      household.removeAppliedChecklistActionsForItem(
+        itemKey,
+        exceptActionKey: actionKey,
+      );
+      household.rememberAppliedChecklistAction(event.payload);
       household.completedItemKeys.add(itemKey);
       household.completedActions[itemKey] = event.payload;
       await app.store.flush();
@@ -402,6 +437,8 @@ class SessionHandler {
       payload: outgoingPayload,
     );
     household.actionSyncEventIds[actionId] = event.syncId;
+    household.completedItemKeys.add(itemKey);
+    household.rememberAppliedChecklistAction(event.payload);
     await app.store.flush();
     _send(SyncMessage(
       SyncMessageTypes.syncReceived,
@@ -734,7 +771,8 @@ class SessionHandler {
     Set<String> itemKeys,
   ) {
     for (final itemKey in itemKeys) {
-      final action = household.completedActions[itemKey];
+      final action = household.completedActions[itemKey] ??
+          household.latestAppliedChecklistActionForItem(itemKey);
       if (action == null) {
         continue;
       }
@@ -765,6 +803,21 @@ class SessionHandler {
     ));
   }
 
+  void _sendAppliedActionReceipt(Map<String, dynamic> action) {
+    final syncId = _optionalString(action['syncId']);
+    if (syncId == null) {
+      return;
+    }
+    _send(SyncMessage(
+      SyncMessageTypes.syncReceived,
+      _syncReceivedPayloadFromPayload(
+        action,
+        syncId: syncId,
+        receivedDeviceId: deviceId ?? '',
+      ),
+    ));
+  }
+
   Map<String, dynamic> _syncReceivedPayloadFromPayload(
     Map<String, dynamic> eventPayload, {
     required String syncId,
@@ -786,6 +839,7 @@ class SessionHandler {
       'version',
       'dataPolicy',
       'mergeMode',
+      'occurredAtMs',
     ]) {
       final value = eventPayload[key];
       if (value != null) {
@@ -804,6 +858,13 @@ class SessionHandler {
     final kind = _optionalString(payload['kind']);
     if (sourceType == null || itemId == null || kind == null) {
       return false;
+    }
+    final latestAction =
+        household.latestAppliedChecklistActionForItem('$sourceType:$itemId');
+    final latestSyncId = _optionalString(latestAction?['syncId']);
+    final payloadSyncId = _optionalString(payload['syncId']);
+    if (latestSyncId != null && latestSyncId != payloadSyncId) {
+      return true;
     }
     return household.completedActions.containsKey('$sourceType:$itemId') &&
         kind != PetActionKind.markDone.name;

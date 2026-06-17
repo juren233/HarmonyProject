@@ -181,6 +181,7 @@ class SyncMutationOutbox {
       'kind': action.kind.name,
       'sourceType': action.sourceType,
       'itemId': action.itemId,
+      if (action.occurredAtMs != null) 'occurredAtMs': action.occurredAtMs,
     });
     if (generation != _runtimeGeneration) {
       return;

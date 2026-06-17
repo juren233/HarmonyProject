@@ -2098,9 +2098,15 @@ class PetNoteStore extends ChangeNotifier {
   List<String> completedItemKeys() {
     final keys = <String>[
       for (final todo in _todos)
-        if (todo.status == TodoStatus.done) 'todo:${todo.id}',
+        if (todo.status == TodoStatus.done ||
+            todo.status == TodoStatus.postponed ||
+            todo.status == TodoStatus.skipped)
+          'todo:${todo.id}',
       for (final reminder in _reminders)
-        if (reminder.status == ReminderStatus.done) 'reminder:${reminder.id}',
+        if (reminder.status == ReminderStatus.done ||
+            reminder.status == ReminderStatus.postponed ||
+            reminder.status == ReminderStatus.skipped)
+          'reminder:${reminder.id}',
     ]..sort();
     return keys;
   }

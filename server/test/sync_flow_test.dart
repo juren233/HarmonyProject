@@ -1253,6 +1253,239 @@ void main() {
     expect(duplicateReceipt.payload['actionId'], 'action-repeat');
   });
 
+  test('已确认的延后 action 被剪枝后重复上报不会再次广播', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    final payload = {
+      'actionId': 'postpone-repeat',
+      'ciphertext': 'postpone-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 100,
+    };
+    owner.send(SyncMessageTypes.actionPush, payload);
+    final action = await pet.expectType(SyncMessageTypes.action);
+    expect(action.payload['actionId'], 'postpone-repeat');
+    pet.send(SyncMessageTypes.syncReceived, {
+      'syncId': action.payload['syncId'],
+      'originDeviceId': action.payload['originDeviceId'],
+    });
+    final receipt = await owner.expectType(SyncMessageTypes.syncReceived);
+    expect(receipt.payload['actionId'], 'postpone-repeat');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await app.store.flush();
+    final persistedAfterPrune = await File(
+      '${app.store.dataDirectory.path}/households.json',
+    ).readAsString();
+    expect(persistedAfterPrune, isNot(contains('"syncEvents":{"')));
+
+    owner.send(SyncMessageTypes.actionPush, {
+      ...payload,
+      'actionId': 'postpone-repeat-after-resume',
+    });
+    await pet.expectNoType(SyncMessageTypes.action);
+    final duplicateReceipt =
+        await owner.expectType(SyncMessageTypes.syncReceived);
+    expect(duplicateReceipt.payload['actionId'], 'postpone-repeat');
+    expect(duplicateReceipt.payload['kind'], PetActionKind.postpone.name);
+  });
+
+  test('同一事项新操作确认后旧操作重放不会覆盖最新状态', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'postpone-before-skip',
+      'ciphertext': 'postpone-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 100,
+    });
+    final postponeAction = await pet.expectType(SyncMessageTypes.action);
+    pet.send(SyncMessageTypes.syncReceived, {
+      'syncId': postponeAction.payload['syncId'],
+      'originDeviceId': postponeAction.payload['originDeviceId'],
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+
+    owner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'skip-after-postpone',
+      'ciphertext': 'skip-ciphertext',
+      'kind': PetActionKind.skip.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 200,
+    });
+    final skipAction = await pet.expectType(SyncMessageTypes.action);
+    pet.send(SyncMessageTypes.syncReceived, {
+      'syncId': skipAction.payload['syncId'],
+      'originDeviceId': skipAction.payload['originDeviceId'],
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+
+    owner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'postpone-replayed-after-skip',
+      'ciphertext': 'postpone-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 100,
+    });
+    await pet.expectNoType(SyncMessageTypes.action);
+    final replayReceipt = await owner.expectType(SyncMessageTypes.syncReceived);
+    expect(replayReceipt.payload['actionId'], 'skip-after-postpone');
+    expect(replayReceipt.payload['kind'], PetActionKind.skip.name);
+  });
+
+  test('远端权威快照会清理旧 checklist 索引并允许后续新操作', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'postpone-old',
+      'ciphertext': 'postpone-old-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 100,
+    });
+    final oldAction = await pet.expectType(SyncMessageTypes.action);
+    pet.send(SyncMessageTypes.syncReceived, {
+      'syncId': oldAction.payload['syncId'],
+      'originDeviceId': oldAction.payload['originDeviceId'],
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+
+    owner.send(SyncMessageTypes.snapshotPush, {
+      'version': 2,
+      'ciphertext': 'remote-wins-snapshot',
+      'completedItemKeys': <String>[],
+      'dataPolicy': SyncDataPolicy.remoteWins.name,
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+    await pet.expectType(SyncMessageTypes.snapshot);
+
+    owner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'postpone-new',
+      'ciphertext': 'postpone-new-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 200,
+    });
+    final newAction = await pet.expectType(SyncMessageTypes.action);
+    expect(newAction.payload['actionId'], 'postpone-new');
+    expect(newAction.payload['kind'], PetActionKind.postpone.name);
+  });
+
   test('完成状态到达服务器后会否决缺失完成状态的后续快照', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {

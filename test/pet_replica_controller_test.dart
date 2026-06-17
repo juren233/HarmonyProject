@@ -223,6 +223,88 @@ void main() {
     controller.dispose();
   });
 
+  test('completedItemKeys 会包含延后和跳过状态', () {
+    final store = PetNoteStore.seeded();
+    final todo = store.todoById('todo-2')!;
+    final reminder = store.reminderById('reminder-2')!;
+
+    todo.status = TodoStatus.postponed;
+    reminder.status = ReminderStatus.skipped;
+
+    expect(
+      store.completedItemKeys(),
+      containsAll(<String>[
+        'todo:${todo.id}',
+        'reminder:${reminder.id}',
+      ]),
+    );
+  });
+
+  test('恢复前台重复收到同源新增快照不会生成两份数据', () async {
+    final ownerStore = PetNoteStore.seeded();
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    await ownerStore.addTodo(
+      petId: ownerStore.pets.first.id,
+      title: '主人端恢复重复待办',
+      dueAt: DateTime.parse('2026-03-31T12:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '恢复前台重复快照',
+    );
+    final sourceTodo = ownerStore.todos.firstWhere(
+      (item) => item.title == '主人端恢复重复待办',
+    );
+    final state = ownerStore.exportDataState();
+    final encryptedSnapshot =
+        await crypto.encryptString(jsonEncode(state.toJson()));
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 1,
+        'syncId': 'snapshot-initial-merge',
+        'originDeviceId': 'owner-1',
+        'mergeMode': 'preserveConflictingIds',
+        'ciphertext': encryptedSnapshot,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 2,
+        'syncId': 'snapshot-resume-repeat',
+        'originDeviceId': 'owner-1',
+        'ciphertext': encryptedSnapshot,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    final importedTodos = replicaStore.todos
+        .where((item) => item.title == '主人端恢复重复待办')
+        .toList(growable: false);
+    expect(importedTodos, hasLength(1));
+    expect(importedTodos.single.id, 'todo-merge-owner-1-${sourceTodo.id}');
+    expect(replicaStore.todoById(sourceTodo.id), isNull);
+    expect(
+      transport.sent.where((message) =>
+          message.type == SyncMessageTypes.syncReceived &&
+          (message.payload['syncId'] == 'snapshot-initial-merge' ||
+              message.payload['syncId'] == 'snapshot-resume-repeat')),
+      hasLength(2),
+    );
+
+    controller.dispose();
+  });
+
   test('收到主人端新增待办操作后应用到本地', () async {
     final replicaStore = PetNoteStore.seeded();
     final currentPet = replicaStore.pets.last;
