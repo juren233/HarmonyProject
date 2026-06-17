@@ -158,12 +158,27 @@ void main() {
         id: 'todo-1',
         localLabel: '本机待办',
         remoteLabel: '对方待办',
+        differences: [
+          SyncMergeDifference(
+            fieldPath: 'title',
+            localValue: '本机待办',
+            remoteValue: '对方待办',
+          ),
+          SyncMergeDifference(
+            fieldPath: 'note',
+            localValue: '本机备注',
+            remoteValue: '对方备注',
+          ),
+        ],
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('待办冲突'), findsOneWidget);
-    expect(find.textContaining('本机待办'), findsOneWidget);
+    expect(find.textContaining('本机待办'), findsWidgets);
+    expect(find.text('title'), findsOneWidget);
+    expect(find.text('note'), findsOneWidget);
+    expect(find.textContaining('对方备注'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('sync_merge_keep_remote')));
     await tester.pumpAndSettle();

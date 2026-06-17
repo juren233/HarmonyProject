@@ -51,9 +51,13 @@ class SyncFailureQueue {
     _refreshFailedCount();
   }
 
-  void dispose() {
+  void clear() {
     _messages.clear();
     _refreshFailedCount();
+  }
+
+  void dispose() {
+    clear();
   }
 
   void _refreshFailedCount() {

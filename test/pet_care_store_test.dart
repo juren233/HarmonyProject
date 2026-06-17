@@ -1190,6 +1190,45 @@ void main() {
       expect(appended.reminderById('reminder-extra'), isNull);
     });
 
+    test('replaceAllData 和 clearAllData 会清空待发送 mutation 队列', () async {
+      final storage = PetNoteLocalStorage.memory();
+      final seedStore = await PetNoteStore.load(storage: storage);
+      await seedStore.replaceAllData(PetNoteStore.seeded().exportDataState());
+      final store = await PetNoteStore.load(storage: storage);
+      final todo = store.todos.first;
+      await store.updateTodo(
+        todoId: todo.id,
+        petId: todo.petId,
+        title: '本地待发送标题',
+        dueAt: todo.dueAt,
+        notificationLeadTime: todo.notificationLeadTime,
+        note: todo.note,
+      );
+      expect(store.pendingLocalMutations, isNotEmpty);
+      expect(storage.readTable(PetNoteLocalTable.pendingMutations), isNot('[]'));
+
+      await store.replaceAllData(PetNoteStore.seeded().exportDataState());
+
+      expect(store.pendingLocalMutations, isEmpty);
+      expect(storage.readTable(PetNoteLocalTable.pendingMutations), '[]');
+
+      final nextTodo = store.todos.first;
+      await store.updateTodo(
+        todoId: nextTodo.id,
+        petId: nextTodo.petId,
+        title: '清空前待发送标题',
+        dueAt: nextTodo.dueAt,
+        notificationLeadTime: nextTodo.notificationLeadTime,
+        note: nextTodo.note,
+      );
+      expect(store.pendingLocalMutations, isNotEmpty);
+
+      await store.clearAllData();
+
+      expect(store.pendingLocalMutations, isEmpty);
+      expect(storage.readTable(PetNoteLocalTable.pendingMutations), '[]');
+    });
+
     test('mergeData 默认保留本机冲突并补充缺失数据', () async {
       final store = PetNoteStore.seeded();
       final incoming = PetNoteStore.seeded();
@@ -1214,6 +1253,20 @@ void main() {
 
       expect(store.todoById(localTodo.id)?.title, localTodo.title);
       expect(store.todos.any((item) => item.title == '对方新增待办'), isTrue);
+    });
+
+    test('mergeData 合并对方已完成状态', () async {
+      final store = PetNoteStore.seeded();
+      final incoming = PetNoteStore.seeded();
+      final todo = store.todoById('todo-1')!;
+      final reminder = store.reminderById('reminder-1')!;
+      await incoming.markChecklistDone('todo', todo.id);
+      await incoming.markChecklistDone('reminder', reminder.id);
+
+      await store.mergeData(incoming.exportDataState());
+
+      expect(store.todoById(todo.id)?.status, TodoStatus.done);
+      expect(store.reminderById(reminder.id)?.status, ReminderStatus.done);
     });
 
     test('mergeData 保留本机总览宠物筛选偏好', () async {

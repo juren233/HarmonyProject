@@ -3,4 +3,4 @@ alwaysApply: true
 scene: git_message
 ---
 
-在此处编写规则，自定义 AI 生成提交信息的风格。
+只允许简体中文，严禁出现其他语言！

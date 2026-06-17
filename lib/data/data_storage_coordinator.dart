@@ -7,16 +7,20 @@ import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
+typedef BackupRestoreSyncCallback = Future<void> Function(PetNoteStore store);
+
 class DataStorageCoordinator extends ChangeNotifier {
   DataStorageCoordinator({
     required this.store,
     required this.settingsController,
     AiSecretStore? secretStore,
+    this.onBackupRestored,
   }) : secretStore = secretStore ?? MethodChannelAiSecretStore();
 
   final PetNoteStore store;
   final AppSettingsController settingsController;
   final AiSecretStore secretStore;
+  final BackupRestoreSyncCallback? onBackupRestored;
 
   PetNoteDataPackage? _latestSnapshotPackage;
   DataOperationResult? _latestOperationResult;
@@ -115,6 +119,7 @@ class DataStorageCoordinator extends ChangeNotifier {
       if (restoredSensitiveSettings) {
         await _restoreSensitiveSettings(package);
       }
+      await _pushResetSnapshotAfterLocalReset();
       final successMessage = _successMessage(
         restoredSettings: restoredSettings,
         restoredSensitiveSettings: restoredSensitiveSettings,
@@ -147,6 +152,7 @@ class DataStorageCoordinator extends ChangeNotifier {
     final snapshot = await _captureSnapshot();
     await store.clearAllData();
     await settingsController.resetNonSensitiveSettings();
+    await _pushResetSnapshotAfterLocalReset();
     return _setOperation(
       DataOperationResult(
         kind: DataOperationKind.cleared,
@@ -194,6 +200,21 @@ class DataStorageCoordinator extends ChangeNotifier {
       return '当前数据状态异常，暂时无法导入。';
     }
     return null;
+  }
+
+  Future<void> _pushResetSnapshotAfterLocalReset() async {
+    try {
+      await onBackupRestored?.call(store);
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'data_storage_coordinator',
+          context: ErrorDescription('数据重置后的同步推送失败'),
+        ),
+      );
+    }
   }
 
   Future<PetNoteDataPackage?> _captureSnapshot() async {

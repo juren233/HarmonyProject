@@ -178,6 +178,148 @@ void main() {
     await service.stop();
   });
 
+  test('导入备份推送覆盖快照时不会夹带启动 merge 快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.pushLocalSnapshotToAllDevices(store: PetNoteStore.seeded());
+
+    final snapshotPushes = transport.sent
+        .where((message) => message.type == SyncMessageTypes.snapshotPush)
+        .toList(growable: false);
+    expect(snapshotPushes, hasLength(1));
+    expect(
+      snapshotPushes.single.payload['dataPolicy'],
+      SyncDataPolicy.remoteWins.name,
+    );
+    expect(
+      transport.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.snapshotRequest)),
+    );
+
+    await service.stop();
+  });
+
+  test('导入备份覆盖快照未建立同步连接时不登记待回执', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+
+    await service.pushLocalSnapshotToAllDevices(store: PetNoteStore.seeded());
+
+    expect(settings.pendingResetSnapshotSyncId, isNull);
+    expect(service.failedSyncCount?.value, 0);
+    expect(
+      transport.sent.where(
+        (message) => message.type == SyncMessageTypes.snapshotPush,
+      ),
+      isEmpty,
+    );
+
+    await service.stop();
+  });
+
+  test('导入备份覆盖快照断线后会跨服务重启继续待发送', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+
+    await service.ensureStarted(store: store, pushStartupSnapshot: false);
+    final firstTransport = transports.single;
+    firstTransport.setState(SyncConnectionState.disconnected);
+    await service.pushLocalSnapshotToAllDevices(store: store);
+
+    expect(service.failedSyncCount?.value, 1);
+    expect(
+      firstTransport.sent.where(
+        (message) => message.type == SyncMessageTypes.snapshotPush,
+      ),
+      isEmpty,
+    );
+    await service.stop();
+
+    final restartedService = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+
+    await restartedService.ensureStarted(
+      store: store,
+      pushStartupSnapshot: false,
+    );
+
+    final secondTransport = transports.last;
+    final snapshotPushes = secondTransport.sent
+        .where((message) => message.type == SyncMessageTypes.snapshotPush)
+        .toList(growable: false);
+    expect(snapshotPushes, hasLength(1));
+    expect(
+      snapshotPushes.single.payload['dataPolicy'],
+      SyncDataPolicy.remoteWins.name,
+    );
+    expect(restartedService.failedSyncCount?.value, 1);
+
+    secondTransport.incoming.add(SyncMessage(SyncMessageTypes.syncReceived, {
+      'syncId': snapshotPushes.single.payload['syncId'],
+    }));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.pendingResetSnapshotSyncId, isNull);
+    expect(restartedService.failedSyncCount?.value, 0);
+
+    await restartedService.stop();
+  });
+
   test('pet 已有同步连接时新配对的远端覆盖策略仍会重启并请求快照', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.pet);
@@ -460,6 +602,48 @@ void main() {
 
     expect(settings.householdId, isNull);
     expect(settings.householdAuthToken, isNull);
+
+    await service.stop();
+  });
+
+  test('owner 收到当前设备被移除配置时停止服务并取消重连 hello', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final helloCountAfterRemove = transport.sent
+        .where((message) => message.type == SyncMessageTypes.hello)
+        .length;
+    transport.setState(SyncConnectionState.disconnected);
+    transport.setState(SyncConnectionState.connected);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.isActive, isFalse);
+    expect(transport.connected, isFalse);
+    expect(
+      transport.sent.where((message) => message.type == SyncMessageTypes.hello),
+      hasLength(helloCountAfterRemove),
+    );
 
     await service.stop();
   });

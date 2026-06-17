@@ -88,7 +88,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('data_storage_export_button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('backup_export_confirm_button')));
     await tester.pumpAndSettle();
 
     expect(fileAccess.savedBackups, hasLength(1));
@@ -103,7 +104,8 @@ void main() {
     expect(find.textContaining('Files'), findsWidgets);
   });
 
-  testWidgets('export backup requires second confirmation before including api keys',
+  testWidgets(
+      'export backup requires second confirmation before including api keys',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -155,7 +157,8 @@ void main() {
       find.byKey(const ValueKey('backup_export_include_sensitive_toggle')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('backup_export_confirm_button')));
     await tester.pumpAndSettle();
 
     expect(
@@ -284,7 +287,8 @@ void main() {
       find.byKey(const ValueKey('data_package_execute_restore_button')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(store.pets, hasLength(1));
@@ -378,7 +382,8 @@ void main() {
 
     expect(find.textContaining('当前本地业务数据和普通设置都会被备份内容覆盖'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(settingsController.themePreference, AppThemePreference.light);
@@ -488,6 +493,37 @@ void main() {
     );
   });
 
+  testWidgets('restore confirm warns paired devices will all be overwritten',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: const Scaffold(
+          body: SizedBox.shrink(),
+        ),
+      ),
+    );
+
+    unawaited(
+      showDialog<void>(
+        context: tester.element(find.byType(SizedBox)),
+        builder: (_) => const DangerConfirmDialog(
+          action: DataDangerAction.restoreFromBackupFile,
+          hasPairedDevices: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('所有设备都会同步覆盖为这份备份的数据'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
       'restore can skip api key recovery after second confirmation is cancelled',
       (tester) async {
@@ -540,12 +576,14 @@ void main() {
       find.byKey(const ValueKey('data_package_execute_restore_button')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('sensitive_restore_cancel_button')),
         findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('sensitive_restore_cancel_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('sensitive_restore_cancel_button')));
     await tester.pumpAndSettle();
 
     expect(await secretStore.readKey('cfg-openai'), isNull);
@@ -584,7 +622,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('data_storage_clear_button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('danger_confirm_action_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('danger_confirm_action_button')));
     await tester.pumpAndSettle();
 
     expect(store.pets, isEmpty);
@@ -779,7 +818,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('data_storage_export_button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('backup_export_confirm_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('backup_export_confirm_button')));
     await tester.pumpAndSettle();
     expect(find.textContaining('备份已保存到 Files · petnote_backup.json'),
         findsOneWidget);

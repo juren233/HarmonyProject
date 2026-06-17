@@ -109,4 +109,44 @@ void main() {
 
     expect(reloaded.household('house-legacy')!.authToken, isNotEmpty);
   });
+
+  test('加载时会保留已落盘去重索引', () async {
+    final file = File('${store.dataDirectory.path}/households.json');
+    await file.writeAsString('''
+{"households":{"house-1":{"id":"house-1","saltBase64":"salt","authToken":"token","devices":{"o":{"deviceId":"o","name":"o"}},"syncEvents":{"live-action-sync":{"syncId":"live-action-sync","originDeviceId":"o","messageType":"action","payload":{"actionId":"live-action","ciphertext":"action-cipher","kind":"markDone","sourceType":"todo","itemId":"todo-1","syncId":"live-action-sync","originDeviceId":"o"},"receivedByDeviceIds":[]},"live-mutation-sync":{"syncId":"live-mutation-sync","originDeviceId":"o","messageType":"mutation","payload":{"mutationId":"live-mutation","ciphertext":"mutation-cipher","entityType":"todo","entityId":"todo-1","kind":"upsert","syncId":"live-mutation-sync","originDeviceId":"o"},"receivedByDeviceIds":[]}},"actionSyncEventIds":{"live-action":"live-action-sync","stale-action":"missing-sync","wrong-action":"live-mutation-sync"},"mutationSyncEventIds":{"live-mutation":"live-mutation-sync","stale-mutation":"missing-sync","wrong-mutation":"live-action-sync"}}}}
+''');
+    final reloaded = HouseholdStore(store.dataDirectory);
+
+    await reloaded.load();
+
+    final household = reloaded.household('house-1')!;
+    expect(household.actionSyncEventIds, {
+      'live-action': 'live-action-sync',
+      'stale-action': 'missing-sync',
+    });
+    expect(
+      household.mutationSyncEventIds,
+      {
+        'live-mutation': 'live-mutation-sync',
+        'stale-mutation': 'missing-sync',
+      },
+    );
+  });
+
+  test('加载时会从同步事件回填缺失的去重索引', () async {
+    final file = File('${store.dataDirectory.path}/households.json');
+    await file.writeAsString('''
+{"households":{"house-1":{"id":"house-1","saltBase64":"salt","authToken":"token","devices":{"o":{"deviceId":"o","name":"o"}},"syncEvents":{"live-action-sync":{"syncId":"live-action-sync","originDeviceId":"o","messageType":"action","payload":{"actionId":"live-action","ciphertext":"action-cipher","kind":"markDone","sourceType":"todo","itemId":"todo-1","syncId":"live-action-sync","originDeviceId":"o"},"receivedByDeviceIds":[]},"live-mutation-sync":{"syncId":"live-mutation-sync","originDeviceId":"o","messageType":"mutation","payload":{"mutationId":"live-mutation","ciphertext":"mutation-cipher","entityType":"todo","entityId":"todo-1","kind":"upsert","syncId":"live-mutation-sync","originDeviceId":"o"},"receivedByDeviceIds":[]}},"actionSyncEventIds":{},"mutationSyncEventIds":{}}}}
+''');
+    final reloaded = HouseholdStore(store.dataDirectory);
+
+    await reloaded.load();
+
+    final household = reloaded.household('house-1')!;
+    expect(household.actionSyncEventIds, {'live-action': 'live-action-sync'});
+    expect(
+      household.mutationSyncEventIds,
+      {'live-mutation': 'live-mutation-sync'},
+    );
+  });
 }

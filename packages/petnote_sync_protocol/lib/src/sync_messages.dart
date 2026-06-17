@@ -50,6 +50,10 @@ class SyncMessageTypes {
   static const action =
       'action'; // srv→device {actionId, ciphertext, kind?, sourceType?, itemId?}
   static const actionAck = 'action_ack'; // device→srv {actionId}
+  static const mutationPush =
+      'mutation_push'; // device→srv {mutationId, ciphertext, entityType, entityId, kind}
+  static const mutation =
+      'mutation'; // srv→device {mutationId, ciphertext, entityType, entityId, kind}
   static const syncReceived =
       'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?, actionId?, kind?, sourceType?, itemId?}
   // 设备管理
@@ -73,6 +77,10 @@ class SyncMessageTypes {
 enum PetActionKind { markDone, postpone, skip }
 
 enum SyncDataPolicy { remoteWins, localWins, merge }
+
+enum PetNoteEntityType { pet, todo, reminder, record }
+
+enum PetNoteMutationKind { upsert, delete, checklistAction }
 
 /// 设备回传的操作（加密后放进 action_push.ciphertext）。
 class PetAction {
@@ -111,6 +119,65 @@ class PetAction {
       ),
       sourceType: sourceType,
       itemId: itemId,
+      occurredAtMs: (json['occurredAtMs'] as num?)?.toInt(),
+    );
+  }
+}
+
+class PetNoteMutation {
+  const PetNoteMutation({
+    required this.id,
+    required this.entityType,
+    required this.entityId,
+    required this.kind,
+    this.data,
+    this.actionKind,
+    this.occurredAtMs,
+  });
+
+  final String id;
+  final PetNoteEntityType entityType;
+  final String entityId;
+  final PetNoteMutationKind kind;
+  final Map<String, dynamic>? data;
+  final PetActionKind? actionKind;
+  final int? occurredAtMs;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'entityType': entityType.name,
+        'entityId': entityId,
+        'kind': kind.name,
+        if (data != null) 'data': data,
+        if (actionKind != null) 'actionKind': actionKind!.name,
+        if (occurredAtMs != null) 'occurredAtMs': occurredAtMs,
+      };
+
+  factory PetNoteMutation.fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final entityId = json['entityId'];
+    if (id is! String || id.isEmpty || entityId is! String || entityId.isEmpty) {
+      throw const FormatException('invalid PetNoteMutation fields');
+    }
+    final data = json['data'];
+    return PetNoteMutation(
+      id: id,
+      entityType: PetNoteEntityType.values.firstWhere(
+        (type) => type.name == json['entityType'],
+        orElse: () => throw const FormatException('unknown entity type'),
+      ),
+      entityId: entityId,
+      kind: PetNoteMutationKind.values.firstWhere(
+        (kind) => kind.name == json['kind'],
+        orElse: () => throw const FormatException('unknown mutation kind'),
+      ),
+      data: data is Map ? Map<String, dynamic>.from(data) : null,
+      actionKind: json['actionKind'] == null
+          ? null
+          : PetActionKind.values.firstWhere(
+              (kind) => kind.name == json['actionKind'],
+              orElse: () => throw const FormatException('unknown action kind'),
+            ),
       occurredAtMs: (json['occurredAtMs'] as num?)?.toInt(),
     );
   }

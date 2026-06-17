@@ -275,6 +275,113 @@ void main() {
     expect(settingsController.themePreference, AppThemePreference.light);
   });
 
+  test('replace import triggers backup restore sync after local restore',
+      () async {
+    final store = await PetNoteStore.load();
+    final settingsController = await AppSettingsController.load();
+    await settingsController.setThemePreference(AppThemePreference.dark);
+    final syncedNames = <String>[];
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      onBackupRestored: (restoredStore) async {
+        syncedNames.addAll(restoredStore.pets.map((pet) => pet.name));
+        expect(settingsController.themePreference, AppThemePreference.light);
+      },
+    );
+
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-02-12',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '旧数据',
+    );
+    final backupPackage = PetNoteDataPackage(
+      schemaVersion: PetNoteDataPackage.currentSchemaVersion,
+      packageType: PetNoteDataPackageType.backup,
+      packageName: '恢复后同步备份',
+      description: '导入后推送到已配对设备',
+      createdAt: DateTime.parse('2026-04-12T10:00:00+08:00'),
+      appVersion: '1.0.0-test',
+      data: PetNoteDataState(
+        pets: [
+          Pet(
+            id: 'pet-luna',
+            name: 'Luna',
+            type: PetType.dog,
+            avatarText: 'LU',
+            breed: '柯基',
+            sex: '母',
+            birthday: '2023-01-01',
+            ageLabel: '3岁',
+            weightKg: 8.5,
+            neuterStatus: PetNeuterStatus.neutered,
+            feedingPreferences: '鲜食',
+            allergies: '无',
+            note: '备份数据',
+          ),
+        ],
+        todos: const <TodoItem>[],
+        reminders: const <ReminderItem>[],
+        records: const <PetRecord>[],
+      ),
+      settings: const PetNoteSettingsState(
+        themePreferenceName: 'light',
+        aiProviderConfigs: <AiProviderConfig>[],
+        activeAiProviderConfigId: null,
+      ),
+      meta: const <String, Object?>{},
+    );
+
+    final replaceResult = await coordinator.importPackage(
+      package: backupPackage,
+      options: const DataImportOptions(restoreSettings: true),
+    );
+
+    expect(replaceResult.isSuccess, isTrue);
+    expect(syncedNames, ['Luna']);
+  });
+
+  test('replace import keeps success result when backup restore sync fails',
+      () async {
+    final store = await PetNoteStore.load();
+    final settingsController = await AppSettingsController.load();
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      onBackupRestored: (_) async {
+        throw Exception('同步推送失败');
+      },
+    );
+    final backupPackage = PetNoteDataPackage(
+      schemaVersion: PetNoteDataPackage.currentSchemaVersion,
+      packageType: PetNoteDataPackageType.backup,
+      packageName: '恢复后同步失败备份',
+      description: '导入已完成但同步回调失败',
+      createdAt: DateTime.parse('2026-04-12T10:00:00+08:00'),
+      appVersion: '1.0.0-test',
+      data: PetNoteStore.seeded().exportDataState(),
+      settings: null,
+      meta: const <String, Object?>{},
+    );
+
+    final replaceResult = await coordinator.importPackage(
+      package: backupPackage,
+      options: const DataImportOptions(restoreSettings: false),
+    );
+
+    expect(replaceResult.isSuccess, isTrue);
+    expect(replaceResult.kind, DataOperationKind.importedReplace);
+    expect(coordinator.latestOperationResult, same(replaceResult));
+    expect(store.pets.map((pet) => pet.name), containsAll(['Luna', 'Milo']));
+  });
+
   test(
       'import keeps api secrets unchanged until restoreSensitiveSettings is true',
       () async {
@@ -361,6 +468,25 @@ void main() {
     expect(store.reminders, isEmpty);
     expect(store.records, isEmpty);
     expect(settingsController.themePreference, AppThemePreference.system);
+  });
+
+  test('clear all data triggers backup restore sync callback', () async {
+    final store = PetNoteStore.seeded();
+    final settingsController = await AppSettingsController.load();
+    var syncCallbackCalled = false;
+    final coordinator = DataStorageCoordinator(
+      store: store,
+      settingsController: settingsController,
+      onBackupRestored: (clearedStore) async {
+        syncCallbackCalled = true;
+        expect(clearedStore.exportDataState().totalCount, 0);
+      },
+    );
+
+    final clearResult = await coordinator.clearAllData();
+
+    expect(clearResult.isSuccess, isTrue);
+    expect(syncCallbackCalled, isTrue);
   });
 
   test('parsePackageJson rejects legacy scenario packages', () async {

@@ -16,12 +16,26 @@ class SyncMergeConflict {
     required this.id,
     required this.localLabel,
     required this.remoteLabel,
+    this.differences = const <SyncMergeDifference>[],
   });
 
   final String collectionLabel;
   final String id;
   final String localLabel;
   final String remoteLabel;
+  final List<SyncMergeDifference> differences;
+}
+
+class SyncMergeDifference {
+  const SyncMergeDifference({
+    required this.fieldPath,
+    required this.localValue,
+    required this.remoteValue,
+  });
+
+  final String fieldPath;
+  final Object? localValue;
+  final Object? remoteValue;
 }
 
 typedef SyncMergeConflictResolver = Future<SyncMergeSide> Function(
@@ -612,6 +626,7 @@ class PetNoteStore extends ChangeNotifier {
     List<PetRecord>? records,
     OverviewAnalysisConfig? overviewAnalysisConfig,
     OverviewAiReportState? overviewAiReportState,
+    List<PetNoteMutation>? pendingMutations,
     PetNoteLocalStorage? storage,
     DateTime Function()? nowProvider,
     bool shouldAutoShowFirstLaunchIntro = true,
@@ -648,6 +663,11 @@ class PetNoteStore extends ChangeNotifier {
     }
     if (overviewAiReportState != null) {
       _restoreOverviewAiReportState(overviewAiReportState);
+    }
+    if (pendingMutations != null) {
+      for (final mutation in pendingMutations) {
+        _pendingLocalMutations[mutation.id] = mutation;
+      }
     }
     _refreshPersistedTableSnapshots();
   }
@@ -812,6 +832,7 @@ class PetNoteStore extends ChangeNotifier {
       overviewAiReportState: _decodeOverviewAiReportState(
         localStorage?.readTable(PetNoteLocalTable.overviewAiReport),
       ),
+      pendingMutations: _decodePendingMutationsFromStorage(localStorage),
     );
     final migrated = store._migrateLegacySemanticData();
     if (migrated) {
@@ -839,6 +860,10 @@ class PetNoteStore extends ChangeNotifier {
   final Map<String, PetRecord> _recordsById = <String, PetRecord>{};
   final DateTime Function() _nowProvider;
   final PetNoteLocalStorage? _storage;
+  final StreamController<PetNoteMutation> _localMutations =
+      StreamController<PetNoteMutation>.broadcast();
+  final Map<String, PetNoteMutation> _pendingLocalMutations =
+      <String, PetNoteMutation>{};
   final Map<PetNoteLocalTable, String?> _persistedTableSnapshots =
       <PetNoteLocalTable, String?>{};
   Future<void> Function()? _notificationSyncHandler;
@@ -858,6 +883,9 @@ class PetNoteStore extends ChangeNotifier {
   OverviewAiReportState _overviewAiReportState = const OverviewAiReportState();
   int _overviewAiRequestToken = 0;
   int _notificationSyncVersion = 0;
+  int _dataResetVersion = 0;
+  var _applyingRemoteMutationDepth = 0;
+  ({AppTab activeTab, String selectedPetId})? _remoteNavigationState;
 
   AppTab _activeTab = AppTab.checklist;
   OverviewRange _overviewRange = OverviewRange.sevenDays;
@@ -868,6 +896,7 @@ class PetNoteStore extends ChangeNotifier {
   bool _shouldAutoShowFirstLaunchIntro;
 
   AppTab get activeTab => _activeTab;
+  String get selectedPetId => _selectedPetId;
   OverviewRange get overviewRange => _overviewRange;
   List<String> get overviewSelectedPetIds =>
       List<String>.unmodifiable(_effectiveOverviewSelectedPetIds());
@@ -902,7 +931,11 @@ class PetNoteStore extends ChangeNotifier {
   List<PetRecord> get records => List<PetRecord>.unmodifiable(_records);
   bool get shouldAutoShowFirstLaunchIntro => _shouldAutoShowFirstLaunchIntro;
   int get notificationSyncVersion => _notificationSyncVersion;
+  int get dataResetVersion => _dataResetVersion;
   DateTime get referenceNow => _referenceNow;
+  Stream<PetNoteMutation> get localMutations => _localMutations.stream;
+  List<PetNoteMutation> get pendingLocalMutations =>
+      List<PetNoteMutation>.unmodifiable(_pendingLocalMutations.values);
 
   void setNotificationSyncHandler(Future<void> Function()? handler) {
     _notificationSyncHandler = handler;
@@ -922,7 +955,17 @@ class PetNoteStore extends ChangeNotifier {
   @override
   void dispose() {
     stopTimeDerivedDataRefresh();
+    _localMutations.close();
     super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    final navigationState = _remoteNavigationState;
+    if (navigationState != null) {
+      _restoreNavigationState(navigationState);
+    }
+    super.notifyListeners();
   }
 
   Pet? get selectedPet {
@@ -1430,6 +1473,7 @@ class PetNoteStore extends ChangeNotifier {
       todos: sourceType == 'todo',
       reminders: sourceType != 'todo',
     );
+    await _emitChecklistMutation(sourceType, itemId, PetActionKind.markDone);
   }
 
   Future<void> postponeChecklist(String sourceType, String itemId) async {
@@ -1450,6 +1494,7 @@ class PetNoteStore extends ChangeNotifier {
       todos: sourceType == 'todo',
       reminders: sourceType != 'todo',
     );
+    await _emitChecklistMutation(sourceType, itemId, PetActionKind.postpone);
   }
 
   Future<void> skipChecklist(String sourceType, String itemId) async {
@@ -1466,6 +1511,7 @@ class PetNoteStore extends ChangeNotifier {
       todos: sourceType == 'todo',
       reminders: sourceType != 'todo',
     );
+    await _emitChecklistMutation(sourceType, itemId, PetActionKind.skip);
   }
 
   bool isPetActionApplied(PetAction action) {
@@ -1488,6 +1534,66 @@ class PetNoteStore extends ChangeNotifier {
         await postponeChecklist(action.sourceType, action.itemId);
       case PetActionKind.skip:
         await skipChecklist(action.sourceType, action.itemId);
+    }
+  }
+
+  Future<void> applyRemotePetAction(PetAction action) async {
+    _applyingRemoteMutationDepth += 1;
+    final navigationState = _captureNavigationState();
+    _remoteNavigationState = navigationState;
+    try {
+      await applyPetAction(action);
+    } finally {
+      _restoreNavigationState(navigationState);
+      _remoteNavigationState = null;
+      _applyingRemoteMutationDepth -= 1;
+    }
+  }
+
+  Future<void> applyLocalSyncedPetAction(PetAction action) async {
+    final wasApplied = isPetActionApplied(action);
+    _applyingRemoteMutationDepth += 1;
+    try {
+      await applyPetAction(action);
+    } finally {
+      _applyingRemoteMutationDepth -= 1;
+    }
+    if (wasApplied) {
+      return;
+    }
+    await _emitChecklistMutation(
+      action.sourceType,
+      action.itemId,
+      action.kind,
+    );
+  }
+
+  Future<void> applyMutation(PetNoteMutation mutation) async {
+    _applyingRemoteMutationDepth += 1;
+    final navigationState = _captureNavigationState();
+    _remoteNavigationState = navigationState;
+    try {
+      switch (mutation.kind) {
+        case PetNoteMutationKind.upsert:
+          await _applyUpsertMutation(mutation);
+        case PetNoteMutationKind.delete:
+          await _applyDeleteMutation(mutation);
+        case PetNoteMutationKind.checklistAction:
+          final actionKind = mutation.actionKind;
+          if (actionKind == null) {
+            throw const FormatException('missing checklist action kind');
+          }
+          await applyPetAction(PetAction(
+            kind: actionKind,
+            sourceType: _sourceTypeForEntityType(mutation.entityType),
+            itemId: mutation.entityId,
+            occurredAtMs: mutation.occurredAtMs,
+          ));
+      }
+    } finally {
+      _restoreNavigationState(navigationState);
+      _remoteNavigationState = null;
+      _applyingRemoteMutationDepth -= 1;
     }
   }
 
@@ -1532,6 +1638,7 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
     await _finalizeNotificationMutation(todos: true);
+    await _emitUpsertMutation(PetNoteEntityType.todo, todo.id, todo.toJson());
   }
 
   Future<void> addReminder({
@@ -1577,6 +1684,11 @@ class PetNoteStore extends ChangeNotifier {
     }
     _bumpNotificationSyncVersion();
     await _finalizeNotificationMutation(reminders: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.reminder,
+      reminder.id,
+      reminder.toJson(),
+    );
   }
 
   Future<void> addRecord({
@@ -1642,6 +1754,11 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.record,
+      record.id,
+      record.toJson(),
+    );
   }
 
   Future<void> updateTodo({
@@ -1685,6 +1802,11 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateOverviewDerivedData();
     _bumpNotificationSyncVersion();
     await _finalizeNotificationMutation(todos: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.todo,
+      updatedTodo.id,
+      updatedTodo.toJson(),
+    );
   }
 
   Future<void> updateReminder({
@@ -1733,6 +1855,11 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateSelectedPetReminders();
     _bumpNotificationSyncVersion();
     await _finalizeNotificationMutation(reminders: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.reminder,
+      updatedReminder.id,
+      updatedReminder.toJson(),
+    );
   }
 
   Future<void> updateRecord({
@@ -1801,6 +1928,11 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.record,
+      updatedRecord.id,
+      updatedRecord.toJson(),
+    );
   }
 
   Future<void> deleteRecords(Iterable<String> recordIds) async {
@@ -1824,6 +1956,9 @@ class PetNoteStore extends ChangeNotifier {
     _invalidateRecordDerivedData();
     notifyListeners();
     await _saveState(records: true, overviewAiReport: true);
+    for (final id in ids) {
+      await _emitDeleteMutation(PetNoteEntityType.record, id);
+    }
   }
 
   Future<void> addPet({
@@ -1867,6 +2002,7 @@ class PetNoteStore extends ChangeNotifier {
       overviewAiReport: true,
     );
     notifyListeners();
+    await _emitUpsertMutation(PetNoteEntityType.pet, pet.id, pet.toJson());
   }
 
   Future<void> updatePet({
@@ -1915,10 +2051,20 @@ class PetNoteStore extends ChangeNotifier {
         _reminders.any((item) => item.petId == current.id)) {
       _bumpNotificationSyncVersion();
       await _finalizeNotificationMutation(pets: true);
+      await _emitUpsertMutation(
+        PetNoteEntityType.pet,
+        updatedPet.id,
+        updatedPet.toJson(),
+      );
       return;
     }
     notifyListeners();
     await _saveState(pets: true, overviewAiReport: true);
+    await _emitUpsertMutation(
+      PetNoteEntityType.pet,
+      updatedPet.id,
+      updatedPet.toJson(),
+    );
   }
 
   PetNoteDataState exportDataState() {
@@ -1943,6 +2089,41 @@ class PetNoteStore extends ChangeNotifier {
   Future<void> replaceAllData(PetNoteDataState state) async {
     _validateDataState(state);
     final normalizedState = _normalizedDataState(state);
+    _replaceDataCollections(normalizedState);
+    await _resetPendingLocalMutations();
+    _bumpDataResetVersion();
+    _invalidateAllDerivedData();
+    _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
+  }
+
+  Future<void> replaceAllDataFromRemote(PetNoteDataState state) async {
+    _validateDataState(state);
+    final normalizedState = _normalizedDataState(state);
+    final pendingMutations = pendingLocalMutations;
+    _replaceDataCollections(normalizedState);
+    _invalidateAllDerivedData();
+    _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
+    for (final mutation in pendingMutations) {
+      await applyMutation(mutation);
+    }
+    await _savePendingLocalMutations(force: true);
+  }
+
+  void _replaceDataCollections(PetNoteDataState normalizedState) {
     _pets
       ..clear()
       ..addAll(normalizedState.pets);
@@ -1964,15 +2145,6 @@ class PetNoteStore extends ChangeNotifier {
       ..addAll(_pets.map((pet) => pet.id));
     _selectedPetId = _pets.isEmpty ? '' : _pets.first.id;
     _activeTab = _pets.isEmpty ? AppTab.checklist : AppTab.pets;
-    _invalidateAllDerivedData();
-    _bumpNotificationSyncVersion();
-    await _finalizeNotificationMutation(
-      pets: true,
-      todos: true,
-      reminders: true,
-      records: true,
-      overviewConfig: true,
-    );
   }
 
   Future<void> appendData(PetNoteDataState state) async {
@@ -2101,6 +2273,8 @@ class PetNoteStore extends ChangeNotifier {
     _overviewSelectedPetIds.clear();
     _selectedPetId = '';
     _activeTab = AppTab.checklist;
+    await _resetPendingLocalMutations();
+    _bumpDataResetVersion();
     _invalidateAllDerivedData();
     _bumpNotificationSyncVersion();
     await _finalizeNotificationMutation(
@@ -2146,8 +2320,237 @@ class PetNoteStore extends ChangeNotifier {
     }
   }
 
+  Future<void> _applyUpsertMutation(PetNoteMutation mutation) async {
+    final data = mutation.data;
+    if (data == null) {
+      throw const FormatException('missing mutation data');
+    }
+    switch (mutation.entityType) {
+      case PetNoteEntityType.pet:
+        final pet = Pet.fromJson(data);
+        final index = _pets.indexWhere((item) => item.id == pet.id);
+        if (index == -1) {
+          _pets.insert(0, pet);
+        } else {
+          _pets[index] = pet;
+        }
+        _petsById[pet.id] = pet;
+        _overviewSelectedPetIds.add(pet.id);
+        _selectedPetId = pet.id;
+        _activeTab = AppTab.pets;
+        _invalidateAllDerivedData();
+        await _finalizeNotificationMutation(
+          pets: true,
+          overviewConfig: true,
+        );
+      case PetNoteEntityType.todo:
+        final todo = TodoItem.fromJson(data);
+        final index = _todos.indexWhere((item) => item.id == todo.id);
+        if (index == -1) {
+          _todos.insert(0, todo);
+        } else {
+          _todos[index] = todo;
+        }
+        _todosById[todo.id] = todo;
+        _selectedPetId = todo.petId;
+        _activeTab = AppTab.checklist;
+        _invalidateChecklistDerivedData();
+        _invalidateOverviewDerivedData();
+        _bumpNotificationSyncVersion();
+        await _finalizeNotificationMutation(todos: true);
+      case PetNoteEntityType.reminder:
+        final reminder = ReminderItem.fromJson(data);
+        final index = _reminders.indexWhere((item) => item.id == reminder.id);
+        if (index == -1) {
+          _reminders.insert(0, reminder);
+        } else {
+          _reminders[index] = reminder;
+        }
+        _remindersById[reminder.id] = reminder;
+        _selectedPetId = reminder.petId;
+        _activeTab = AppTab.checklist;
+        _invalidateChecklistDerivedData();
+        _invalidateOverviewDerivedData();
+        _invalidateSelectedPetReminders();
+        _bumpNotificationSyncVersion();
+        await _finalizeNotificationMutation(reminders: true);
+      case PetNoteEntityType.record:
+        final record = PetRecord.fromJson(data);
+        final index = _records.indexWhere((item) => item.id == record.id);
+        if (index == -1) {
+          _records.insert(0, record);
+        } else {
+          _records[index] = record;
+        }
+        _recordsById[record.id] = record;
+        _selectedPetId = record.petId;
+        _activeTab = AppTab.pets;
+        _invalidateOverviewDerivedData();
+        _invalidateRecordDerivedData();
+        notifyListeners();
+        await _saveState(records: true, overviewAiReport: true);
+    }
+  }
+
+  Future<void> _applyDeleteMutation(PetNoteMutation mutation) async {
+    switch (mutation.entityType) {
+      case PetNoteEntityType.record:
+        await deleteRecords([mutation.entityId]);
+      case PetNoteEntityType.pet:
+      case PetNoteEntityType.todo:
+      case PetNoteEntityType.reminder:
+        return;
+    }
+  }
+
+  Future<void> _emitUpsertMutation(
+    PetNoteEntityType entityType,
+    String entityId,
+    Map<String, dynamic> data,
+  ) {
+    return _emitLocalMutation(PetNoteMutation(
+      id: _newMutationId(entityType, entityId),
+      entityType: entityType,
+      entityId: entityId,
+      kind: PetNoteMutationKind.upsert,
+      data: data,
+      occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
+    ));
+  }
+
+  Future<void> _emitDeleteMutation(
+    PetNoteEntityType entityType,
+    String entityId,
+  ) {
+    return _emitLocalMutation(PetNoteMutation(
+      id: _newMutationId(entityType, entityId),
+      entityType: entityType,
+      entityId: entityId,
+      kind: PetNoteMutationKind.delete,
+      occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
+    ));
+  }
+
+  Future<void> _emitChecklistMutation(
+    String sourceType,
+    String itemId,
+    PetActionKind actionKind,
+  ) {
+    final entityType = switch (sourceType) {
+      'todo' => PetNoteEntityType.todo,
+      'reminder' => PetNoteEntityType.reminder,
+      _ => throw FormatException('unsupported source type: $sourceType'),
+    };
+    return _emitLocalMutation(PetNoteMutation(
+      id: _newMutationId(entityType, itemId),
+      entityType: entityType,
+      entityId: itemId,
+      kind: PetNoteMutationKind.checklistAction,
+      actionKind: actionKind,
+      occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
+    ));
+  }
+
+  Future<void> _emitLocalMutation(PetNoteMutation mutation) async {
+    if (_applyingRemoteMutationDepth > 0 || _localMutations.isClosed) {
+      return;
+    }
+    _pendingLocalMutations[mutation.id] = mutation;
+    await _savePendingLocalMutations();
+    _localMutations.add(mutation);
+  }
+
+  Future<void> markMutationSynced(String mutationId) async {
+    if (!_pendingLocalMutations.containsKey(mutationId)) {
+      return;
+    }
+    _pendingLocalMutations.remove(mutationId);
+    await _savePendingLocalMutations();
+  }
+
+  Future<void> markChecklistActionSynced({
+    required String sourceType,
+    required String itemId,
+    String? kind,
+  }) async {
+    final entityType = switch (sourceType) {
+      'todo' => PetNoteEntityType.todo,
+      'reminder' => PetNoteEntityType.reminder,
+      _ => null,
+    };
+    if (entityType == null) {
+      return;
+    }
+    PetActionKind? actionKind;
+    if (kind != null) {
+      for (final value in PetActionKind.values) {
+        if (value.name == kind) {
+          actionKind = value;
+          break;
+        }
+      }
+    }
+    final removedMutationIds = <String>[];
+    for (final entry in _pendingLocalMutations.entries) {
+      final mutation = entry.value;
+      if (mutation.kind != PetNoteMutationKind.checklistAction ||
+          mutation.entityType != entityType ||
+          mutation.entityId != itemId) {
+        continue;
+      }
+      if (actionKind != null &&
+          actionKind != PetActionKind.markDone &&
+          mutation.actionKind != actionKind) {
+        continue;
+      }
+      removedMutationIds.add(entry.key);
+    }
+    if (removedMutationIds.isEmpty) {
+      return;
+    }
+    for (final mutationId in removedMutationIds) {
+      _pendingLocalMutations.remove(mutationId);
+    }
+    await _savePendingLocalMutations();
+  }
+
+  String _newMutationId(PetNoteEntityType entityType, String entityId) {
+    return '${DateTime.now().toUtc().microsecondsSinceEpoch}-${entityType.name}-$entityId';
+  }
+
+  String _sourceTypeForEntityType(PetNoteEntityType entityType) {
+    return switch (entityType) {
+      PetNoteEntityType.todo => 'todo',
+      PetNoteEntityType.reminder => 'reminder',
+      PetNoteEntityType.pet ||
+      PetNoteEntityType.record =>
+        throw FormatException('unsupported checklist entity: $entityType'),
+    };
+  }
+
+  ({AppTab activeTab, String selectedPetId}) _captureNavigationState() {
+    return (activeTab: _activeTab, selectedPetId: _selectedPetId);
+  }
+
+  void _restoreNavigationState(
+    ({AppTab activeTab, String selectedPetId}) state,
+  ) {
+    _activeTab = state.activeTab;
+    if (state.selectedPetId.isEmpty ||
+        _petsById.containsKey(state.selectedPetId)) {
+      _selectedPetId = state.selectedPetId;
+    } else {
+      _selectedPetId = _pets.isEmpty ? '' : _pets.first.id;
+    }
+    _invalidateSelectedPetViewData();
+  }
+
   void _bumpNotificationSyncVersion() {
     _notificationSyncVersion += 1;
+  }
+
+  void _bumpDataResetVersion() {
+    _dataResetVersion += 1;
   }
 
   void _invalidateAllDerivedData() {
@@ -2477,6 +2880,8 @@ class PetNoteStore extends ChangeNotifier {
         _encodeOverviewConfigTable();
     _persistedTableSnapshots[PetNoteLocalTable.overviewAiReport] =
         _encodeOverviewAiReportTable();
+    _persistedTableSnapshots[PetNoteLocalTable.pendingMutations] =
+        _encodePendingMutationsTable();
   }
 
   void _refreshPersistedTableSnapshot(
@@ -2553,6 +2958,41 @@ class PetNoteStore extends ChangeNotifier {
         : jsonEncode(encodedOverviewAiReport);
   }
 
+  String _encodePendingMutationsTable() {
+    return jsonEncode(
+      _pendingLocalMutations.values
+          .map((mutation) => mutation.toJson())
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _savePendingLocalMutations({bool force = false}) async {
+    final storage = _storage;
+    if (storage == null) {
+      return;
+    }
+    final encodedPendingMutations = _encodePendingMutationsTable();
+    if (force) {
+      await storage.writeTable(
+        PetNoteLocalTable.pendingMutations,
+        encodedPendingMutations,
+      );
+      _persistedTableSnapshots[PetNoteLocalTable.pendingMutations] =
+          encodedPendingMutations;
+      return;
+    }
+    await _writeTableIfChanged(
+      storage,
+      PetNoteLocalTable.pendingMutations,
+      encodedPendingMutations,
+    );
+  }
+
+  Future<void> _resetPendingLocalMutations() async {
+    _pendingLocalMutations.clear();
+    await _savePendingLocalMutations(force: true);
+  }
+
   String _avatarTextForName(String name) {
     final trimmed = name.trim();
     if (trimmed.length >= 2) {
@@ -2600,6 +3040,15 @@ class PetNoteStore extends ChangeNotifier {
           storage?.readTable(PetNoteLocalTable.records),
           PetRecord.fromJson,
         );
+  }
+
+  static List<PetNoteMutation> _decodePendingMutationsFromStorage(
+    PetNoteLocalStorage? storage,
+  ) {
+    return _decodeList(
+      storage?.readTable(PetNoteLocalTable.pendingMutations),
+      PetNoteMutation.fromJson,
+    );
   }
 
   static OverviewAnalysisConfig? _decodeOverviewAnalysisConfig(
@@ -2859,7 +3308,12 @@ class PetNoteStore extends ChangeNotifier {
         continue;
       }
       final existingItem = current[existingIndex];
-      if (_jsonEquals(jsonOf(existingItem), jsonOf(item))) {
+      if (resolveConflict == null) {
+        _promoteCompletionState(existingItem, item);
+      }
+      final existingJson = jsonOf(existingItem);
+      final incomingJson = jsonOf(item);
+      if (_jsonEquals(existingJson, incomingJson)) {
         index[id] = existingItem;
         continue;
       }
@@ -2869,6 +3323,7 @@ class PetNoteStore extends ChangeNotifier {
               id: id,
               localLabel: labelOf(existingItem),
               remoteLabel: labelOf(item),
+              differences: _mergeDifferences(existingJson, incomingJson),
             ),
           ) ??
           SyncMergeSide.local;
@@ -2891,6 +3346,59 @@ class PetNoteStore extends ChangeNotifier {
       for (final entry in source.entries)
         if (entry.key != 'semantic') entry.key: entry.value,
     };
+  }
+
+  void _promoteCompletionState<T>(T existingItem, T incomingItem) {
+    if (existingItem is TodoItem && incomingItem is TodoItem) {
+      if (existingItem.status != TodoStatus.done &&
+          incomingItem.status == TodoStatus.done) {
+        existingItem.status = TodoStatus.done;
+      }
+      return;
+    }
+    if (existingItem is ReminderItem && incomingItem is ReminderItem) {
+      if (existingItem.status != ReminderStatus.done &&
+          incomingItem.status == ReminderStatus.done) {
+        existingItem.status = ReminderStatus.done;
+      }
+    }
+  }
+
+  List<SyncMergeDifference> _mergeDifferences(
+    Map<String, dynamic> localJson,
+    Map<String, dynamic> remoteJson,
+  ) {
+    final differences = <SyncMergeDifference>[];
+    void collect(String path, Object? localValue, Object? remoteValue) {
+      if (path == 'semantic' || path.startsWith('semantic.')) {
+        return;
+      }
+      if (localValue is Map && remoteValue is Map) {
+        final keys = <String>{
+          ...localValue.keys.map((key) => key.toString()),
+          ...remoteValue.keys.map((key) => key.toString()),
+        };
+        for (final key in keys) {
+          collect(
+            path.isEmpty ? key : '$path.$key',
+            localValue[key],
+            remoteValue[key],
+          );
+        }
+        return;
+      }
+      if (jsonEncode(localValue) == jsonEncode(remoteValue)) {
+        return;
+      }
+      differences.add(SyncMergeDifference(
+        fieldPath: path,
+        localValue: localValue,
+        remoteValue: remoteValue,
+      ));
+    }
+
+    collect('', localJson, remoteJson);
+    return differences;
   }
 
   bool _migrateLegacySemanticData() {

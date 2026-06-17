@@ -18,6 +18,7 @@ class SessionHandler {
   String? deviceId;
   String? _sessionRole;
   String? _issuedPairingCode;
+  Future<void> _messageQueue = Future<void>.value();
 
   void bind() {
     channel.stream.listen(_onData, onDone: _onDone, onError: (_) => _onDone());
@@ -37,10 +38,12 @@ class SessionHandler {
           SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
-    handle(message);
+    _messageQueue =
+        _messageQueue.catchError((Object _) {}).then((_) => handle(message));
+    unawaited(_messageQueue.catchError((_) {}));
   }
 
-  void handle(SyncMessage message) {
+  Future<void> handle(SyncMessage message) async {
     switch (message.type) {
       case SyncMessageTypes.pairCreate:
         _handlePairCreate(message);
@@ -49,15 +52,17 @@ class SessionHandler {
       case SyncMessageTypes.hello:
         _handleHello(message);
       case SyncMessageTypes.snapshotPush:
-        _handleSnapshotPush(message);
+        await _handleSnapshotPush(message);
       case SyncMessageTypes.snapshotRequest:
         _sendSnapshotIfAny(message);
       case SyncMessageTypes.actionPush:
-        _handleActionPush(message);
+        await _handleActionPush(message);
+      case SyncMessageTypes.mutationPush:
+        await _handleMutationPush(message);
       case SyncMessageTypes.actionAck:
         _handleActionAck(message);
       case SyncMessageTypes.syncReceived:
-        _handleSyncReceived(message);
+        await _handleSyncReceived(message);
       case SyncMessageTypes.devicesRequest:
         _sendDevices();
       case SyncMessageTypes.deviceUpdate:
@@ -247,7 +252,7 @@ class SessionHandler {
 
   Household? get _household => app.store.household(householdId);
 
-  void _handleSnapshotPush(SyncMessage message) {
+  Future<void> _handleSnapshotPush(SyncMessage message) async {
     final household = _registeredHousehold();
     if (household == null) return;
     final version = message.payload['version'];
@@ -258,26 +263,43 @@ class SessionHandler {
       return;
     }
     final completedItemKeys = _stringSet(message.payload['completedItemKeys']);
+    final isAuthoritativeRemoteSnapshot =
+        _normalizedDataPolicy(_optionalString(message.payload['dataPolicy'])) ==
+            SyncDataPolicy.remoteWins;
     final missingCompletedKeys =
         household.completedItemKeys.difference(completedItemKeys);
-    if (missingCompletedKeys.isNotEmpty) {
+    if (!isAuthoritativeRemoteSnapshot && missingCompletedKeys.isNotEmpty) {
       _sendMissingSyncEvents(household);
       _sendMissingCompletedActions(household, missingCompletedKeys);
       return;
     }
-    household.completedItemKeys.addAll(completedItemKeys);
+    if (isAuthoritativeRemoteSnapshot) {
+      household.completedItemKeys
+        ..clear()
+        ..addAll(completedItemKeys);
+      household.completedActions
+          .removeWhere((itemKey, _) => !completedItemKeys.contains(itemKey));
+    } else {
+      household.completedItemKeys.addAll(completedItemKeys);
+    }
+    final event = _registerSyncEvent(
+      household,
+      messageType: SyncMessageTypes.snapshot,
+      payload: Map<String, dynamic>.from(message.payload),
+    );
+    await app.store.flush();
+    _send(SyncMessage(
+      SyncMessageTypes.syncReceived,
+      _syncReceivedPayload(
+        event,
+        syncId: event.syncId,
+        receivedDeviceId: deviceId ?? '',
+      ),
+    ));
     _broadcastToOtherDevices(
       household,
-      SyncMessage(
-        SyncMessageTypes.snapshot,
-        _registerSyncEvent(
-          household,
-          messageType: SyncMessageTypes.snapshot,
-          payload: Map<String, dynamic>.from(message.payload),
-        ).payload,
-      ),
+      (_) => SyncMessage(SyncMessageTypes.snapshot, event.payload),
     );
-    unawaited(app.store.flush());
   }
 
   void _sendSnapshotIfAny(SyncMessage message) {
@@ -286,14 +308,14 @@ class SessionHandler {
     _sendMissingSyncEvents(household);
     _broadcastToOtherDevices(
       household,
-      SyncMessage(
+      (_) => SyncMessage(
         SyncMessageTypes.snapshotRequest,
         Map<String, dynamic>.from(message.payload),
       ),
     );
   }
 
-  void _handleActionPush(SyncMessage message) {
+  Future<void> _handleActionPush(SyncMessage message) async {
     final household = _registeredHousehold();
     if (household == null) return;
     final actionId = message.payload['actionId'];
@@ -316,6 +338,31 @@ class SessionHandler {
     final completedAction = household.completedActions[itemKey];
     if (completedAction != null && kind != PetActionKind.markDone.name) {
       _send(SyncMessage(SyncMessageTypes.action, completedAction));
+      _sendCompletedActionReceiptIfPossible(completedAction);
+      return;
+    }
+    final existingSyncId = household.actionSyncEventIds[actionId];
+    if (existingSyncId != null) {
+      final existingEvent = household.syncEvents[existingSyncId];
+      final receiptPayload = existingEvent == null
+          ? {
+              'syncId': existingSyncId,
+              'originDeviceId': deviceId ?? '',
+              'actionId': actionId,
+              'kind': kind,
+              'sourceType': sourceType,
+              'itemId': itemId,
+            }
+          : _syncReceivedPayload(
+              existingEvent,
+              syncId: existingSyncId,
+              receivedDeviceId: deviceId ?? '',
+            );
+      await app.store.flush();
+      _send(SyncMessage(
+        SyncMessageTypes.syncReceived,
+        receiptPayload,
+      ));
       return;
     }
     final outgoingPayload = <String, dynamic>{
@@ -331,13 +378,22 @@ class SessionHandler {
         messageType: SyncMessageTypes.action,
         payload: outgoingPayload,
       );
+      household.actionSyncEventIds[actionId] = event.syncId;
       household.completedItemKeys.add(itemKey);
       household.completedActions[itemKey] = event.payload;
+      await app.store.flush();
+      _send(SyncMessage(
+        SyncMessageTypes.syncReceived,
+        _syncReceivedPayload(
+          event,
+          syncId: event.syncId,
+          receivedDeviceId: deviceId ?? '',
+        ),
+      ));
       _broadcastToOtherDevices(
         household,
-        SyncMessage(SyncMessageTypes.action, event.payload),
+        (_) => SyncMessage(SyncMessageTypes.action, event.payload),
       );
-      unawaited(app.store.flush());
       return;
     }
     final event = _registerSyncEvent(
@@ -345,11 +401,90 @@ class SessionHandler {
       messageType: SyncMessageTypes.action,
       payload: outgoingPayload,
     );
+    household.actionSyncEventIds[actionId] = event.syncId;
+    await app.store.flush();
+    _send(SyncMessage(
+      SyncMessageTypes.syncReceived,
+      _syncReceivedPayload(
+        event,
+        syncId: event.syncId,
+        receivedDeviceId: deviceId ?? '',
+      ),
+    ));
     _broadcastToOtherDevices(
       household,
-      SyncMessage(SyncMessageTypes.action, event.payload),
+      (_) => SyncMessage(SyncMessageTypes.action, event.payload),
     );
-    unawaited(app.store.flush());
+  }
+
+  Future<void> _handleMutationPush(SyncMessage message) async {
+    final household = _registeredHousehold();
+    if (household == null) return;
+    final mutationId = message.payload['mutationId'];
+    final ciphertext = message.payload['ciphertext'];
+    final entityType = _optionalString(message.payload['entityType']);
+    final entityId = _optionalString(message.payload['entityId']);
+    final kind = _optionalString(message.payload['kind']);
+    if (mutationId is! String ||
+        mutationId.isEmpty ||
+        ciphertext is! String ||
+        ciphertext.isEmpty ||
+        entityType == null ||
+        entityId == null ||
+        kind == null) {
+      _send(
+          SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
+      return;
+    }
+    final existingSyncId = household.mutationSyncEventIds[mutationId];
+    if (existingSyncId != null) {
+      final existingEvent = household.syncEvents[existingSyncId];
+      final receiptPayload = existingEvent == null
+          ? {
+              'syncId': existingSyncId,
+              'originDeviceId': deviceId ?? '',
+              'mutationId': mutationId,
+              'entityType': entityType,
+              'entityId': entityId,
+              'kind': kind,
+            }
+          : _syncReceivedPayload(
+              existingEvent,
+              syncId: existingSyncId,
+              receivedDeviceId: deviceId ?? '',
+            );
+      await app.store.flush();
+      _send(SyncMessage(
+        SyncMessageTypes.syncReceived,
+        receiptPayload,
+      ));
+      return;
+    }
+    final event = _registerSyncEvent(
+      household,
+      messageType: SyncMessageTypes.mutation,
+      payload: {
+        'mutationId': mutationId,
+        'ciphertext': ciphertext,
+        'entityType': entityType,
+        'entityId': entityId,
+        'kind': kind,
+      },
+    );
+    household.mutationSyncEventIds[mutationId] = event.syncId;
+    await app.store.flush();
+    _send(SyncMessage(
+      SyncMessageTypes.syncReceived,
+      _syncReceivedPayload(
+        event,
+        syncId: event.syncId,
+        receivedDeviceId: deviceId ?? '',
+      ),
+    ));
+    _broadcastToOtherDevices(
+      household,
+      (_) => SyncMessage(SyncMessageTypes.mutation, event.payload),
+    );
   }
 
   void _handleActionAck(SyncMessage message) {
@@ -359,7 +494,7 @@ class SessionHandler {
     if (actionId == null) return;
   }
 
-  void _handleSyncReceived(SyncMessage message) {
+  Future<void> _handleSyncReceived(SyncMessage message) async {
     final household = _registeredHousehold();
     if (household == null) return;
     final syncId = _requiredString(message, 'syncId');
@@ -379,6 +514,7 @@ class SessionHandler {
         syncId: syncId,
         receivedDeviceId: deviceId!,
       );
+      await app.store.flush();
       app.hub.sendTo(
         householdId!,
         originDeviceId,
@@ -386,7 +522,7 @@ class SessionHandler {
       );
     }
     _pruneReceivedSyncEvents(household);
-    unawaited(app.store.flush());
+    await app.store.flush();
   }
 
   Map<String, dynamic> _syncReceivedPayload(
@@ -404,6 +540,9 @@ class SessionHandler {
       'kind',
       'sourceType',
       'itemId',
+      'mutationId',
+      'entityType',
+      'entityId',
       'version',
       'dataPolicy',
     ]) {
@@ -419,18 +558,7 @@ class SessionHandler {
     final household = _registeredHousehold();
     if (household == null) return;
     _send(SyncMessage(SyncMessageTypes.devices, {
-      'devices': household.devices.values
-          .where((device) => device.deviceId != deviceId)
-          .map((device) => SyncedDeviceInfo(
-                deviceId: device.deviceId,
-                name: device.name,
-                role:
-                    app.hub.roleFor(householdId!, device.deviceId) ?? 'unknown',
-                servedPetId: device.servedPetId,
-                online: app.hub.isOnline(householdId!, device.deviceId),
-                lastSeenMs: device.lastSeenMs,
-              ).toJson())
-          .toList(),
+      'devices': _devicesFor(household, excludedDeviceId: deviceId),
     }));
   }
 
@@ -485,6 +613,13 @@ class SessionHandler {
       removedDeviceId,
       SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}).encode(),
     );
+    _broadcastToOtherDevices(
+      household,
+      (targetDeviceId) => SyncMessage(
+        SyncMessageTypes.devices,
+        {'devices': _devicesFor(household, excludedDeviceId: targetDeviceId)},
+      ),
+    );
     unawaited(app.store.flush());
     _sendDevices();
   }
@@ -501,13 +636,34 @@ class SessionHandler {
     app.hub.sendTo(householdId!, target, message.encode());
   }
 
-  void _broadcastToOtherDevices(Household household, SyncMessage message) {
+  void _broadcastToOtherDevices(
+    Household household,
+    SyncMessage Function(String targetDeviceId) messageFor,
+  ) {
     for (final device in household.devices.values) {
       if (device.deviceId == deviceId) {
         continue;
       }
-      app.hub.sendTo(householdId!, device.deviceId, message.encode());
+      app.hub.sendTo(
+          householdId!, device.deviceId, messageFor(device.deviceId).encode());
     }
+  }
+
+  List<Map<String, dynamic>> _devicesFor(
+    Household household, {
+    required String? excludedDeviceId,
+  }) {
+    return household.devices.values
+        .where((device) => device.deviceId != excludedDeviceId)
+        .map((device) => SyncedDeviceInfo(
+              deviceId: device.deviceId,
+              name: device.name,
+              role: app.hub.roleFor(householdId!, device.deviceId) ?? 'unknown',
+              servedPetId: device.servedPetId,
+              online: app.hub.isOnline(householdId!, device.deviceId),
+              lastSeenMs: device.lastSeenMs,
+            ).toJson())
+        .toList();
   }
 
   SyncEventReceipt _registerSyncEvent(
@@ -585,6 +741,58 @@ class SessionHandler {
     }
   }
 
+  void _sendCompletedActionReceiptIfPossible(Map<String, dynamic> action) {
+    final syncId = _optionalString(action['syncId']);
+    if (syncId == null) {
+      return;
+    }
+    final household = _household;
+    final event = household?.syncEvents[syncId];
+    _send(SyncMessage(
+      SyncMessageTypes.syncReceived,
+      event == null
+          ? _syncReceivedPayloadFromPayload(
+              action,
+              syncId: syncId,
+              receivedDeviceId: deviceId ?? '',
+            )
+          : _syncReceivedPayload(
+              event,
+              syncId: syncId,
+              receivedDeviceId: deviceId ?? '',
+            ),
+    ));
+  }
+
+  Map<String, dynamic> _syncReceivedPayloadFromPayload(
+    Map<String, dynamic> eventPayload, {
+    required String syncId,
+    required String receivedDeviceId,
+  }) {
+    final payload = <String, dynamic>{
+      'syncId': syncId,
+      'originDeviceId': _optionalString(eventPayload['originDeviceId']) ?? '',
+      'receivedDeviceId': receivedDeviceId,
+    };
+    for (final key in <String>[
+      'actionId',
+      'kind',
+      'sourceType',
+      'itemId',
+      'mutationId',
+      'entityType',
+      'entityId',
+      'version',
+      'dataPolicy',
+    ]) {
+      final value = eventPayload[key];
+      if (value != null) {
+        payload[key] = value;
+      }
+    }
+    return payload;
+  }
+
   bool _isObsoleteCompletedAction(
     Household household,
     Map<String, dynamic> payload,
@@ -603,7 +811,9 @@ class SessionHandler {
     final deviceIds = household.devices.keys.toSet();
     household.syncEvents.removeWhere((_, event) {
       final receiptTargets = {...deviceIds}..remove(event.originDeviceId);
-      return receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
+      final shouldPrune =
+          receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
+      return shouldPrune;
     });
   }
 

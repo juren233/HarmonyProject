@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -173,24 +174,61 @@ Future<SyncMergeSide> showSyncMergeConflictDialog(
 ) async {
   final side = await showDialog<SyncMergeSide>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text('${conflict.collectionLabel}冲突'),
-      content: Text('本机：${conflict.localLabel}\n对方：${conflict.remoteLabel}'),
-      actions: [
-        TextButton(
-          key: const ValueKey('sync_merge_keep_local'),
-          onPressed: () => Navigator.of(context).pop(SyncMergeSide.local),
-          child: const Text('保留本机'),
+    builder: (context) {
+      final differences = conflict.differences.take(8).toList();
+      return AlertDialog(
+        title: Text('${conflict.collectionLabel}冲突'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('本机：${conflict.localLabel}'),
+              Text('对方：${conflict.remoteLabel}'),
+              if (differences.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final item in differences)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item.fieldPath),
+                        Text('本机：${_syncConflictValueLabel(item.localValue)}'),
+                        Text('对方：${_syncConflictValueLabel(item.remoteValue)}'),
+                      ],
+                    ),
+                  ),
+              ],
+            ],
+          ),
         ),
-        FilledButton(
-          key: const ValueKey('sync_merge_keep_remote'),
-          onPressed: () => Navigator.of(context).pop(SyncMergeSide.remote),
-          child: const Text('保留对方'),
-        ),
-      ],
-    ),
+        actions: [
+          TextButton(
+            key: const ValueKey('sync_merge_keep_local'),
+            onPressed: () => Navigator.of(context).pop(SyncMergeSide.local),
+            child: const Text('保留本机'),
+          ),
+          FilledButton(
+            key: const ValueKey('sync_merge_keep_remote'),
+            onPressed: () => Navigator.of(context).pop(SyncMergeSide.remote),
+            child: const Text('保留对方'),
+          ),
+        ],
+      );
+    },
   );
   return side ?? SyncMergeSide.local;
+}
+
+String _syncConflictValueLabel(Object? value) {
+  if (value == null) {
+    return '空';
+  }
+  if (value is List || value is Map) {
+    return jsonEncode(value);
+  }
+  return value.toString();
 }
 
 class SyncFailureChip extends StatelessWidget {

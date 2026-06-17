@@ -3,8 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/state/app_settings_controller.dart';
+import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/owner_sync_engine.dart';
 import 'package:petnote/sync/sync_transport.dart';
@@ -44,7 +44,7 @@ void main() {
     engine.dispose();
   });
 
-  test('store 变更后推送加密快照', () async {
+  test('store 变更后推送加密操作', () async {
     final store = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
     final crypto = await SyncCrypto.deriveFromPairingCode(
@@ -68,17 +68,337 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     final pushes = transport.sent
-        .where((message) => message.type == SyncMessageTypes.snapshotPush)
+        .where((message) => message.type == SyncMessageTypes.mutationPush)
         .toList();
-    expect(pushes, isNotEmpty);
-    final decrypted =
-        await crypto.decryptString(pushes.last.payload['ciphertext'] as String);
-    expect(decrypted, contains('喂饭'));
+    expect(pushes, hasLength(1));
+    final decrypted = await crypto
+        .decryptString(pushes.single.payload['ciphertext'] as String);
+    final mutation =
+        PetNoteMutation.fromJson(jsonDecode(decrypted) as Map<String, dynamic>);
+    expect(mutation.kind, PetNoteMutationKind.upsert);
+    expect(mutation.entityType, PetNoteEntityType.todo);
+    expect(mutation.data?['title'], '喂饭');
 
     engine.dispose();
   });
 
-  test('主人端标记完成后推送包含完成状态的快照', () async {
+  test('本地新增待办后推送操作而不是普通合并快照', () async {
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.addTodo(
+      petId: store.pets.first.id,
+      title: '补充饮水',
+      dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '观察饮水量',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final created = store.todos.firstWhere((item) => item.title == '补充饮水');
+
+    final mutationPush = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.mutationPush,
+    );
+    final decoded = jsonDecode(
+      await crypto.decryptString(mutationPush.payload['ciphertext'] as String),
+    );
+    final mutation =
+        PetNoteMutation.fromJson(Map<String, dynamic>.from(decoded as Map));
+    expect(mutation.entityType, PetNoteEntityType.todo);
+    expect(mutation.kind, PetNoteMutationKind.upsert);
+    expect(mutation.entityId, created.id);
+    expect(mutation.data?['title'], '补充饮水');
+    expect(
+      transport.sent.any(
+        (message) => message.type == SyncMessageTypes.snapshotPush,
+      ),
+      isFalse,
+    );
+
+    engine.dispose();
+  });
+
+  test('重启后仍推送未回执的本地修改操作', () async {
+    final storage = PetNoteLocalStorage.memory();
+    final seedStore = await PetNoteStore.load(storage: storage);
+    await seedStore.addPet(
+      name: 'Luna',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-01-01',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '',
+      allergies: '',
+      note: '',
+    );
+    await seedStore.addTodo(
+      title: '原始待办',
+      petId: seedStore.pets.first.id,
+      dueAt: DateTime.parse('2026-04-01T08:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final storeBeforeRestart = await PetNoteStore.load(storage: storage);
+    final todo = storeBeforeRestart.todos.first;
+    await storeBeforeRestart.updateTodo(
+      todoId: todo.id,
+      petId: todo.petId,
+      title: '离线修改后的标题',
+      dueAt: todo.dueAt,
+      notificationLeadTime: todo.notificationLeadTime,
+      note: todo.note,
+    );
+    final storeAfterRestart = await PetNoteStore.load(storage: storage);
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: storeAfterRestart,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    final mutationPush = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.mutationPush,
+    );
+    final mutation = PetNoteMutation.fromJson(Map<String, dynamic>.from(
+      jsonDecode(
+        await crypto.decryptString(
+          mutationPush.payload['ciphertext'] as String,
+        ),
+      ) as Map,
+    ));
+    expect(mutation.entityType, PetNoteEntityType.todo);
+    expect(mutation.entityId, todo.id);
+    expect(mutation.data?['title'], '离线修改后的标题');
+
+    engine.dispose();
+  });
+
+  test('replaceAllData 会清理主人端 outbox 的失败队列和运行时状态', () async {
+    final storage = PetNoteLocalStorage.memory();
+    final seedStore = await PetNoteStore.load(storage: storage);
+    await seedStore.replaceAllData(PetNoteStore.seeded().exportDataState());
+    final store = await PetNoteStore.load(storage: storage);
+    final todo = store.todos.first;
+    final transport = FakeSyncTransport()
+      ..setState(SyncConnectionState.disconnected);
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.postponeChecklist('todo', todo.id);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(engine.failedSyncCount.value, 1);
+
+    await store.replaceAllData(PetNoteStore.seeded().exportDataState());
+    await transport.connect();
+    engine.retryFailedSync();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(engine.failedSyncCount.value, 0);
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.actionPush),
+      isEmpty,
+    );
+    expect(store.pendingLocalMutations, isEmpty);
+
+    final restoredTodo =
+        store.todos.firstWhere((item) => item.status == TodoStatus.open);
+    await store.postponeChecklist('todo', restoredTodo.id);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.actionPush),
+      hasLength(1),
+    );
+
+    engine.dispose();
+  });
+
+  test('普通合并快照不会清理主人端未回执 outbox 状态', () async {
+    final sourceStore = PetNoteStore.seeded();
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.postponeChecklist('todo', 'todo-1');
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(store.pendingLocalMutations, hasLength(1));
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'ciphertext': await crypto.encryptString(
+          jsonEncode(sourceStore.exportDataState().toJson()),
+        ),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.pendingLocalMutations, hasLength(1));
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.actionPush),
+      hasLength(1),
+    );
+
+    engine.dispose();
+  });
+
+  test('远端覆盖快照不会清理主人端未回执 outbox 状态', () async {
+    final sourceStore = PetNoteStore.seeded();
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+    )..start(pushInitialSnapshot: false);
+    final todo = store.todos.first;
+
+    await store.updateTodo(
+      todoId: todo.id,
+      title: '离线修改后的标题',
+      petId: todo.petId,
+      dueAt: todo.dueAt,
+      note: todo.note,
+      notificationLeadTime: todo.notificationLeadTime,
+    );
+    expect(store.pendingLocalMutations, hasLength(1));
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 2,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.remoteWins.name,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(store.pendingLocalMutations, hasLength(1));
+    expect(store.todoById(todo.id)?.title, '离线修改后的标题');
+
+    engine.dispose();
+  });
+
+  test('本地修改操作收到回执后重启不再重复推送', () async {
+    final storage = PetNoteLocalStorage.memory();
+    final store = await PetNoteStore.load(storage: storage);
+    await store.addPet(
+      name: 'Luna',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-01-01',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '',
+      allergies: '',
+      note: '',
+    );
+    await store.addTodo(
+      title: '原始待办',
+      petId: store.pets.first.id,
+      dueAt: DateTime.parse('2026-04-01T08:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final todo = store.todos.first;
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.updateTodo(
+      todoId: todo.id,
+      petId: todo.petId,
+      title: '已确认同步的标题',
+      dueAt: todo.dueAt,
+      notificationLeadTime: todo.notificationLeadTime,
+      note: todo.note,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final mutationPushes = transport.sent
+        .where((message) => message.type == SyncMessageTypes.mutationPush)
+        .toList();
+    for (var index = 0; index < mutationPushes.length; index += 1) {
+      final mutationPush = mutationPushes[index];
+      transport.incoming.add(SyncMessage(SyncMessageTypes.syncReceived, {
+        'syncId': 'sync-mutation-$index',
+        'originDeviceId': 'pet-1',
+        'mutationId': mutationPush.payload['mutationId'],
+      }));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    engine.dispose();
+
+    final reloadedStore = await PetNoteStore.load(storage: storage);
+    final nextTransport = FakeSyncTransport();
+    final nextEngine = OwnerSyncEngine(
+      store: reloadedStore,
+      transport: nextTransport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(
+      nextTransport.sent
+          .where((message) => message.type == SyncMessageTypes.mutationPush),
+      isEmpty,
+    );
+
+    nextEngine.dispose();
+  });
+
+  test('主人端标记完成后推送完成操作', () async {
     final store = PetNoteStore.seeded();
     final transport = FakeSyncTransport();
     final crypto = await SyncCrypto.deriveFromPairingCode(
@@ -98,16 +418,149 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     final push = transport.sent
-        .lastWhere((message) => message.type == SyncMessageTypes.snapshotPush);
+        .lastWhere((message) => message.type == SyncMessageTypes.actionPush);
     final decrypted =
         await crypto.decryptString(push.payload['ciphertext'] as String);
-    final state = PetNoteDataState.fromJson(
-        jsonDecode(decrypted) as Map<String, dynamic>);
-    expect(
-      state.todos.firstWhere((item) => item.id == todo.id).status,
-      TodoStatus.done,
+    final action =
+        PetAction.fromJson(jsonDecode(decrypted) as Map<String, dynamic>);
+    expect(action.kind, PetActionKind.markDone);
+    expect(action.sourceType, 'todo');
+    expect(action.itemId, todo.id);
+
+    engine.dispose();
+  });
+
+  test('服务端登记本地完成操作后重启不再重复推送', () async {
+    final storage = PetNoteLocalStorage.memory();
+    final seedStore = await PetNoteStore.load(storage: storage);
+    await seedStore.addPet(
+      name: 'Luna',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-01-01',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '',
+      allergies: '',
+      note: '',
     );
-    expect(push.payload['completedItemKeys'], contains('todo:${todo.id}'));
+    await seedStore.addTodo(
+      title: '原始待办',
+      petId: seedStore.pets.first.id,
+      dueAt: DateTime.parse('2026-04-01T08:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final store = await PetNoteStore.load(storage: storage);
+    final todo = store.todos.first;
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.markChecklistDone('todo', todo.id);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final actionPush = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.actionPush,
+    );
+    transport.incoming.add(SyncMessage(SyncMessageTypes.syncReceived, {
+      'syncId': 'sync-action-registered',
+      'originDeviceId': 'owner-1',
+      'actionId': actionPush.payload['actionId'],
+      'kind': actionPush.payload['kind'],
+      'sourceType': actionPush.payload['sourceType'],
+      'itemId': actionPush.payload['itemId'],
+    }));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    engine.dispose();
+
+    final reloadedStore = await PetNoteStore.load(storage: storage);
+    final nextTransport = FakeSyncTransport();
+    final nextEngine = OwnerSyncEngine(
+      store: reloadedStore,
+      transport: nextTransport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(
+      nextTransport.sent
+          .where((message) => message.type == SyncMessageTypes.actionPush),
+      isEmpty,
+    );
+
+    nextEngine.dispose();
+  });
+
+  test('收到完成回执后清掉同事项的其他待确认操作', () async {
+    final storage = PetNoteLocalStorage.memory();
+    final store = await PetNoteStore.load(storage: storage);
+    await store.addPet(
+      name: 'Luna',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '母',
+      birthday: '2024-01-01',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '',
+      allergies: '',
+      note: '',
+    );
+    await store.addTodo(
+      title: '原始待办',
+      petId: store.pets.first.id,
+      dueAt: DateTime.parse('2026-04-01T08:00:00+08:00'),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final todo = store.todos.first;
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    await store.postponeChecklist('todo', todo.id);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(
+      store.pendingLocalMutations.where((mutation) =>
+          mutation.kind == PetNoteMutationKind.checklistAction &&
+          mutation.entityId == todo.id),
+      hasLength(1),
+    );
+
+    transport.incoming.add(SyncMessage(SyncMessageTypes.syncReceived, {
+      'syncId': 'sync-done-registered',
+      'originDeviceId': 'pet-1',
+      'actionId': 'done-action',
+      'kind': PetActionKind.markDone.name,
+      'sourceType': 'todo',
+      'itemId': todo.id,
+    }));
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(
+      store.pendingLocalMutations.where((mutation) =>
+          mutation.kind == PetNoteMutationKind.checklistAction &&
+          mutation.entityId == todo.id),
+      isEmpty,
+    );
 
     engine.dispose();
   });
@@ -387,7 +840,7 @@ void main() {
     engine.dispose();
   });
 
-  test('合并快照遇到同 id 差异时调用冲突选择', () async {
+  test('普通合并快照遇到同 id 差异时不弹冲突选择', () async {
     final sourceStore = PetNoteStore.seeded();
     final store = PetNoteStore.seeded();
     final todo = store.todoById('todo-1')!;
@@ -425,8 +878,99 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 150));
 
+    expect(conflict, isNull);
+    expect(store.todoById(todo.id)?.title, todo.title);
+
+    engine.dispose();
+  });
+
+  test('普通合并快照会应用对方标记完成', () async {
+    final sourceStore = PetNoteStore.seeded();
+    final store = PetNoteStore.seeded();
+    final todo = store.todoById('todo-1')!;
+    await sourceStore.markChecklistDone('todo', todo.id);
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    SyncMergeConflict? conflict;
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      resolveMergeConflict: (value) async {
+        conflict = value;
+        return SyncMergeSide.local;
+      },
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 4,
+        'dataPolicy': SyncDataPolicy.merge.name,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(conflict, isNull);
+    expect(store.todoById(todo.id)?.status, TodoStatus.done);
+
+    engine.dispose();
+  });
+
+  test('初始合并快照遇到同 id 差异时调用冲突选择', () async {
+    final sourceStore = PetNoteStore.seeded();
+    final store = PetNoteStore.seeded();
+    final todo = store.todoById('todo-1')!;
+    await sourceStore.updateTodo(
+      todoId: todo.id,
+      petId: todo.petId,
+      title: '对方待办标题',
+      dueAt: todo.dueAt,
+      notificationLeadTime: todo.notificationLeadTime,
+      note: '对方备注',
+    );
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    SyncMergeConflict? conflict;
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      resolveMergeConflict: (value) async {
+        conflict = value;
+        return SyncMergeSide.remote;
+      },
+      throttle: const Duration(milliseconds: 50),
+    )..start(pushInitialSnapshot: false);
+
+    engine.requestSnapshot(
+      dataPolicy: SyncDataPolicy.merge,
+      resolveConflicts: true,
+    );
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 3,
+        'ciphertext': await crypto
+            .encryptString(jsonEncode(sourceStore.exportDataState().toJson())),
+        'dataPolicy': SyncDataPolicy.merge.name,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
     expect(conflict?.collectionLabel, '待办');
     expect(conflict?.id, todo.id);
+    expect(
+        conflict?.differences.map((item) => item.fieldPath), contains('title'));
+    expect(
+        conflict?.differences.map((item) => item.fieldPath), contains('note'));
     expect(store.todoById(todo.id)?.title, '对方待办标题');
 
     engine.dispose();
@@ -538,6 +1082,80 @@ void main() {
 
     engine.dispose();
   });
+
+  test('当前设备被移除后不再推送本地新增操作', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerUrl('wss://example.com/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setSharedKeyBase64('shared-key');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    transport.sent.clear();
+    await store.addTodo(
+      title: '解绑后本地新增',
+      petId: store.pets.first.id,
+      dueAt: DateTime.parse('2026-04-01T08:00:00+08:00'),
+      note: '',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.mutationPush),
+      isEmpty,
+    );
+
+    engine.dispose();
+  });
+
+  test('当前设备被移除后不再继续请求设备列表和快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setSyncServerUrl('wss://example.com/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setSharedKeyBase64('shared-key');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+    )..start(pushInitialSnapshot: false);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    transport.sent.clear();
+    engine.requestDevices();
+    engine.requestSnapshot(resolveConflicts: true);
+    engine.renameDevice('device-1', '新名字');
+
+    expect(transport.sent, isEmpty);
+
+    engine.dispose();
+  });
 }
 
 class FakeSyncTransport implements SyncTransport {
@@ -570,4 +1188,8 @@ class FakeSyncTransport implements SyncTransport {
 
   @override
   void send(SyncMessage message) => sent.add(message);
+
+  void setState(SyncConnectionState value) {
+    _state.value = value;
+  }
 }

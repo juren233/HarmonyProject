@@ -467,6 +467,7 @@ class _DataPackageReviewPageState extends State<DataPackageReviewPage> {
       context,
       action: DataDangerAction.restoreFromBackupFile,
       restoreSettings: _restoreSettings,
+      hasPairedDevices: _hasPairedDevices,
     );
     if (!confirmed) {
       return;
@@ -505,6 +506,11 @@ class _DataPackageReviewPageState extends State<DataPackageReviewPage> {
         fileTitle: '备份文件已恢复',
       ),
     );
+  }
+
+  bool get _hasPairedDevices {
+    final settings = widget.coordinator.settingsController;
+    return settings.householdId != null && settings.householdAuthToken != null;
   }
 }
 
@@ -603,6 +609,7 @@ class DangerConfirmDialog extends StatelessWidget {
     super.key,
     this.action,
     this.restoreSettings = false,
+    this.hasPairedDevices = false,
     this.titleOverride,
     this.descriptionOverride,
     this.impactOverride,
@@ -621,6 +628,7 @@ class DangerConfirmDialog extends StatelessWidget {
 
   final DataDangerAction? action;
   final bool restoreSettings;
+  final bool hasPairedDevices;
   final String? titleOverride;
   final String? descriptionOverride;
   final String? impactOverride;
@@ -635,6 +643,7 @@ class DangerConfirmDialog extends StatelessWidget {
         ? _dangerCopy(
             action!,
             restoreSettings: restoreSettings,
+            hasPairedDevices: hasPairedDevices,
           )
         : _DangerCopy(
             title: titleOverride!,
@@ -869,12 +878,14 @@ Future<bool> _confirmDanger(
   BuildContext context, {
   required DataDangerAction action,
   bool restoreSettings = false,
+  bool hasPairedDevices = false,
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (_) => DangerConfirmDialog(
       action: action,
       restoreSettings: restoreSettings,
+      hasPairedDevices: hasPairedDevices,
     ),
   );
   return confirmed ?? false;
@@ -929,6 +940,7 @@ Future<bool> _confirmSensitiveRestore(BuildContext context) async {
 _DangerCopy _dangerCopy(
   DataDangerAction action, {
   required bool restoreSettings,
+  required bool hasPairedDevices,
 }) {
   return switch (action) {
     DataDangerAction.restoreFromBackupFile => _DangerCopy(
@@ -939,7 +951,9 @@ _DangerCopy _dangerCopy(
         impact: restoreSettings
             ? '这会替换宠物、待办、提醒、记录以及主题偏好、AI 配置等非敏感设置。'
             : '这会替换宠物、待办、提醒和记录，主题偏好与 AI 配置等普通设置保持当前状态。',
-        snapshotNotice: '执行前会自动完成内部保护，当前界面不提供手动回滚入口。',
+        snapshotNotice: hasPairedDevices
+            ? '执行前会自动完成内部保护；所有设备都会同步覆盖为这份备份的数据。'
+            : '执行前会自动完成内部保护，当前界面不提供手动回滚入口。',
         confirmLabel: '确认恢复备份',
       ),
     DataDangerAction.clearLocalData => const _DangerCopy(

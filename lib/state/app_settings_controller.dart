@@ -29,6 +29,7 @@ class AppSettingsController extends ChangeNotifier {
     String? householdAuthToken,
     String? servedPetId,
     SyncDataPolicy? pendingInitialSyncPolicy,
+    String? pendingResetSnapshotSyncId,
     bool petKeepScreenOn = true,
   })  : _preferences = preferences,
         _themePreference = themePreference,
@@ -43,6 +44,7 @@ class AppSettingsController extends ChangeNotifier {
         _householdAuthToken = householdAuthToken,
         _servedPetId = servedPetId,
         _pendingInitialSyncPolicy = pendingInitialSyncPolicy,
+        _pendingResetSnapshotSyncId = pendingResetSnapshotSyncId,
         _petKeepScreenOn = petKeepScreenOn;
 
   static const String themeModeStorageKey = 'app_theme_mode_v1';
@@ -63,6 +65,8 @@ class AppSettingsController extends ChangeNotifier {
   static const String servedPetIdStorageKey = 'served_pet_id_v1';
   static const String pendingInitialSyncPolicyStorageKey =
       'pending_initial_sync_policy_v1';
+  static const String pendingResetSnapshotSyncIdStorageKey =
+      'pending_reset_snapshot_sync_id_v1';
   static const String petKeepScreenOnStorageKey = 'pet_keep_screen_on_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
 
@@ -79,6 +83,7 @@ class AppSettingsController extends ChangeNotifier {
   String? _householdAuthToken;
   String? _servedPetId;
   SyncDataPolicy? _pendingInitialSyncPolicy;
+  String? _pendingResetSnapshotSyncId;
   bool _petKeepScreenOn;
   final List<AiProviderConfig> _aiProviderConfigs = <AiProviderConfig>[];
   String? _activeAiProviderConfigId;
@@ -96,6 +101,7 @@ class AppSettingsController extends ChangeNotifier {
   String? get householdAuthToken => _householdAuthToken;
   String? get servedPetId => _servedPetId;
   SyncDataPolicy? get pendingInitialSyncPolicy => _pendingInitialSyncPolicy;
+  String? get pendingResetSnapshotSyncId => _pendingResetSnapshotSyncId;
   bool get petKeepScreenOn => _petKeepScreenOn;
   String? get activeAiProviderConfigId => _activeAiProviderConfigId;
   List<AiProviderConfig> get aiProviderConfigs =>
@@ -156,6 +162,8 @@ class AppSettingsController extends ChangeNotifier {
       pendingInitialSyncPolicy: _syncDataPolicyFromName(
         preferences?.getString(pendingInitialSyncPolicyStorageKey),
       ),
+      pendingResetSnapshotSyncId: _nonBlank(
+          preferences?.getString(pendingResetSnapshotSyncIdStorageKey)),
       petKeepScreenOn: preferences?.getBool(petKeepScreenOnStorageKey) ?? true,
     ).._restoreAiProviderConfigs(storedConfigs, activeConfigId);
   }
@@ -276,6 +284,17 @@ class AppSettingsController extends ChangeNotifier {
       pendingInitialSyncPolicyStorageKey,
       value?.name,
     );
+    notifyListeners();
+  }
+
+  Future<void> setPendingResetSnapshotSyncId(String? value) async {
+    final normalized = _nonBlank(value);
+    if (_pendingResetSnapshotSyncId == normalized) {
+      return;
+    }
+    _pendingResetSnapshotSyncId = normalized;
+    await _writeOptionalString(
+        pendingResetSnapshotSyncIdStorageKey, normalized);
     notifyListeners();
   }
 

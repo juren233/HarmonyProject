@@ -125,6 +125,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
           : DataStorageCoordinator(
               store: store,
               settingsController: widget.settingsController!,
+              onBackupRestored: _pushRestoredBackupSnapshot,
             );
     }
   }
@@ -146,6 +147,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
           : DataStorageCoordinator(
               store: store,
               settingsController: widget.settingsController!,
+              onBackupRestored: _pushRestoredBackupSnapshot,
             );
       _notificationCoordinator = null;
       _notificationCoordinatorReadyTask = null;
@@ -200,6 +202,18 @@ class _PetNoteRootState extends State<PetNoteRoot>
         await syncService.ensureStartedForOwner(store: store);
       }
     }
+  }
+
+  Future<void> _pushRestoredBackupSnapshot(PetNoteStore store) async {
+    final settingsController = widget.settingsController;
+    if (settingsController == null ||
+        settingsController.householdId == null ||
+        settingsController.householdAuthToken == null) {
+      return;
+    }
+    final syncService =
+        SyncService.instance ??= SyncService(settings: settingsController);
+    await syncService.pushLocalSnapshotToAllDevices(store: store);
   }
 
   Future<void> _initializeNotifications(PetNoteStore store) async {

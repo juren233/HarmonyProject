@@ -152,6 +152,8 @@ git pull --ff-only origin main
 ### 3. 重建并重启同步服务
 
 ```bash
+DART_IMAGE=${DART_IMAGE:-m.daocloud.io/docker.io/library/dart:3.6}
+RUNTIME_IMAGE=${RUNTIME_IMAGE:-m.daocloud.io/docker.io/library/debian:bookworm-slim}
 docker compose -f server/docker-compose.yml up -d --build
 ```
 
@@ -160,6 +162,7 @@ docker compose -f server/docker-compose.yml up -d --build
 - 这里要在**项目根目录**执行
 - `server/docker-compose.yml` 的 build context 依赖仓库根目录，不能先 `cd server` 再运行
 - `--build` 会确保 `server/` 和 `packages/petnote_sync_protocol/` 的最新代码重新进入镜像
+- 上面两行镜像变量用于规避服务器访问 Docker Hub 超时；如果服务器已经配置了稳定的 Docker Hub 代理或私有镜像源，可以按实际环境改成自己的镜像地址
 
 ### 4. 检查容器状态
 
@@ -230,6 +233,8 @@ cd /path/to/PetNote
 git fetch origin
 git checkout main
 git pull --ff-only origin main
+DART_IMAGE=${DART_IMAGE:-m.daocloud.io/docker.io/library/dart:3.6}
+RUNTIME_IMAGE=${RUNTIME_IMAGE:-m.daocloud.io/docker.io/library/debian:bookworm-slim}
 docker compose -f server/docker-compose.yml up -d --build
 docker compose -f server/docker-compose.yml ps
 curl http://127.0.0.1:8787/healthz
@@ -902,4 +907,3 @@ Harmony / ArkTS 运行时问题警醒：
   因为这两个密文和本机 `ohos/sign/material` 是配套关系，不是通用密码。只提密文、不带成套材料，其他机器大概率无法解密通过；这种 diff 默认应视为本地签名噪音，而不是共享改动。
 - “为什么不要直接把 OHOS Flutter SDK 当普通目录提交？”
   因为体积太大，而且不利于升级和团队同步，子模块更可控。
-

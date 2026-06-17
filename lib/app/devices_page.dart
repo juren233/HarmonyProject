@@ -452,7 +452,10 @@ class _DevicesPageState extends State<DevicesPage> {
       return;
     }
     await engine.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
-    engine.requestSnapshot(dataPolicy: SyncDataPolicy.merge);
+    engine.requestSnapshot(
+      dataPolicy: SyncDataPolicy.merge,
+      resolveConflicts: true,
+    );
   }
 }
 

@@ -48,6 +48,8 @@ class Household {
       <String, Map<String, dynamic>>{};
   final Set<String> completedItemKeys = <String>{};
   final Map<String, SyncEventReceipt> syncEvents = <String, SyncEventReceipt>{};
+  final Map<String, String> actionSyncEventIds = <String, String>{};
+  final Map<String, String> mutationSyncEventIds = <String, String>{};
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -61,6 +63,8 @@ class Household {
         'syncEvents': syncEvents.map(
           (syncId, event) => MapEntry(syncId, event.toJson()),
         ),
+        'actionSyncEventIds': actionSyncEventIds,
+        'mutationSyncEventIds': mutationSyncEventIds,
       };
 
   factory Household.fromJson(Map<String, dynamic> json) {
@@ -104,8 +108,55 @@ class Household {
         household.syncEvents[event.syncId] = event;
       }
     }
+    household._restoreSyncEventIndexes(json);
 
     return household;
+  }
+
+  void _restoreSyncEventIndexes(Map<String, dynamic> json) {
+    final actionSyncEventIdsJson =
+        json['actionSyncEventIds'] as Map<String, dynamic>? ??
+            <String, dynamic>{};
+    for (final entry in actionSyncEventIdsJson.entries) {
+      final value = entry.value;
+      if (value is String && value.isNotEmpty) {
+        final event = syncEvents[value];
+        if (event != null &&
+            (event.messageType != SyncMessageTypes.action ||
+                event.payload['actionId'] != entry.key)) {
+          continue;
+        }
+        actionSyncEventIds[entry.key] = value;
+      }
+    }
+    final mutationSyncEventIdsJson =
+        json['mutationSyncEventIds'] as Map<String, dynamic>? ??
+            <String, dynamic>{};
+    for (final entry in mutationSyncEventIdsJson.entries) {
+      final value = entry.value;
+      if (value is String && value.isNotEmpty) {
+        final event = syncEvents[value];
+        if (event != null &&
+            (event.messageType != SyncMessageTypes.mutation ||
+                event.payload['mutationId'] != entry.key)) {
+          continue;
+        }
+        mutationSyncEventIds[entry.key] = value;
+      }
+    }
+    for (final event in syncEvents.values) {
+      if (event.messageType == SyncMessageTypes.action) {
+        final actionId = event.payload['actionId'];
+        if (actionId is String && actionId.isNotEmpty) {
+          actionSyncEventIds.putIfAbsent(actionId, () => event.syncId);
+        }
+      } else if (event.messageType == SyncMessageTypes.mutation) {
+        final mutationId = event.payload['mutationId'];
+        if (mutationId is String && mutationId.isNotEmpty) {
+          mutationSyncEventIds.putIfAbsent(mutationId, () => event.syncId);
+        }
+      }
+    }
   }
 
   void _migrateLegacySnapshot(Map<String, dynamic> json) {
