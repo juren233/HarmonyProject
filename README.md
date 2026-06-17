@@ -152,8 +152,8 @@ git pull --ff-only origin main
 ### 3. 重建并重启同步服务
 
 ```bash
-DART_IMAGE=${DART_IMAGE:-m.daocloud.io/docker.io/library/dart:3.6}
-RUNTIME_IMAGE=${RUNTIME_IMAGE:-m.daocloud.io/docker.io/library/debian:bookworm-slim}
+DART_IMAGE=m.daocloud.io/docker.io/library/dart:3.6 \
+RUNTIME_IMAGE=m.daocloud.io/docker.io/library/debian:bookworm-slim \
 docker compose -f server/docker-compose.yml up -d --build
 ```
 
@@ -162,7 +162,9 @@ docker compose -f server/docker-compose.yml up -d --build
 - 这里要在**项目根目录**执行
 - `server/docker-compose.yml` 的 build context 依赖仓库根目录，不能先 `cd server` 再运行
 - `--build` 会确保 `server/` 和 `packages/petnote_sync_protocol/` 的最新代码重新进入镜像
-- 上面两行镜像变量用于规避服务器访问 Docker Hub 超时；如果服务器已经配置了稳定的 Docker Hub 代理或私有镜像源，可以按实际环境改成自己的镜像地址
+- 镜像变量必须和 `docker compose` 放在同一条命令里，或者先 `export DART_IMAGE=...` / `export RUNTIME_IMAGE=...`；如果只在前两行写 `DART_IMAGE=...`，`docker compose` 可能拿不到变量，仍然回退去拉 `docker.io/library/dart:3.6`
+- 上面的镜像源用于规避服务器访问 Docker Hub 超时；如果服务器已经配置了稳定的 Docker Hub 代理或私有镜像源，可以按实际环境改成自己的镜像地址
+- `curl http://127.0.0.1:8787/healthz` 返回 `ok` 只能说明旧容器还活着，不能证明最新代码已经进入镜像；代码更新必须以 `docker compose ... up -d --build` 成功完成为准
 
 ### 4. 检查容器状态
 
@@ -233,8 +235,8 @@ cd /path/to/PetNote
 git fetch origin
 git checkout main
 git pull --ff-only origin main
-DART_IMAGE=${DART_IMAGE:-m.daocloud.io/docker.io/library/dart:3.6}
-RUNTIME_IMAGE=${RUNTIME_IMAGE:-m.daocloud.io/docker.io/library/debian:bookworm-slim}
+DART_IMAGE=m.daocloud.io/docker.io/library/dart:3.6 \
+RUNTIME_IMAGE=m.daocloud.io/docker.io/library/debian:bookworm-slim \
 docker compose -f server/docker-compose.yml up -d --build
 docker compose -f server/docker-compose.yml ps
 curl http://127.0.0.1:8787/healthz
@@ -249,7 +251,7 @@ curl https://petnote.juren233.top/healthz
 - `curl http://127.0.0.1:8787/healthz` 是否返回 `ok`
 - 如果用了域名反代，`curl https://petnote.juren233.top/healthz` 是否也返回 `ok`
 
-如果只做了 `git pull`，但没有重新 `docker compose ... up -d --build`，那服务器很可能仍在跑旧镜像。
+如果只做了 `git pull`，但没有重新 `docker compose ... up -d --build`，那服务器仍然在跑旧镜像；如果 `--build` 停在 `load metadata for docker.io/library/dart:3.6` 并出现 `DeadlineExceeded` 或 `i/o timeout`，优先检查镜像变量是否真的传给了同一条 `docker compose` 命令。
 
 ## CI 与发布
 
