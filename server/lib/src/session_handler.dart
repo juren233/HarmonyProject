@@ -603,9 +603,20 @@ class SessionHandler {
   void _handleDeviceUpdate(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    if (!_requireRole('owner')) return;
-    final requestedDeviceId = _requiredString(message, 'deviceId');
+    final requestedDeviceId = _sessionRole == 'pet'
+        ? deviceId
+        : _requiredString(message, 'deviceId');
     if (requestedDeviceId == null) return;
+    if (_sessionRole == 'pet' && message.payload.containsKey('deviceId')) {
+      final explicitDeviceId = _optionalString(message.payload['deviceId']);
+      if (explicitDeviceId != null && explicitDeviceId != deviceId) {
+        _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
+        return;
+      }
+    } else if (_sessionRole != 'owner' && _sessionRole != 'pet') {
+      _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
+      return;
+    }
     final device = household.devices[requestedDeviceId];
     if (device == null) {
       _send(SyncMessage(
@@ -632,6 +643,13 @@ class SessionHandler {
       );
     }
     unawaited(app.store.flush());
+    _broadcastToOtherDevices(
+      household,
+      (targetDeviceId) => SyncMessage(
+        SyncMessageTypes.devices,
+        {'devices': _devicesFor(household, excludedDeviceId: targetDeviceId)},
+      ),
+    );
     _sendDevices();
   }
 

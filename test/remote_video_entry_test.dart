@@ -4,20 +4,33 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/pet_device_home.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/remote_video_call_page.dart';
 import 'package:petnote/app/remote_video_entry.dart';
+import 'package:petnote/platform/device_keep_alive.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:petnote/rtc/rtc_call_models.dart';
 import 'package:petnote/rtc/rtc_adapter.dart';
+import 'package:petnote/rtc/rtc_media_permission_coordinator.dart';
+import 'package:petnote/rtc/rtc_media_permissions.dart';
 import 'package:petnote/rtc/rtc_signaling_controller.dart';
 import 'package:petnote/rtc/rtc_token_client.dart';
+import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_secret_store.dart';
+import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
 
   test('RTC Token 地址从同步服务器地址推导', () {
     expect(
@@ -139,6 +152,9 @@ void main() {
   testWidgets('爱宠页远程视频入口弹出两个选项并进入通话页', (tester) async {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);
+    final permissionCoordinator = _FakeRtcMediaPermissionCoordinator(
+      state: RtcMediaPermissionState.authorized,
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -148,6 +164,7 @@ void main() {
             store: store,
             onAddFirstPet: () {},
             onEditPet: (_) {},
+            remoteVideoPermissionCoordinator: permissionCoordinator,
           ),
         ),
       ),
@@ -167,12 +184,105 @@ void main() {
 
     expect(find.byType(RemoteVideoCallPage), findsOneWidget);
     expect(find.text('先看看它'), findsOneWidget);
-    expect(find.byKey(const ValueKey('remote_video_status_label')),
-        findsOneWidget);
     // 连接对象固定为爱宠页当前展示的宠物。
     expect(find.text('连接对象：${store.selectedPet!.name}'), findsOneWidget);
     expect(find.byKey(const ValueKey('remote_video_hangup_button')),
         findsOneWidget);
+  });
+
+  testWidgets('远程视频未授权摄像头和麦克风时先弹权限提示且不直接进通话页', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final permissionCoordinator = _FakeRtcMediaPermissionCoordinator(
+      state: RtcMediaPermissionState.denied,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: Scaffold(
+          body: PetsPage(
+            store: store,
+            onAddFirstPet: () {},
+            onEditPet: (_) {},
+            remoteVideoPermissionCoordinator: permissionCoordinator,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_pill')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('remote_video_option_call')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('需要开启摄像头和麦克风权限'), findsOneWidget);
+    expect(find.byType(RemoteVideoCallPage), findsNothing);
+    expect(permissionCoordinator.requestCount, 0);
+
+    await tester.tap(find.text('去授权'));
+    await tester.pumpAndSettle();
+
+    expect(permissionCoordinator.requestCount, 1);
+    expect(find.byType(RemoteVideoCallPage), findsNothing);
+  });
+
+  testWidgets('宠物端收到远程视频来电但未授权媒体权限时先弹权限提示且不直接进通话页', (tester) async {
+    final store = PetNoteStore.seeded();
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.saveSyncPairing(
+      serverUrl: 'wss://sync.example.com/ws',
+      householdId: 'household-1',
+      sharedKeyBase64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      householdAuthToken: 'auth-token',
+      servedPetId: store.selectedPet!.id,
+    );
+    final localDeviceId = await settings.ensureDeviceId();
+    final transport = _FakeSyncTransport();
+    final syncService = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore()
+        ..saveSharedKey('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='),
+      transportFactory: (_) => transport,
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await syncService.stop();
+      syncService.dispose();
+      settings.dispose();
+    });
+    final permissionCoordinator = _FakeRtcMediaPermissionCoordinator(
+      state: RtcMediaPermissionState.denied,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetDeviceHome(
+          settingsController: settings,
+          storeLoader: () async => store,
+          syncService: syncService,
+          keepAlive: _NoopDeviceKeepAlive(),
+          remoteVideoPermissionCoordinator: permissionCoordinator,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    transport.incoming.add(RtcCallInvite(
+      callId: 'call-1',
+      callerDeviceId: 'owner-device',
+      targetDeviceId: localDeviceId,
+      mode: RtcCallMode.call,
+      sdp: 'offer-sdp',
+    ).toSyncMessage());
+    await tester.pumpAndSettle();
+
+    expect(find.text('需要开启摄像头和麦克风权限'), findsOneWidget);
+    expect(find.byType(RemoteVideoCallPage), findsNothing);
+    expect(permissionCoordinator.requestCount, 0);
   });
 
   testWidgets('远程视频只连当前宠物对应的宠物端设备', (tester) async {
@@ -203,8 +313,8 @@ void main() {
         online: true,
       ),
     ]);
-    expect(find.byKey(const ValueKey('remote_video_status_label')),
-        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('remote_video_remote_view')), findsOneWidget);
 
     // 指派给其他宠物的设备：不可连。
     await pumpCallPage(const [
@@ -216,6 +326,8 @@ void main() {
         online: true,
       ),
     ]);
+    expect(
+        find.byKey(const ValueKey('remote_video_remote_view')), findsNothing);
     expect(find.byKey(const ValueKey('remote_video_status_label')),
         findsOneWidget);
 
@@ -228,8 +340,8 @@ void main() {
         online: false,
       ),
     ]);
-    expect(find.byKey(const ValueKey('remote_video_status_label')),
-        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('remote_video_remote_view')), findsOneWidget);
   });
 
   testWidgets('远程视频挂断会发送 call_end 信令', (tester) async {
@@ -321,6 +433,7 @@ void main() {
     expect(adapter.joinedConfig?.appId, 'nml2ycrp');
     expect(adapter.joinedConfig?.channelId, 'call-1');
     expect(adapter.joinedConfig?.userId, 'owner-device');
+    expect(adapter.joinedConfig?.remoteUserId, 'pet-device');
     expect(adapter.joinedConfig?.token, 'signed-token');
     expect(adapter.joinedConfig?.singleToken, 'single-token');
     expect(transport.sent, hasLength(1));
@@ -657,6 +770,17 @@ class _FakeSyncTransport implements SyncTransport {
   Future<void> disconnect() async {}
 }
 
+class _NoopDeviceKeepAlive extends DeviceKeepAlive {
+  @override
+  Future<void> setKeepScreenOn(bool enabled) async {}
+
+  @override
+  Future<void> startBackgroundKeepAlive() async {}
+
+  @override
+  Future<void> stopBackgroundKeepAlive() async {}
+}
+
 class _FakeRtcAdapter implements RtcAdapter {
   final List<String> calls = <String>[];
   RtcJoinConfig? joinedConfig;
@@ -664,6 +788,24 @@ class _FakeRtcAdapter implements RtcAdapter {
   @override
   Future<void> initialize() async {
     calls.add('initialize');
+  }
+
+  @override
+  Future<RtcMediaPermissionState> getMediaPermissionState() async {
+    return RtcMediaPermissionState.authorized;
+  }
+
+  @override
+  Future<PermissionRequestOutcome<RtcMediaPermissionState>>
+      requestMediaPermission() async {
+    return const PermissionRequestOutcome<RtcMediaPermissionState>(
+      state: RtcMediaPermissionState.authorized,
+    );
+  }
+
+  @override
+  Future<RtcMediaSettingsOpenResult> openMediaPermissionSettings() async {
+    return RtcMediaSettingsOpenResult.opened;
   }
 
   @override
@@ -718,6 +860,24 @@ class _NoopRtcAdapter implements RtcAdapter {
   Future<void> initialize() async {}
 
   @override
+  Future<RtcMediaPermissionState> getMediaPermissionState() async {
+    return RtcMediaPermissionState.authorized;
+  }
+
+  @override
+  Future<PermissionRequestOutcome<RtcMediaPermissionState>>
+      requestMediaPermission() async {
+    return const PermissionRequestOutcome<RtcMediaPermissionState>(
+      state: RtcMediaPermissionState.authorized,
+    );
+  }
+
+  @override
+  Future<RtcMediaSettingsOpenResult> openMediaPermissionSettings() async {
+    return RtcMediaSettingsOpenResult.opened;
+  }
+
+  @override
   Future<void> join(RtcJoinConfig config) async {}
 
   @override
@@ -737,4 +897,46 @@ class _NoopRtcAdapter implements RtcAdapter {
 
   @override
   Future<void> dispose() async {}
+}
+
+class _FakeRtcMediaPermissionCoordinator
+    implements RtcMediaPermissionCoordinator {
+  _FakeRtcMediaPermissionCoordinator({
+    required this.state,
+  });
+
+  @override
+  RtcMediaPermissionState state;
+
+  @override
+  bool hasHandledPermissionPrompt = false;
+
+  int requestCount = 0;
+
+  @override
+  bool get hasGrantedPermission => state == RtcMediaPermissionState.authorized;
+
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool get shouldOpenSettingsForPermissionRequest =>
+      !hasGrantedPermission && hasHandledPermissionPrompt;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> refreshPlatformState() async {}
+
+  @override
+  Future<RtcMediaPermissionState> requestPermission() async {
+    requestCount += 1;
+    return state;
+  }
+
+  @override
+  Future<RtcMediaSettingsOpenResult> openMediaPermissionSettings() async {
+    return RtcMediaSettingsOpenResult.opened;
+  }
 }

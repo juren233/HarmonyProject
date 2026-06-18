@@ -1,8 +1,12 @@
+import 'package:petnote/permissions/permission_request_gate.dart';
+import 'package:petnote/rtc/rtc_media_permissions.dart';
+
 class RtcJoinConfig {
   const RtcJoinConfig({
     required this.appId,
     required this.channelId,
     required this.userId,
+    required this.remoteUserId,
     required this.token,
     required this.singleToken,
     required this.nonce,
@@ -16,6 +20,7 @@ class RtcJoinConfig {
   final String appId;
   final String channelId;
   final String userId;
+  final String remoteUserId;
   final String token;
   final String singleToken;
   final String nonce;
@@ -25,6 +30,7 @@ class RtcJoinConfig {
         'appId': appId,
         'channelId': channelId,
         'userId': userId,
+        'remoteUserId': remoteUserId,
         'token': token,
         'singleToken': singleToken,
         'nonce': nonce,
@@ -37,6 +43,13 @@ class RtcJoinConfig {
 
 abstract class RtcAdapter {
   Future<void> initialize();
+
+  Future<RtcMediaPermissionState> getMediaPermissionState();
+
+  Future<PermissionRequestOutcome<RtcMediaPermissionState>>
+      requestMediaPermission();
+
+  Future<RtcMediaSettingsOpenResult> openMediaPermissionSettings();
 
   Future<void> join(RtcJoinConfig config);
 

@@ -448,6 +448,33 @@ void main() {
       isNot(contains('pet-1')),
     );
 
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    pet.send(SyncMessageTypes.deviceUpdate, {'servedPetId': 'pet-a'});
+    final config = await pet.expectType(SyncMessageTypes.deviceConfig);
+    expect(config.payload['servedPetId'], 'pet-a');
+    final ownerDevices = await owner.expectType(SyncMessageTypes.devices);
+    final updatedPet = (ownerDevices.payload['devices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((device) => device['deviceId'] == 'pet-1');
+    expect(updatedPet['servedPetId'], 'pet-a');
+
+    pet.send(SyncMessageTypes.deviceUpdate, {
+      'deviceId': 'owner-1',
+      'servedPetId': 'pet-b',
+    });
+    expect(
+        (await pet.expectType(SyncMessageTypes.pairError)).payload['message'],
+        'forbidden');
+
     pet.send(SyncMessageTypes.deviceRemove, {'deviceId': 'owner-1'});
     expect(
         (await pet.expectType(SyncMessageTypes.pairError)).payload['message'],

@@ -336,6 +336,7 @@ void main() {
     await tester.pump();
     expect(find.text('重命名'), findsOneWidget);
     expect(find.text('解绑'), findsOneWidget);
+    expect(find.text('更换服务宠物'), findsNothing);
   });
 
   testWidgets('已配对设备列表顶部展示输入配对码入口', (tester) async {

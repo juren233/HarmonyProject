@@ -10,6 +10,7 @@ import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/platform/device_keep_alive.dart';
 import 'package:petnote/rtc/rtc_call_models.dart';
 import 'package:petnote/rtc/rtc_incoming_call_controller.dart';
+import 'package:petnote/rtc/rtc_media_permission_coordinator.dart';
 import 'package:petnote/rtc/rtc_signaling_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -23,12 +24,14 @@ class PetDeviceHome extends StatefulWidget {
     this.storeLoader,
     this.syncService,
     this.keepAlive,
+    this.remoteVideoPermissionCoordinator,
   });
 
   final AppSettingsController settingsController;
   final Future<PetNoteStore> Function()? storeLoader;
   final SyncService? syncService;
   final DeviceKeepAlive? keepAlive;
+  final RtcMediaPermissionCoordinator? remoteVideoPermissionCoordinator;
 
   @override
   State<PetDeviceHome> createState() => _PetDeviceHomeState();
@@ -227,11 +230,12 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
     _incomingCallController = RtcIncomingCallController(
       signalingController: signaling,
       localDeviceId: localDeviceId,
-      onStartCall: (invite) => _openIncomingCall(invite, store),
+      onStartCall: (invite) => unawaited(_openIncomingCall(invite, store)),
     );
   }
 
-  void _openIncomingCall(RtcCallInvite invite, PetNoteStore store) {
+  Future<void> _openIncomingCall(
+      RtcCallInvite invite, PetNoteStore store) async {
     if (!mounted) {
       return;
     }
@@ -239,6 +243,13 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
         store.selectedPet ??
         (store.pets.isEmpty ? null : store.pets.first);
     if (pet == null) {
+      return;
+    }
+    final canStart = await ensureRtcMediaPermissionBeforeRemoteVideo(
+      context: context,
+      permissionCoordinator: widget.remoteVideoPermissionCoordinator,
+    );
+    if (!canStart || !mounted) {
       return;
     }
     Navigator.of(context).push(

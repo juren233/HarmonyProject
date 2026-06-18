@@ -26,6 +26,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        rtcBridge = PetNoteRtcBridge(
+            activity = this,
+            context = applicationContext,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+        )
         flutterEngine
             .platformViewsController
             .registry
@@ -39,6 +44,13 @@ class MainActivity : FlutterFragmentActivity() {
             .registerViewFactory(
                 "petnote/android_liquid_glass_toggle",
                 AndroidLiquidGlassToggleFactory(flutterEngine.dartExecutor.binaryMessenger),
+            )
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory(
+                "petnote/rtc_video_view",
+                PetNoteRtcVideoViewFactory(rtcBridge!!),
             )
         notificationBridge = PetNoteNotificationBridge(
             activity = this,
@@ -73,10 +85,6 @@ class MainActivity : FlutterFragmentActivity() {
             context = applicationContext,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
         )
-        rtcBridge = PetNoteRtcBridge(
-            context = applicationContext,
-            messenger = flutterEngine.dartExecutor.binaryMessenger,
-        )
     }
 
     override fun onResume() {
@@ -96,6 +104,9 @@ class MainActivity : FlutterFragmentActivity() {
         grantResults: IntArray,
     ) {
         if (notificationBridge?.handlePermissionResult(requestCode, grantResults) == true) {
+            return
+        }
+        if (rtcBridge?.handlePermissionResult(requestCode, grantResults) == true) {
             return
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

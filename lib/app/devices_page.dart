@@ -153,11 +153,8 @@ class _DevicesPageState extends State<DevicesPage> {
                             petName: _petName(device.servedPetId),
                             onRename: (name) =>
                                 engine?.renameDevice(device.deviceId, name),
-                            onAssignPet: (petId) =>
-                                engine?.assignPet(device.deviceId, petId),
                             onRemove: () =>
                                 engine?.removeDevice(device.deviceId),
-                            pets: widget.store?.pets ?? const <Pet>[],
                           ),
                     ],
                   ),
@@ -509,17 +506,13 @@ class _DeviceRow extends StatelessWidget {
     required this.device,
     required this.petName,
     required this.onRename,
-    required this.onAssignPet,
     required this.onRemove,
-    required this.pets,
   });
 
   final SyncedDeviceInfo device;
   final String petName;
   final ValueChanged<String> onRename;
-  final ValueChanged<String?> onAssignPet;
   final VoidCallback onRemove;
-  final List<Pet> pets;
 
   @override
   Widget build(BuildContext context) {
@@ -531,15 +524,12 @@ class _DeviceRow extends StatelessWidget {
           switch (value) {
             case 'rename':
               _rename(context);
-            case 'assign':
-              _assignPet(context);
             case 'remove':
               _remove(context);
           }
         },
         itemBuilder: (context) => const [
           PopupMenuItem(value: 'rename', child: Text('重命名')),
-          PopupMenuItem(value: 'assign', child: Text('更换服务宠物')),
           PopupMenuItem(value: 'remove', child: Text('解绑')),
         ],
       ),
@@ -569,29 +559,6 @@ class _DeviceRow extends StatelessWidget {
     if (name != null && name.trim().isNotEmpty) {
       onRename(name.trim());
     }
-  }
-
-  Future<void> _assignPet(BuildContext context) async {
-    final petId = await showModalBottomSheet<String?>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              title: const Text('未指定'),
-              onTap: () => Navigator.of(context).pop(null),
-            ),
-            for (final pet in pets)
-              ListTile(
-                title: Text(pet.name),
-                onTap: () => Navigator.of(context).pop(pet.id),
-              ),
-          ],
-        ),
-      ),
-    );
-    onAssignPet(petId);
   }
 
   Future<void> _remove(BuildContext context) async {

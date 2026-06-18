@@ -49,9 +49,11 @@ void main() {
     expect(token.gslb, ['https://rgslb.rtc.aliyuncs.com']);
     expect(requestBody, containsPair('householdId', 'household-1'));
     expect(requestBody, containsPair('authToken', 'auth-token'));
-    expect(token.toJoinConfig(), isA<RtcJoinConfig>());
-    expect(token.toJoinConfig().token, 'token-value');
-    expect(token.toJoinConfig().singleToken, 'single-token-value');
+    final joinConfig = token.toJoinConfig(remoteUserId: 'pet-device');
+    expect(joinConfig, isA<RtcJoinConfig>());
+    expect(joinConfig.remoteUserId, 'pet-device');
+    expect(joinConfig.token, 'token-value');
+    expect(joinConfig.singleToken, 'single-token-value');
   });
 
   test('RtcTokenClient reuses token until it is close to expiry', () async {

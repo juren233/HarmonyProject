@@ -380,6 +380,18 @@ class MultiDeviceSyncController {
     );
   }
 
+  void updateServedPetId(String? petId) {
+    if (_pairingRemoved) {
+      return;
+    }
+    retryFailedSync();
+    _failureQueue.sendOrQueue(
+      SyncMessage(SyncMessageTypes.deviceUpdate, {
+        'servedPetId': petId,
+      }),
+    );
+  }
+
   void removeDevice(String deviceId) {
     if (_pairingRemoved) {
       return;

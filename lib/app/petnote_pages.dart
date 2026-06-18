@@ -19,6 +19,7 @@ import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/app/add_sheet/form_controls/adaptive_date_time_field.dart';
 import 'package:petnote/app/add_sheet/form_controls/choice_wrap.dart';
 import 'package:petnote/app/add_sheet/form_controls/pet_selector.dart';
+import 'package:petnote/rtc/rtc_media_permission_coordinator.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_service.dart';

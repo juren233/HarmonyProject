@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreHaptics
 import Flutter
 import AliVCSDK_ARTC
@@ -128,10 +129,14 @@ final class PetNoteKeepAlivePlugin: NSObject, FlutterPlugin {
 
 final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   static let channelName = "petnote/rtc"
+  static let videoViewType = "petnote/rtc_video_view"
 
   private var engine: AliRtcEngine?
   private var microphoneEnabled = true
   private var cameraEnabled = true
+  private var remoteUserId: String?
+  private weak var localContainer: UIView?
+  private weak var remoteContainer: UIView?
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
@@ -140,6 +145,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     )
     let instance = PetNoteRtcPlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
+    registrar.register(PetNoteRtcVideoViewFactory(rtcPlugin: instance), withId: videoViewType)
   }
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -151,6 +157,12 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
       } catch {
         result(rtcError(error))
       }
+    case "getMediaPermissionState":
+      result(mediaPermissionState())
+    case "requestMediaPermission":
+      requestMediaPermission(result: result)
+    case "openMediaPermissionSettings":
+      openMediaPermissionSettings(result: result)
     case "join":
       do {
         guard let arguments = call.arguments as? [String: Any] else {
@@ -199,12 +211,60 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     return created
   }
 
+  private func mediaPermissionState() -> String {
+    let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    if cameraStatus == .authorized && microphoneStatus == .authorized {
+      return "authorized"
+    }
+    return "denied"
+  }
+
+  private func requestMediaPermission(result: @escaping FlutterResult) {
+    let previousCameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    let previousMicrophoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    AVCaptureDevice.requestAccess(for: .video) { _ in
+      AVCaptureDevice.requestAccess(for: .audio) { _ in
+        DispatchQueue.main.async {
+          let currentCameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+          let currentMicrophoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+          let promptHandled =
+            (previousCameraStatus == .notDetermined && currentCameraStatus != .notDetermined) ||
+            (previousMicrophoneStatus == .notDetermined && currentMicrophoneStatus != .notDetermined)
+          result([
+            "state": self.mediaPermissionState(),
+            "promptHandled": promptHandled,
+          ])
+        }
+      }
+    }
+  }
+
+  private func openMediaPermissionSettings(result: @escaping FlutterResult) {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else {
+      result("failed")
+      return
+    }
+    UIApplication.shared.open(url, options: [:]) { opened in
+      DispatchQueue.main.async {
+        result(opened ? "opened" : "failed")
+      }
+    }
+  }
+
   private func join(arguments: [String: Any]) throws {
     let rtcEngine = try ensureEngine()
     let singleToken = try requireString(arguments, key: "singleToken")
     let channelId = try requireString(arguments, key: "channelId")
     let userId = try requireString(arguments, key: "userId")
+    remoteUserId = try requireString(arguments, key: "remoteUserId")
     try configureVideoEncoder(rtcEngine, arguments: arguments)
+    _ = rtcEngine.setChannelProfile(AliRtcChannelProfile.interactivelive)
+    _ = rtcEngine.setClientRole(AliRtcClientRole.roleInteractive)
+    _ = rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true)
+    _ = rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true)
+    attachLocalView(rtcEngine)
+    attachRemoteView(rtcEngine)
     let channelParam = AliRtcChannelParam()
     channelParam.channelId = channelId
     channelParam.userId = userId
@@ -215,6 +275,11 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     }
     _ = rtcEngine.publishLocalAudioStream(microphoneEnabled)
     _ = rtcEngine.publishLocalVideoStream(cameraEnabled)
+    _ = rtcEngine.subscribeAllRemoteAudioStreams(true)
+    _ = rtcEngine.subscribeAllRemoteVideoStreams(true)
+    if let remoteUserId {
+      _ = rtcEngine.subscribeRemoteMediaStream(remoteUserId, videoTrack: .camera, audioTrack: .mic)
+    }
   }
 
   private func requireString(_ arguments: [String: Any], key: String) throws -> String {
@@ -279,9 +344,88 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   }
 
   private func releaseEngine() {
+    if let engine {
+      engine.setLocalViewConfig(nil, for: AliRtcVideoTrack.camera)
+      if let remoteUserId {
+        engine.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera)
+      }
+    }
     _ = engine?.leaveChannel()
     AliRtcEngine.destroy()
     engine = nil
+    remoteUserId = nil
+  }
+
+  fileprivate func bindVideoView(role: String, remoteUserId: String?, container: UIView) {
+    switch role {
+    case "local":
+      localContainer = container
+    case "remote":
+      self.remoteUserId = remoteUserId ?? self.remoteUserId
+      remoteContainer = container
+    default:
+      return
+    }
+    guard let engine else {
+      return
+    }
+    if role == "local" {
+      attachLocalView(engine)
+    } else {
+      attachRemoteView(engine)
+    }
+  }
+
+  fileprivate func unbindVideoView(container: UIView) {
+    if localContainer === container {
+      engine?.setLocalViewConfig(nil, for: AliRtcVideoTrack.camera)
+      localContainer = nil
+    }
+    if remoteContainer === container {
+      if let remoteUserId {
+        engine?.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera)
+      }
+      remoteContainer = nil
+    }
+    container.subviews.forEach { $0.removeFromSuperview() }
+  }
+
+  private func attachLocalView(_ rtcEngine: AliRtcEngine) {
+    guard let container = localContainer else {
+      return
+    }
+    container.subviews.forEach { $0.removeFromSuperview() }
+    let renderView = UIView(frame: container.bounds)
+    renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    container.addSubview(renderView)
+    let canvas = AliVideoCanvas()
+    canvas.view = renderView
+    canvas.renderMode = .auto
+    rtcEngine.setLocalViewConfig(canvas, for: AliRtcVideoTrack.camera)
+    _ = rtcEngine.startPreview()
+  }
+
+  private func attachRemoteView(_ rtcEngine: AliRtcEngine) {
+    guard let container = remoteContainer, let remoteUserId else {
+      return
+    }
+    container.subviews.forEach { $0.removeFromSuperview() }
+    let renderView = UIView(frame: container.bounds)
+    renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    container.addSubview(renderView)
+    let canvas = AliVideoCanvas()
+    canvas.view = renderView
+    canvas.renderMode = .auto
+    rtcEngine.setRemoteViewConfig(canvas, uid: remoteUserId, for: AliRtcVideoTrack.camera)
+  }
+
+  func onRemoteTrackAvailableNotify(_ uid: String, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) {
+    if uid == remoteUserId {
+      guard let engine else {
+        return
+      }
+      attachRemoteView(engine)
+    }
   }
 
   private func rtcError(_ error: Error) -> FlutterError {
@@ -300,6 +444,54 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
         return message
       }
     }
+  }
+}
+
+final class PetNoteRtcVideoViewFactory: NSObject, FlutterPlatformViewFactory {
+  private let rtcPlugin: PetNoteRtcPlugin
+
+  init(rtcPlugin: PetNoteRtcPlugin) {
+    self.rtcPlugin = rtcPlugin
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    PetNoteRtcVideoPlatformView(
+      frame: frame,
+      args: args as? [String: Any],
+      rtcPlugin: rtcPlugin
+    )
+  }
+}
+
+final class PetNoteRtcVideoPlatformView: NSObject, FlutterPlatformView {
+  private let containerView: UIView
+  private weak var rtcPlugin: PetNoteRtcPlugin?
+
+  init(frame: CGRect, args: [String: Any]?, rtcPlugin: PetNoteRtcPlugin) {
+    containerView = UIView(frame: frame)
+    self.rtcPlugin = rtcPlugin
+    super.init()
+    containerView.backgroundColor = .black
+    let role = (args?["role"] as? String) ?? "remote"
+    let remoteUserId = args?["remoteUserId"] as? String
+    rtcPlugin.bindVideoView(role: role, remoteUserId: remoteUserId, container: containerView)
+  }
+
+  func view() -> UIView {
+    containerView
+  }
+
+  deinit {
+    rtcPlugin?.unbindVideoView(container: containerView)
   }
 }
 

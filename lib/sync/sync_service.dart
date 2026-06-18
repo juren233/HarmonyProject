@@ -47,6 +47,7 @@ class SyncService extends ChangeNotifier {
   ValueListenable<int>? _engineFailedCount;
   final ValueNotifier<int> _failedSyncCount = ValueNotifier<int>(0);
   bool _initialConnectionCompleted = false;
+  String? _lastReportedServedPetId;
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
@@ -242,6 +243,8 @@ class SyncService extends ChangeNotifier {
       config: config,
       role: DeviceRole.pet,
     );
+    _lastReportedServedPetId = settings.servedPetId;
+    settings.addListener(_handlePetSettingsChanged);
     _attachHelloOnConnect(
       transport: transport,
       config: config,
@@ -304,6 +307,8 @@ class SyncService extends ChangeNotifier {
     _activeConfig = null;
     _activeRole = null;
     _initialConnectionCompleted = false;
+    _lastReportedServedPetId = null;
+    settings.removeListener(_handlePetSettingsChanged);
     if (shouldNotify) {
       _refreshFailedSyncCount();
       notifyListeners();
@@ -475,9 +480,22 @@ class SyncService extends ChangeNotifier {
     );
   }
 
+  void _handlePetSettingsChanged() {
+    if (_activeRole != DeviceRole.pet) {
+      return;
+    }
+    final servedPetId = settings.servedPetId;
+    if (_lastReportedServedPetId == servedPetId) {
+      return;
+    }
+    _lastReportedServedPetId = servedPetId;
+    petController?.updateServedPetId(servedPetId);
+  }
+
   @override
   void dispose() {
     settings.removeListener(_refreshFailedSyncCount);
+    settings.removeListener(_handlePetSettingsChanged);
     _attachEngineFailedCount(null);
     _failedSyncCount.dispose();
     super.dispose();

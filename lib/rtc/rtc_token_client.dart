@@ -33,11 +33,12 @@ class RtcTokenPayload {
   final List<String> gslb;
   final int expiresAtMs;
 
-  RtcJoinConfig toJoinConfig() {
+  RtcJoinConfig toJoinConfig({required String remoteUserId}) {
     return RtcJoinConfig(
       appId: appId,
       channelId: channelId,
       userId: userId,
+      remoteUserId: remoteUserId,
       token: token,
       singleToken: singleToken,
       nonce: nonce,

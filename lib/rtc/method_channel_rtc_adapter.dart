@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
+import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:petnote/rtc/rtc_adapter.dart';
+import 'package:petnote/rtc/rtc_media_permissions.dart';
 
 class MethodChannelRtcAdapter implements RtcAdapter {
   MethodChannelRtcAdapter({
@@ -12,6 +14,43 @@ class MethodChannelRtcAdapter implements RtcAdapter {
 
   @override
   Future<void> initialize() => _channel.invokeMethod<void>('initialize');
+
+  @override
+  Future<RtcMediaPermissionState> getMediaPermissionState() async {
+    try {
+      final result =
+          await _channel.invokeMethod<String>('getMediaPermissionState');
+      return rtcMediaPermissionStateFromName(result);
+    } on MissingPluginException {
+      return RtcMediaPermissionState.unsupported;
+    }
+  }
+
+  @override
+  Future<PermissionRequestOutcome<RtcMediaPermissionState>>
+      requestMediaPermission() async {
+    try {
+      final result = await _channel.invokeMethod<Object?>(
+        'requestMediaPermission',
+      );
+      return rtcMediaPermissionRequestOutcomeFromResult(result);
+    } on MissingPluginException {
+      return const PermissionRequestOutcome<RtcMediaPermissionState>(
+        state: RtcMediaPermissionState.unsupported,
+      );
+    }
+  }
+
+  @override
+  Future<RtcMediaSettingsOpenResult> openMediaPermissionSettings() async {
+    try {
+      final result =
+          await _channel.invokeMethod<String>('openMediaPermissionSettings');
+      return rtcMediaSettingsOpenResultFromName(result);
+    } on MissingPluginException {
+      return RtcMediaSettingsOpenResult.unsupported;
+    }
+  }
 
   @override
   Future<void> join(RtcJoinConfig config) =>

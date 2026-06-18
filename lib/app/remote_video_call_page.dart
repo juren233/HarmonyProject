@@ -7,6 +7,7 @@ import 'package:petnote/rtc/rtc_adapter.dart';
 import 'package:petnote/rtc/rtc_call_models.dart';
 import 'package:petnote/rtc/rtc_token_client.dart';
 import 'package:petnote/rtc/rtc_signaling_controller.dart';
+import 'package:petnote/rtc/rtc_video_view.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
@@ -127,6 +128,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
                 title: title,
                 statusLabel: surfaceStatus,
                 petName: widget.pet.name,
+                remoteUserId: _targetDeviceId,
               ),
             ),
             Positioned(
@@ -240,7 +242,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
         }
         return;
       }
-      await adapter.join(token.toJoinConfig());
+      await adapter.join(token.toJoinConfig(remoteUserId: targetDeviceId));
       if (_disposed) {
         await adapter.leave();
         await adapter.dispose();
@@ -458,11 +460,13 @@ class _RemoteVideoSurface extends StatelessWidget {
     required this.title,
     required this.statusLabel,
     required this.petName,
+    required this.remoteUserId,
   });
 
   final String title;
   final String statusLabel;
   final String petName;
+  final String? remoteUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -474,36 +478,47 @@ class _RemoteVideoSurface extends StatelessWidget {
           colors: [Color(0xFF1A1C21), Color(0xFF0B0C0F)],
         ),
       ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.videocam_rounded,
-              size: 76,
-              color: Color(0xFF6F7684),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (remoteUserId != null)
+            RtcVideoView.remote(
+              key: const ValueKey('remote_video_remote_view'),
+              remoteUserId: remoteUserId!,
             ),
-            const SizedBox(height: 16),
-            Text(
-              statusLabel,
-              key: const ValueKey('remote_video_status_label'),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
+          if (remoteUserId == null)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.videocam_rounded,
+                    size: 76,
+                    color: Color(0xFF6F7684),
                   ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '连接对象：$petName',
-              key: const ValueKey('remote_video_target_pet'),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFFC8CDD6),
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(height: 16),
+                  Text(
+                    statusLabel,
+                    key: const ValueKey('remote_video_status_label'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '连接对象：$petName',
+                    key: const ValueKey('remote_video_target_pet'),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFFC8CDD6),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -577,19 +592,25 @@ class _LocalPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return ClipRRect(
       key: const ValueKey('remote_video_local_preview'),
-      width: 96,
-      height: 142,
-      decoration: BoxDecoration(
-        color: const Color(0xFF242832),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0x33FFFFFF)),
-      ),
-      child: const Icon(
-        Icons.person_rounded,
-        color: Color(0xFFB7BEC9),
-        size: 34,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 96,
+        height: 142,
+        decoration: BoxDecoration(
+          color: const Color(0xFF242832),
+          border: Border.all(color: const Color(0x33FFFFFF)),
+        ),
+        child: const Stack(
+          fit: StackFit.expand,
+          children: [
+            RtcVideoView.local(
+              key: ValueKey('remote_video_local_view'),
+            ),
+            ColoredBox(color: Color(0x11000000)),
+          ],
+        ),
       ),
     );
   }

@@ -1,18 +1,52 @@
-import { AliRtcEngine, AliRtcVideoDimensions, AliRtcVideoEncoderConfiguration } from '@aliyun_video_cloud/alivcsdk_artc';
+import { abilityAccessCtrl, bundleManager, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
+import common from '@ohos.app.ability.common';
+import UIAbility from '@ohos.app.ability.UIAbility';
+import { AliRtcChannelProfile, AliRtcClientRole, AliRtcEngine, AliRtcRenderMode, AliRtcVideoCanvas, AliRtcVideoDimensions, AliRtcVideoEncoderConfiguration, AliRtcVideoTrack, AliRtcXComponentController } from '@aliyun_video_cloud/alivcsdk_artc';
 import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
+import AbilityAware from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityAware';
+import { AbilityPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityPluginBinding';
+import Any from '@ohos/flutter_ohos/src/main/ets/plugin/common/Any';
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec';
+import StandardMessageCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMessageCodec';
+import PlatformView, { Params } from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformView';
+import PlatformViewFactory from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformViewFactory';
 
 const TAG = 'PetNoteRtcPlugin';
 const CHANNEL_NAME = 'petnote/rtc';
+const VIDEO_VIEW_TYPE = 'petnote/rtc_video_view';
+const MEDIA_PERMISSION_GRANTED = 0;
+const PERMISSION_CAMERA: Permissions = 'ohos.permission.CAMERA';
+const PERMISSION_MICROPHONE: Permissions = 'ohos.permission.MICROPHONE';
 
-export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandler {
+interface RtcVideoCreationParams {
+  role?: string;
+  remoteUserId?: string;
+}
+
+interface RtcVideoBinding {
+  controller: AliRtcXComponentController;
+  surfaceId: string;
+  remoteUserId?: string;
+}
+
+interface RtcMediaPermissionRequestResult {
+  state: string;
+  promptHandled: boolean;
+}
+
+export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandler, AbilityAware {
   private channel: MethodChannel | null = null;
   private pluginBinding: FlutterPluginBinding | null = null;
+  private ability: UIAbility | null = null;
+  private abilityBinding: AbilityPluginBinding | null = null;
   private engine: AliRtcEngine | null = null;
   private cameraEnabled: boolean = true;
   private microphoneEnabled: boolean = true;
+  private remoteUserId: string | null = null;
+  private localVideo: RtcVideoBinding | null = null;
+  private remoteVideo: RtcVideoBinding | null = null;
 
   getUniqueClassName(): string {
     return TAG;
@@ -20,6 +54,8 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
 
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     this.pluginBinding = binding;
+    binding.getPlatformViewRegistry()
+      .registerViewFactory(VIDEO_VIEW_TYPE, new PetNoteRtcVideoViewFactory(this));
     this.channel = new MethodChannel(
       binding.getBinaryMessenger(),
       CHANNEL_NAME,
@@ -35,12 +71,31 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     this.pluginBinding = null;
   }
 
+  onAttachedToAbility(binding: AbilityPluginBinding): void {
+    this.abilityBinding = binding;
+    this.ability = binding.getAbility();
+  }
+
+  onDetachedFromAbility(): void {
+    this.abilityBinding = null;
+    this.ability = null;
+  }
+
   onMethodCall(call: MethodCall, result: MethodResult): void {
     try {
       switch (call.method) {
         case 'initialize':
           this.ensureEngine();
           result.success(null);
+          break;
+        case 'getMediaPermissionState':
+          this.replyMediaPermissionState(result);
+          break;
+        case 'requestMediaPermission':
+          this.replyRequestMediaPermission(result);
+          break;
+        case 'openMediaPermissionSettings':
+          this.replyOpenMediaPermissionSettings(result);
           break;
         case 'join':
           this.join(call, result);
@@ -80,6 +135,105 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     }
   }
 
+  private replyMediaPermissionState(result: MethodResult): void {
+    this.mediaPermissionState()
+      .then((state: string) => {
+        result.success(state);
+      })
+      .catch(() => {
+        result.success('unknown');
+      });
+  }
+
+  private replyRequestMediaPermission(result: MethodResult): void {
+    const ability = this.ability;
+    if (ability == null) {
+      result.success({ state: 'unsupported', promptHandled: false });
+      return;
+    }
+    this.requestMediaPermissions(ability)
+      .then((requestResult: RtcMediaPermissionRequestResult) => {
+        result.success(requestResult);
+      })
+      .catch(() => {
+        result.success({ state: 'unknown', promptHandled: false });
+      });
+  }
+
+  private replyOpenMediaPermissionSettings(result: MethodResult): void {
+    const ability = this.ability;
+    if (ability == null) {
+      result.success('unsupported');
+      return;
+    }
+    const permissions: Array<Permissions> = [PERMISSION_CAMERA, PERMISSION_MICROPHONE];
+    const atManager = abilityAccessCtrl.createAtManager();
+    atManager.requestPermissionOnSetting(ability.context, permissions)
+      .then(() => {
+        result.success('opened');
+      })
+      .catch(() => {
+        result.success('failed');
+      });
+  }
+
+  private async mediaPermissionState(): Promise<string> {
+    const ability = this.ability;
+    if (ability == null) {
+      return 'unsupported';
+    }
+    const atManager = abilityAccessCtrl.createAtManager();
+    const tokenId = this.accessTokenId();
+    const cameraGranted = atManager.checkAccessTokenSync(tokenId, PERMISSION_CAMERA) === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+    const microphoneGranted = atManager.checkAccessTokenSync(tokenId, PERMISSION_MICROPHONE) === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+    return cameraGranted && microphoneGranted ? 'authorized' : 'denied';
+  }
+
+  private async requestMediaPermissions(ability: UIAbility): Promise<RtcMediaPermissionRequestResult> {
+    const permissions: Array<Permissions> = [PERMISSION_CAMERA, PERMISSION_MICROPHONE];
+    const atManager = abilityAccessCtrl.createAtManager();
+    const requestResult = await atManager.requestPermissionsFromUser(ability.context, permissions) as PermissionRequestResult;
+    const authResults = requestResult.authResults ?? [];
+    const granted = authResults.length > 0 &&
+      authResults.every((item: number) => item === MEDIA_PERMISSION_GRANTED);
+    const afterState = await this.confirmMediaPermissionState();
+    return {
+      state: afterState === 'authorized' || granted ? 'authorized' : 'denied',
+      promptHandled: this.didShowPermissionDialog(requestResult),
+    };
+  }
+
+  private didShowPermissionDialog(requestResult: PermissionRequestResult): boolean {
+    const dialogShownResults = requestResult.dialogShownResults ?? [];
+    return dialogShownResults.some((item: boolean) => item);
+  }
+
+  private async confirmMediaPermissionState(): Promise<string> {
+    let state = await this.mediaPermissionState();
+    if (state === 'authorized') {
+      return state;
+    }
+    await this.sleep(220);
+    state = await this.mediaPermissionState();
+    if (state === 'authorized') {
+      return state;
+    }
+    await this.sleep(380);
+    return this.mediaPermissionState();
+  }
+
+  private accessTokenId(): number {
+    return bundleManager.getBundleInfoForSelfSync(
+      bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION,
+    ).appInfo.accessTokenId;
+  }
+
+  private sleep(milliseconds: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), milliseconds);
+    });
+  }
+
   private ensureEngine(): AliRtcEngine {
     if (this.engine != null) {
       return this.engine;
@@ -98,10 +252,76 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     this.configureVideoEncoder(call, engine);
     const channelId = this.requireString(call, 'channelId');
     const userId = this.requireString(call, 'userId');
+    this.remoteUserId = this.requireString(call, 'remoteUserId');
+    engine.setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive);
+    engine.setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive);
+    engine.setDefaultSubscribeAllRemoteAudioStreams(true);
+    engine.setDefaultSubscribeAllRemoteVideoStreams(true);
+    this.attachLocalView(engine);
+    this.attachRemoteView(engine);
     engine.joinChannelWithToken(singleToken, channelId, userId, '');
     engine.publishLocalAudioStream(this.microphoneEnabled);
     engine.publishLocalVideoStream(this.cameraEnabled);
+    engine.subscribeAllRemoteAudioStreams(true);
+    engine.subscribeAllRemoteVideoStreams(true);
+    engine.subscribeRemoteMediaStream(
+      this.remoteUserId,
+      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+      true,
+      true,
+    );
+    this.attachRemoteView(engine);
     result.success(null);
+  }
+
+  bindVideoView(
+    role: string,
+    remoteUserId: string | null,
+    controller: AliRtcXComponentController,
+    surfaceId: string,
+  ): void {
+    if (role === 'local') {
+      this.localVideo = { controller, surfaceId };
+    } else if (role === 'remote') {
+      const resolvedRemoteUserId = remoteUserId ?? this.remoteUserId ?? undefined;
+      this.remoteUserId = resolvedRemoteUserId ?? this.remoteUserId;
+      this.remoteVideo = { controller, surfaceId, remoteUserId: resolvedRemoteUserId };
+    } else {
+      return;
+    }
+    const engine = this.ensureEngine();
+    if (role === 'local') {
+      this.attachLocalView(engine);
+    } else {
+      this.attachRemoteView(engine);
+    }
+  }
+
+  unbindVideoView(controller: AliRtcXComponentController): void {
+    const engine = this.engine;
+    if (this.localVideo?.controller === controller) {
+      if (engine != null) {
+        engine.stopPreview();
+        engine.setLocalViewConfig(
+          this.makeCanvas(this.localVideo.surfaceId),
+          null,
+          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        );
+      }
+      this.localVideo = null;
+    }
+    if (this.remoteVideo?.controller === controller) {
+      const remoteUserId = this.remoteVideo.remoteUserId ?? this.remoteUserId;
+      if (engine != null && remoteUserId != null) {
+        engine.setRemoteViewConfig(
+          this.makeCanvas(this.remoteVideo.surfaceId),
+          null,
+          remoteUserId,
+          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        );
+      }
+      this.remoteVideo = null;
+    }
   }
 
   private requireString(call: MethodCall, key: string): string {
@@ -126,9 +346,161 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     engine.setVideoEncoderConfiguration(config);
   }
 
+  private attachLocalView(engine: AliRtcEngine): void {
+    const video = this.localVideo;
+    if (video == null) {
+      return;
+    }
+    engine.setLocalViewConfig(
+      this.makeCanvas(video.surfaceId),
+      video.controller,
+      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+    );
+    engine.startPreview();
+  }
+
+  private attachRemoteView(engine: AliRtcEngine): void {
+    const video = this.remoteVideo;
+    const remoteUserId = video?.remoteUserId ?? this.remoteUserId;
+    if (video == null || remoteUserId == null) {
+      return;
+    }
+    engine.setRemoteViewConfig(
+      this.makeCanvas(video.surfaceId),
+      video.controller,
+      remoteUserId,
+      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+    );
+  }
+
+  private makeCanvas(surfaceId: string): AliRtcVideoCanvas {
+    const canvas: AliRtcVideoCanvas = new AliRtcVideoCanvas();
+    canvas.surfaceId = surfaceId;
+    canvas.renderMode = AliRtcRenderMode.AliEngineRenderModeAuto;
+    return canvas;
+  }
+
   private releaseEngine(): void {
-    this.engine?.leaveChannel();
+    const engine = this.engine;
+    if (engine != null) {
+      if (this.localVideo != null) {
+        engine.stopPreview();
+        engine.setLocalViewConfig(
+          this.makeCanvas(this.localVideo.surfaceId),
+          null,
+          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        );
+      }
+      const remoteUserId = this.remoteVideo?.remoteUserId ?? this.remoteUserId;
+      if (this.remoteVideo != null && remoteUserId != null) {
+        engine.setRemoteViewConfig(
+          this.makeCanvas(this.remoteVideo.surfaceId),
+          null,
+          remoteUserId,
+          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        );
+      }
+      engine.leaveChannel();
+    }
     AliRtcEngine.destroyInstance();
     this.engine = null;
+    this.remoteUserId = null;
+    this.localVideo = null;
+    this.remoteVideo = null;
+  }
+}
+
+class PetNoteRtcVideoViewFactory extends PlatformViewFactory {
+  private readonly plugin: PetNoteRtcPlugin;
+
+  constructor(plugin: PetNoteRtcPlugin) {
+    super(StandardMessageCodec.INSTANCE);
+    this.plugin = plugin;
+  }
+
+  create(_context: common.Context, viewId: number, args: Any): PlatformView {
+    return new PetNoteRtcVideoPlatformView(this.plugin, viewId, args);
+  }
+}
+
+class PetNoteRtcVideoPlatformView extends PlatformView {
+  private readonly state: PetNoteRtcVideoViewState;
+  private readonly plugin: PetNoteRtcPlugin;
+
+  constructor(plugin: PetNoteRtcPlugin, viewId: number, args: Any) {
+    super();
+    this.plugin = plugin;
+    this.state = new PetNoteRtcVideoViewState(viewId);
+    this.applyCreationParams(args);
+    this.plugin.bindVideoView(
+      this.state.role,
+      this.state.remoteUserId,
+      this.state.controller,
+      this.state.surfaceId,
+    );
+  }
+
+  getType(): string {
+    return VIDEO_VIEW_TYPE;
+  }
+
+  getView(): WrappedBuilder<[Params]> {
+    return wrapBuilder(PetNoteRtcVideoViewBuilder);
+  }
+
+  getState(): PetNoteRtcVideoViewState {
+    return this.state;
+  }
+
+  dispose(): void {
+    this.plugin.unbindVideoView(this.state.controller);
+  }
+
+  private applyCreationParams(args: Any): void {
+    const params = args as RtcVideoCreationParams;
+    if (params == null) {
+      return;
+    }
+    if (params.role === 'local' || params.role === 'remote') {
+      this.state.role = params.role;
+    }
+    if (typeof params.remoteUserId === 'string' && params.remoteUserId.trim().length > 0) {
+      this.state.remoteUserId = params.remoteUserId;
+    }
+  }
+}
+
+@Observed
+class PetNoteRtcVideoViewState {
+  role: string = 'remote';
+  remoteUserId: string | null = null;
+  readonly surfaceId: string;
+  readonly controller: AliRtcXComponentController = new AliRtcXComponentController();
+
+  constructor(viewId: number) {
+    this.surfaceId = `petnote_rtc_video_${viewId}`;
+  }
+}
+
+@Builder
+function PetNoteRtcVideoViewBuilder(params: Params): void {
+  PetNoteRtcVideoView({
+    state: (params.platformView as PetNoteRtcVideoPlatformView).getState(),
+  })
+}
+
+@Component
+struct PetNoteRtcVideoView {
+  @ObjectLink state: PetNoteRtcVideoViewState;
+
+  build() {
+    XComponent({
+      id: this.state.surfaceId,
+      type: XComponentType.SURFACE,
+      controller: this.state.controller,
+    })
+      .width('100%')
+      .height('100%')
+      .backgroundColor(Color.Black)
   }
 }

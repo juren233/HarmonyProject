@@ -7,12 +7,14 @@ class PetsPage extends StatefulWidget {
     required this.onAddFirstPet,
     required this.onEditPet,
     this.aiInsightsService,
+    this.remoteVideoPermissionCoordinator,
   });
 
   final PetNoteStore store;
   final VoidCallback onAddFirstPet;
   final ValueChanged<Pet> onEditPet;
   final AiInsightsService? aiInsightsService;
+  final RtcMediaPermissionCoordinator? remoteVideoPermissionCoordinator;
 
   @override
   State<PetsPage> createState() => _PetsPageState();
@@ -31,7 +33,13 @@ class _PetsPageState extends State<PetsPage> {
         PageHeader(
           title: '爱宠',
           subtitle: _petsPageSubtitle(widget.store.pets.length),
-          trailing: pet == null ? null : RemoteVideoPillButton(pet: pet),
+          trailing: pet == null
+              ? null
+              : RemoteVideoPillButton(
+                  pet: pet,
+                  permissionCoordinator:
+                      widget.remoteVideoPermissionCoordinator,
+                ),
         ),
         SizedBox(
           height: 76,
