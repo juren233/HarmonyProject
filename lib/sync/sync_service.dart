@@ -47,7 +47,9 @@ class SyncService extends ChangeNotifier {
   ValueListenable<int>? _engineFailedCount;
   final ValueNotifier<int> _failedSyncCount = ValueNotifier<int>(0);
   bool _initialConnectionCompleted = false;
+  bool _handshakeFailed = false;
   String? _lastReportedServedPetId;
+  StreamSubscription<SyncMessage>? _helloAckSubscription;
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
@@ -149,6 +151,7 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
 
     await transport.connect();
+    _attachHelloAckHandler(transport, config);
     _sendHello(
       transport: transport,
       config: config,
@@ -238,6 +241,7 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
 
     await transport.connect();
+    _attachHelloAckHandler(transport, config);
     _sendHello(
       transport: transport,
       config: config,
@@ -297,6 +301,8 @@ class SyncService extends ChangeNotifier {
       _transport?.state.removeListener(listener);
       _transportStateListener = null;
     }
+    await _helloAckSubscription?.cancel();
+    _helloAckSubscription = null;
     _attachEngineFailedCount(null);
     ownerEngine?.dispose();
     petController?.dispose();
@@ -344,7 +350,7 @@ class SyncService extends ChangeNotifier {
     final householdId = settings.householdId;
     final authToken = settings.householdAuthToken;
     final deviceId = await settings.ensureDeviceId();
-    if (url == null || householdId == null || authToken == null) {
+    if (url == null || householdId == null) {
       return null;
     }
     final sharedKeyBase64 =
@@ -421,9 +427,10 @@ class SyncService extends ChangeNotifier {
         0;
     final nextCount = baseCount > 0
         ? baseCount
-        : settings.pendingResetSnapshotSyncId == null
-            ? 0
-            : 1;
+        : (_handshakeFailed && settings.householdId != null) ||
+                settings.pendingResetSnapshotSyncId != null
+            ? 1
+            : 0;
     if (_failedSyncCount.value != nextCount) {
       _failedSyncCount.value = nextCount;
     }
@@ -438,7 +445,11 @@ class SyncService extends ChangeNotifier {
       if (transport.state.value != SyncConnectionState.connected) {
         return;
       }
-      _sendHello(transport: transport, config: config, role: role);
+      _sendHello(
+        transport: transport,
+        config: _activeConfig ?? config,
+        role: role,
+      );
       if (settings.pendingResetSnapshotSyncId != null) {
         unawaited(_pushPendingResetSnapshotIfAny(role));
       }
@@ -462,6 +473,53 @@ class SyncService extends ChangeNotifier {
     _transportStateListener = listener;
   }
 
+  void _attachHelloAckHandler(SyncTransport transport, _SyncConfig config) {
+    unawaited(_helloAckSubscription?.cancel());
+    _helloAckSubscription = transport.messages.listen((message) {
+      if (message.type != SyncMessageTypes.helloAck) {
+        if (message.type == SyncMessageTypes.pairError) {
+          _handshakeFailed = true;
+          _refreshFailedSyncCount();
+          unawaited(stop());
+        }
+        return;
+      }
+      _handshakeFailed = false;
+      _refreshFailedSyncCount();
+      final restoredToken = message.payload['authToken'];
+      if (config.authToken == null &&
+          restoredToken is String &&
+          restoredToken.isNotEmpty) {
+        unawaited(settings.setHouseholdAuthToken(restoredToken));
+        _activeConfig = config.copyWith(authToken: restoredToken);
+      }
+      if (message.payload['restoredHousehold'] == true) {
+        switch (_activeRole) {
+          case DeviceRole.owner:
+            unawaited(Future<void>.sync(() async {
+              await _ensurePendingResetSnapshotSyncId();
+              await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
+            }));
+          case DeviceRole.pet:
+            unawaited(Future<void>.sync(() async {
+              await _ensurePendingResetSnapshotSyncId();
+              await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
+            }));
+          case DeviceRole.undecided:
+          case null:
+            break;
+        }
+      }
+    }, onError: (Object error, StackTrace stackTrace) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'petnote sync',
+        context: ErrorDescription('监听同步握手确认时失败'),
+      ));
+    });
+  }
+
   void _sendHello({
     required SyncTransport transport,
     required _SyncConfig config,
@@ -473,7 +531,7 @@ class SyncService extends ChangeNotifier {
         'householdId': config.householdId,
         'deviceId': config.deviceId,
         'role': isOwner ? 'owner' : 'pet',
-        'authToken': config.authToken,
+        if (config.authToken != null) 'authToken': config.authToken,
         'deviceName': settings.deviceName ?? (isOwner ? '主人设备' : '宠物端设备'),
         if (!isOwner) 'servedPetId': settings.servedPetId,
       }),
@@ -497,6 +555,7 @@ class SyncService extends ChangeNotifier {
     settings.removeListener(_refreshFailedSyncCount);
     settings.removeListener(_handlePetSettingsChanged);
     _attachEngineFailedCount(null);
+    _handshakeFailed = false;
     _failedSyncCount.dispose();
     super.dispose();
   }
@@ -506,14 +565,14 @@ class _SyncConfig {
   const _SyncConfig({
     required this.url,
     required this.householdId,
-    required this.authToken,
+    this.authToken,
     required this.deviceId,
     required this.sharedKeyBase64,
   });
 
   final String url;
   final String householdId;
-  final String authToken;
+  final String? authToken;
   final String deviceId;
   final String sharedKeyBase64;
 
@@ -523,5 +582,15 @@ class _SyncConfig {
         authToken == other.authToken &&
         deviceId == other.deviceId &&
         sharedKeyBase64 == other.sharedKeyBase64;
+  }
+
+  _SyncConfig copyWith({String? authToken}) {
+    return _SyncConfig(
+      url: url,
+      householdId: householdId,
+      authToken: authToken ?? this.authToken,
+      deviceId: deviceId,
+      sharedKeyBase64: sharedKeyBase64,
+    );
   }
 }

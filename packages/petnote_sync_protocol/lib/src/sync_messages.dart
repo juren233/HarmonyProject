@@ -25,20 +25,21 @@ class SyncMessage {
 class SyncMessageTypes {
   // 配对
   static const pairCreate =
-      'pair_create'; // device→srv {householdId?, authToken?, deviceId, deviceName, role?}
+      'pair_create'; // device→srv {householdId?, authToken?, sharedKeyBase64?, deviceId, deviceName, role?}
   static const pairCreated =
-      'pair_created'; // srv→device {code, saltBase64, authToken, expiresAtMs, householdId}
+      'pair_created'; // srv→device {code, saltBase64, authToken, expiresAtMs, householdId, restoredHousehold?}
   static const pairJoin =
       'pair_join'; // device→srv {code, deviceId, deviceName, role?}
   static const pairJoined =
-      'pair_joined'; // srv→device {householdId, saltBase64, authToken}
+      'pair_joined'; // srv→device {householdId, saltBase64, authToken, sharedKeyBase64?}
   static const pairPeerJoined =
       'pair_peer_joined'; // srv→已在线设备 {deviceId, deviceName}
   static const pairError = 'pair_error'; // srv→client {message}
   // 会话
   static const hello =
-      'hello'; // client→srv {householdId, deviceId, role, authToken, deviceName}
-  static const helloAck = 'hello_ack'; // srv→client {snapshotVersion}
+      'hello'; // client→srv {householdId, deviceId, role, authToken?, deviceName}
+  static const helloAck =
+      'hello_ack'; // srv→client {snapshotVersion, authToken?, restoredHousehold?, restoredDevice?}
   // 快照同步
   static const snapshotPush =
       'snapshot_push'; // device→srv {version, ciphertext, completedItemKeys?}

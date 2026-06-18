@@ -3,10 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/system_ui_policy.dart';
 
 void main() {
-  test(
-      'OHOS startup policy avoids edge-to-edge until flutter_ohos window handling is stable',
-      () {
-    expect(ohosStartupSystemUiPolicy.mode, isNull);
+  test('OHOS startup policy restores edge-to-edge after immersive pages', () {
+    expect(ohosStartupSystemUiPolicy.mode, SystemUiMode.edgeToEdge);
     expect(
       ohosStartupSystemUiPolicy.overlayStyle.statusBarColor,
       const Color(0x00000000),

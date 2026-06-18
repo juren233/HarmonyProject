@@ -11,7 +11,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.alivc.rtc.AliRtcAuthInfo
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngine.AliRtcMuteLocalAudioMode
 import com.alivc.rtc.AliRtcEngine.AliRtcRenderMode
@@ -202,14 +201,9 @@ class PetNoteRtcBridge(
         rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true)
         attachLocalView(rtcEngine)
         attachRemoteView(rtcEngine)
-        val authInfo = AliRtcAuthInfo()
-        authInfo.appId = requireString(arguments, "appId")
-        authInfo.channelId = requireString(arguments, "channelId")
-        authInfo.userId = requireString(arguments, "userId")
-        authInfo.token = requireString(arguments, "token")
-        authInfo.nonce = requireString(arguments, "nonce")
-        authInfo.timestamp = requireLong(arguments, "timestamp")
-        rtcEngine.joinChannel(authInfo, null)
+        val singleToken = requireString(arguments, "singleToken")
+        val userId = requireString(arguments, "userId")
+        rtcEngine.joinChannel(singleToken, null, null, userId)
         rtcEngine.publishLocalAudioStream(true)
         rtcEngine.publishLocalVideoStream(true)
         rtcEngine.subscribeAllRemoteAudioStreams(true)

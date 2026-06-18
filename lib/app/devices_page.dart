@@ -43,6 +43,7 @@ class _DevicesPageState extends State<DevicesPage> {
   OwnerPairingFlow? _pairingFlow;
   Timer? _countdownTimer;
   bool _generating = false;
+  bool _savingServerUrl = false;
   BuildContext? _pairingDialogContext;
 
   @override
@@ -108,14 +109,32 @@ class _DevicesPageState extends State<DevicesPage> {
                         onChanged: _setServerModeByKey,
                       ),
                       if (_serverMode == SyncServerMode.custom)
-                        TextField(
-                          key: const ValueKey('devices_server_field'),
-                          controller: _serverController,
-                          keyboardType: TextInputType.url,
-                          decoration: const InputDecoration(labelText: '服务器地址'),
-                          onSubmitted: _saveServerUrl,
-                          onEditingComplete: () =>
-                              _saveServerUrl(_serverController.text),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              key: const ValueKey('devices_server_field'),
+                              controller: _serverController,
+                              keyboardType: TextInputType.url,
+                              decoration:
+                                  const InputDecoration(labelText: '服务器地址'),
+                              onSubmitted: _saveServerUrlAndRestart,
+                              onEditingComplete: () =>
+                                  _saveServerUrlAndRestart(
+                                _serverController.text,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              key: const ValueKey('devices_save_server_url'),
+                              onPressed: _savingServerUrl
+                                  ? null
+                                  : () => _saveServerUrlAndRestart(
+                                        _serverController.text,
+                                      ),
+                              child: Text(_savingServerUrl ? '保存中' : '保存'),
+                            ),
+                          ],
                         ),
                     ],
                   ),
@@ -171,6 +190,32 @@ class _DevicesPageState extends State<DevicesPage> {
     await widget.settingsController.setSyncServerUrl(
       normalizeSyncServerUrl(value),
     );
+  }
+
+  Future<void> _saveServerUrlAndRestart(String value) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _savingServerUrl = true);
+    try {
+      await widget.settingsController.setSyncServerMode(SyncServerMode.custom);
+      await _saveServerUrl(value);
+      final service = SyncService.instance;
+      final store = widget.store;
+      if (service != null && store != null) {
+        await service.ensureStarted(store: store);
+      }
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(const SnackBar(content: Text('已保存')));
+    } on PairingException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } on OfficialSyncServerException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) {
+        setState(() => _savingServerUrl = false);
+      }
+    }
   }
 
   Future<void> _setServerModeByKey(String key) async {

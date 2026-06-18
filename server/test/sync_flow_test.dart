@@ -627,6 +627,217 @@ void main() {
     );
   });
 
+  test('旧版已登记设备缺认证 token 时 hello_ack 补发 token', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final legacyOwner = connect();
+    legacyOwner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'deviceName': '主人手机',
+    });
+    final ack = await legacyOwner.expectType(SyncMessageTypes.helloAck);
+    expect(ack.payload['authToken'], authToken);
+
+    final attacker = connect();
+    attacker.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'attacker-device',
+      'role': 'owner',
+      'deviceName': '陌生设备',
+    });
+    expect(
+      (await attacker.expectType(SyncMessageTypes.pairError))
+          .payload['message'],
+      'unknown device',
+    );
+  });
+
+  test('旧版已登记设备缺认证 token 时仍能复用旧家庭组生成配对码', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final legacyOwner = connect();
+    legacyOwner.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'deviceName': '主人手机',
+    });
+    final restored = await legacyOwner.expectType(SyncMessageTypes.pairCreated);
+    expect(restored.payload['householdId'], householdId);
+    expect(restored.payload['authToken'], authToken);
+
+    final attacker = connect();
+    attacker.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'attacker-device',
+      'role': 'owner',
+      'deviceName': '陌生设备',
+    });
+    expect(
+      (await attacker.expectType(SyncMessageTypes.pairError))
+          .payload['message'],
+      'forbidden',
+    );
+  });
+
+  test('错误认证 token 继续被拒绝', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+
+    final attacker = connect();
+    attacker.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': 'wrong-token',
+      'deviceName': '伪装主人',
+    });
+    expect(
+      (await attacker.expectType(SyncMessageTypes.pairError))
+          .payload['message'],
+      'auth failed',
+    );
+  });
+
+  test('携带家庭认证的旧设备切到空新服务器时会导入家庭组并同步快照', () async {
+    const householdId = 'restored-house';
+    const authToken = 'restored-auth-token';
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    final ownerAck = await owner.expectType(SyncMessageTypes.helloAck);
+    expect(ownerAck.payload['restoredHousehold'], isTrue);
+
+    owner.send(SyncMessageTypes.snapshotPush, {
+      'version': 1,
+      'ciphertext': 'migrated-local-snapshot',
+      'dataPolicy': SyncDataPolicy.remoteWins.name,
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    final petAck = await pet.expectType(SyncMessageTypes.helloAck);
+    expect(petAck.payload['restoredHousehold'], isNot(isTrue));
+    expect(petAck.payload['restoredDevice'], isTrue);
+
+    pet.send(SyncMessageTypes.snapshotRequest, {});
+    final snapshot = await pet.expectType(SyncMessageTypes.snapshot);
+    expect(snapshot.payload['ciphertext'], 'migrated-local-snapshot');
+  });
+
+  test('同一家庭组的其他旧设备切到新服务器时也能重新登记', () async {
+    const householdId = 'restored-house';
+    const authToken = 'restored-auth-token';
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    final petAck = await pet.expectType(SyncMessageTypes.helloAck);
+    expect(petAck.payload['restoredDevice'], isTrue);
+
+    owner.send(SyncMessageTypes.devicesRequest, {});
+    final devices = await owner.expectType(SyncMessageTypes.devices);
+    expect(
+      (devices.payload['devices'] as List<dynamic>)
+          .map((device) => (device as Map<String, dynamic>)['deviceId']),
+      contains('pet-1'),
+    );
+  });
+
+  test('导入家庭组生成的配对码会把旧共享密钥下发给加入设备', () async {
+    const householdId = 'restored-house';
+    const authToken = 'restored-auth-token';
+    const sharedKeyBase64 = 'restored-shared-key';
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'sharedKeyBase64': sharedKeyBase64,
+      'deviceName': '主人手机',
+    });
+    final created = await owner.expectType(SyncMessageTypes.pairCreated);
+    expect(created.payload['restoredHousehold'], isTrue);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'deviceName': '客厅平板',
+    });
+    final joined = await pet.expectType(SyncMessageTypes.pairJoined);
+    expect(joined.payload['householdId'], householdId);
+    expect(joined.payload['authToken'], authToken);
+    expect(joined.payload['sharedKeyBase64'], sharedKeyBase64);
+  });
+
+  test('缺少家庭认证 token 时不能在空新服务器导入指定家庭组', () async {
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': 'restored-house',
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'deviceName': '主人手机',
+    });
+
+    expect(
+      (await owner.expectType(SyncMessageTypes.pairError)).payload['message'],
+      'unknown household',
+    );
+  });
+
   test('已配对设备继续生成配对码后新设备加入三端设备列表互通', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {

@@ -179,6 +179,35 @@ void main() {
 
     expect(settings.deviceRole, DeviceRole.owner);
   });
+
+  test('恢复家庭组配对加入时优先使用服务端下发的旧共享密钥', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    final transport = _FakePairingTransport();
+    final secretStore = InMemorySyncSecretStore();
+    final flow = PairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    final future = flow.joinAsPet(
+      serverUrl: 'ws://127.0.0.1/ws',
+      code: '1234',
+      deviceName: '客厅平板',
+    );
+    await Future<void>.delayed(Duration.zero);
+    transport.incoming.add(SyncMessage(SyncMessageTypes.pairJoined, {
+      'householdId': 'house-1',
+      'saltBase64': SyncCrypto.generateSaltBase64(),
+      'authToken': 'auth-token-1',
+      'sharedKeyBase64': 'restored-shared-key',
+    }));
+    await future;
+
+    expect(await secretStore.loadSharedKey(), 'restored-shared-key');
+    expect(settings.sharedKeyBase64, 'restored-shared-key');
+  });
 }
 
 class _FakePairingFlow extends PairingFlow {

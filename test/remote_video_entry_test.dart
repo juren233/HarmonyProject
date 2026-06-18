@@ -349,6 +349,43 @@ void main() {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);
     final pet = store.pets.first;
+    final platformCalls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        platformCalls.add(call);
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = RtcTokenClient(
+      baseUri: Uri.parse('https://sync.example.com'),
+      postJson: (uri, body) async {
+        return '''
+{
+  "appId": "nml2ycrp",
+  "channelId": "${body['channelId']}",
+  "userId": "${body['userId']}",
+  "role": "${body['role']}",
+  "token": "signed-token",
+  "singleToken": "single-token",
+  "nonce": "AK-nonce",
+  "timestamp": 1710003600,
+  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "expiresAtMs": 1710003600000
+}
+''';
+      },
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -356,27 +393,34 @@ void main() {
         home: RemoteVideoCallPage(
           mode: RemoteVideoMode.watch,
           pet: pet,
-          devicesOverride: const [
-            SyncedDeviceInfo(
-              deviceId: 'pet-device',
-              name: '客厅平板',
-              role: 'pet',
-              online: true,
-            ),
-          ],
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
         ),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
     expect(scaffold.extendBody, isTrue);
+    expect(scaffold.extendBodyBehindAppBar, isTrue);
 
     final annotated = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
       find.byType(AnnotatedRegion<SystemUiOverlayStyle>).first,
     );
     expect(annotated.value.statusBarColor, const Color(0x00000000));
     expect(annotated.value.systemNavigationBarColor, const Color(0x00000000));
+    expect(
+      platformCalls,
+      contains(
+        isA<MethodCall>()
+            .having((call) => call.method, 'method', 'SystemChrome.setEnabledSystemUIMode')
+            .having((call) => call.arguments, 'arguments', 'SystemUiMode.immersiveSticky'),
+      ),
+    );
 
     expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
         findsOneWidget);
@@ -399,6 +443,8 @@ void main() {
     await gesture.moveBy(const Offset(-600, -600));
     await tester.pump();
     expect(tester.getTopLeft(preview).dx, lessThan(beforeDrag.dx));
+    expect(tester.getTopLeft(preview).dx, greaterThanOrEqualTo(0));
+    expect(tester.getTopLeft(preview).dy, greaterThanOrEqualTo(0));
 
     await gesture.up();
     await tester.pumpAndSettle();
@@ -412,6 +458,17 @@ void main() {
         settled.dy,
         greaterThanOrEqualTo(
             mediaPadding.top / tester.view.devicePixelRatio + 18));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(
+      platformCalls,
+      contains(
+        isA<MethodCall>()
+            .having((call) => call.method, 'method', 'SystemChrome.setEnabledSystemUIMode')
+            .having((call) => call.arguments, 'arguments', 'SystemUiMode.edgeToEdge'),
+      ),
+    );
   });
 
   testWidgets('远程视频挂断会发送 call_end 信令', (tester) async {
@@ -532,6 +589,84 @@ void main() {
     ]);
     expect(transport.sent, hasLength(2));
     expect(transport.sent.last.type, SyncMessageTypes.callEnd);
+  });
+
+  testWidgets('远程视频请求 Token 时携带恢复后的家庭认证', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final tokenRequests = <Map<String, dynamic>>[];
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('restored-auth-token');
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => _FakeSyncTransport(),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await service.stop();
+      service.dispose();
+      SyncService.instance = null;
+      settings.dispose();
+    });
+    SyncService.instance = service;
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = RtcTokenClient(
+      baseUri: Uri.parse('https://sync.example.com'),
+      postJson: (uri, body) async {
+        tokenRequests.add(body);
+        return '''
+{
+  "appId": "nml2ycrp",
+  "channelId": "call-1",
+  "userId": "owner-device",
+  "role": "publisher",
+  "token": "signed-token",
+  "singleToken": "single-token",
+  "nonce": "AK-test-nonce",
+  "timestamp": 1710003600,
+  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "expiresAtMs": 1710003600000
+}
+''';
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tokenRequests.single['householdId'], 'house-1');
+    expect(tokenRequests.single['authToken'], 'restored-auth-token');
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+    ]);
   });
 
   testWidgets('通话控制按钮会真实调用 RTC 适配器', (tester) async {
@@ -690,7 +825,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('remote_video_camera_button')));
     await tester.pump();
 
-    expect(adapter.calls, ['initialize', 'join', 'dispose']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'dispose',
+      'initialize',
+      'join',
+      'dispose',
+    ]);
   });
 
   testWidgets('宠物端被叫进页自动入房但不反向发送 call_invite', (tester) async {

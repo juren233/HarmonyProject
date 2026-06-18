@@ -12,6 +12,7 @@ class PairingCodeTicket {
     required this.saltBase64,
     required this.authToken,
     required this.expiresAt,
+    this.sharedKeyBase64,
   });
 
   final String code;
@@ -19,6 +20,7 @@ class PairingCodeTicket {
   final String saltBase64;
   final String authToken;
   final DateTime expiresAt;
+  final String? sharedKeyBase64;
 }
 
 class PairingJoinResult {
@@ -26,11 +28,13 @@ class PairingJoinResult {
     required this.householdId,
     required this.saltBase64,
     required this.authToken,
+    this.sharedKeyBase64,
   });
 
   final String householdId;
   final String saltBase64;
   final String authToken;
+  final String? sharedKeyBase64;
 }
 
 class PairingService {
@@ -45,6 +49,8 @@ class PairingService {
 
   PairingCodeTicket createCode({
     String? existingHouseholdId,
+    String? existingAuthToken,
+    String? existingSharedKeyBase64,
     required String issuerDeviceId,
     required String issuerDeviceName,
     required String issuerRole,
@@ -53,11 +59,17 @@ class PairingService {
     final issuedAt = now ?? DateTime.now().toUtc();
     final existing = _store.household(existingHouseholdId);
     final household = existing ??
-        _store.create(
-          _newId(),
-          SyncCrypto.generateSaltBase64(),
-          _newToken(),
-        );
+        (existingHouseholdId != null && existingAuthToken != null
+            ? _store.adoptExisting(
+                existingHouseholdId,
+                SyncCrypto.generateSaltBase64(),
+                existingAuthToken,
+              )
+            : _store.create(
+                _newId(),
+                SyncCrypto.generateSaltBase64(),
+                _newToken(),
+              ));
 
     household.devices.putIfAbsent(
       issuerDeviceId,
@@ -73,6 +85,7 @@ class PairingService {
       saltBase64: household.saltBase64,
       authToken: household.authToken,
       expiresAt: issuedAt.add(codeTtl),
+      sharedKeyBase64: existingSharedKeyBase64,
     );
     _activeCodes[ticket.code] = ticket;
     return ticket;
@@ -112,6 +125,7 @@ class PairingService {
       householdId: household.id,
       saltBase64: household.saltBase64,
       authToken: household.authToken,
+      sharedKeyBase64: ticket.sharedKeyBase64,
     );
   }
 

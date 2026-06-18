@@ -18,7 +18,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('已有家庭组但缺少认证 token 时按新家庭组生成配对码', () async {
+  test('已有家庭组但缺少认证 token 时请求复用旧家庭组', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
     await settings.setSyncServerUrl('ws://127.0.0.1/ws');
@@ -46,7 +46,7 @@ void main() {
         'expiresAtMs': DateTime.now()
             .add(const Duration(minutes: 5))
             .millisecondsSinceEpoch,
-        'householdId': 'house-2',
+        'householdId': 'house-1',
         'hasPetDevice': false,
       }),
     );
@@ -58,18 +58,64 @@ void main() {
       transport.sent
           .singleWhere((message) => message.type == SyncMessageTypes.pairCreate)
           .payload['householdId'],
-      isNull,
+      'house-1',
     );
     expect(
       transport.sent
           .singleWhere((message) => message.type == SyncMessageTypes.pairCreate)
-          .payload['authToken'],
-      isNull,
+          .payload
+          .containsKey('authToken'),
+      isFalse,
     );
-    expect(settings.householdId, 'house-2');
+    expect(settings.householdId, 'house-1');
     expect(settings.householdAuthToken, 'auth-token-1');
     expect(await secretStore.loadSharedKey(), isNot('existing-key'));
     expect(settings.sharedKeyBase64, isNot('existing-key'));
+
+    await flow.dispose();
+  });
+
+  test('已有家庭组缺认证 token 时先用旧家庭组请求服务端补发 token', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setSharedKeyBase64('existing-key');
+    final transport = FakePairingTransport();
+    final secretStore = InMemorySyncSecretStore();
+    await secretStore.saveSharedKey('existing-key');
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    final future = flow.createAsOwner(
+      serverUrl: 'ws://127.0.0.1/ws',
+      deviceName: '主人手机',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final pairCreate = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.pairCreate,
+    );
+    expect(pairCreate.payload['householdId'], 'house-1');
+    expect(pairCreate.payload.containsKey('authToken'), isFalse);
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.pairCreated, {
+        'code': '1234',
+        'saltBase64': SyncCrypto.generateSaltBase64(),
+        'authToken': 'restored-auth-token',
+        'expiresAtMs': DateTime.now()
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'householdId': 'house-1',
+      }),
+    );
+
+    await future;
+    expect(settings.householdAuthToken, 'restored-auth-token');
 
     await flow.dispose();
   });
@@ -199,7 +245,53 @@ void main() {
     await flow.dispose();
   });
 
-  test('旧家庭认证被拒绝时清除配对并重新生成新家庭配对码', () async {
+  test('新服务器导入旧家庭组后标记首次同步以本机数据为准', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setSharedKeyBase64('existing-key');
+    final transport = FakePairingTransport();
+    final secretStore = InMemorySyncSecretStore();
+    await secretStore.saveSharedKey('existing-key');
+    final flow = OwnerPairingFlow(
+      settingsController: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    final future = flow.createAsOwner(
+      serverUrl: 'ws://new-server/ws',
+      deviceName: '主人手机',
+    );
+    await Future<void>.delayed(Duration.zero);
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.pairCreated, {
+        'code': '1234',
+        'saltBase64': SyncCrypto.generateSaltBase64(),
+        'authToken': 'auth-token-1',
+        'expiresAtMs': DateTime.now()
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'householdId': 'house-1',
+        'restoredHousehold': true,
+      }),
+    );
+
+    await future;
+
+    expect(settings.pendingInitialSyncPolicy, SyncDataPolicy.localWins);
+    expect(await secretStore.loadSharedKey(), 'existing-key');
+    expect(settings.sharedKeyBase64, 'existing-key');
+    final pairCreate = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.pairCreate,
+    );
+    expect(pairCreate.payload['sharedKeyBase64'], 'existing-key');
+
+    await flow.dispose();
+  });
+
+  test('旧家庭认证被拒绝时明确失败且不清除旧配对', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
     await settings.setSyncServerUrl('ws://127.0.0.1/ws');
@@ -227,35 +319,25 @@ void main() {
     transports.first.incoming.add(
       const SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}),
     );
-    await Future<void>.delayed(Duration.zero);
-    expect(secretStore.deleteCount, 1);
-    expect(await secretStore.loadSharedKey(), isNull);
-    transports.last.incoming.add(
-      SyncMessage(SyncMessageTypes.pairCreated, {
-        'code': '5678',
-        'saltBase64': SyncCrypto.generateSaltBase64(),
-        'authToken': 'auth-token-2',
-        'expiresAtMs': DateTime.now()
-            .add(const Duration(minutes: 5))
-            .millisecondsSinceEpoch,
-        'householdId': 'house-2',
-        'hasPetDevice': false,
-      }),
+    await expectLater(
+      future,
+      throwsA(
+        isA<PairingException>().having(
+          (error) => error.message,
+          'message',
+          'forbidden',
+        ),
+      ),
     );
-
-    final session = await future;
-
-    expect(session.code, '5678');
-    expect(transports, hasLength(2));
+    expect(secretStore.deleteCount, 0);
+    expect(await secretStore.loadSharedKey(), 'removed-shared-key');
+    expect(transports, hasLength(1));
     expect(
       transports.first.sent.single.payload['householdId'],
       'removed-house',
     );
-    expect(transports.last.sent.single.payload['householdId'], isNull);
-    expect(transports.last.sent.single.payload['authToken'], isNull);
-    expect(settings.householdId, 'house-2');
-    expect(settings.householdAuthToken, 'auth-token-2');
-    expect(await secretStore.loadSharedKey(), isNot('removed-shared-key'));
+    expect(settings.householdId, 'removed-house');
+    expect(settings.householdAuthToken, 'removed-auth-token');
 
     await flow.dispose();
   });

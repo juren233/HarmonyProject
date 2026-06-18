@@ -63,7 +63,7 @@ docker compose -f server/docker-compose.yml up -d --build
 }
 ```
 
-响应会包含 `appId`、`channelId`、`userId`、`role`、`token`、`singleToken`、`nonce`、`timestamp`、`gslb` 和 `expiresAtMs`。`token` 用于 Android 多参数入会，`singleToken` 用于 iOS 和 Harmony 单参数入会。不要把 `ALICLOUD_RTC_APP_KEY` 写进客户端或提交到仓库。
+响应会包含 `appId`、`channelId`、`userId`、`role`、`token`、`singleToken`、`nonce`、`timestamp`、`gslb` 和 `expiresAtMs`。客户端入会优先使用 `singleToken`，避免各端传入的频道、用户和鉴权字段不一致。不要把 `ALICLOUD_RTC_APP_KEY` 写进客户端或提交到仓库。
 
 ## 阿里云 Linux 3 接入
 

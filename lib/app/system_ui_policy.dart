@@ -16,7 +16,7 @@ class StartupSystemUiPolicy {
 }
 
 const StartupSystemUiPolicy ohosStartupSystemUiPolicy = StartupSystemUiPolicy(
-  mode: null,
+  mode: SystemUiMode.edgeToEdge,
   overlayStyle: SystemUiOverlayStyle(
     statusBarColor: Color(0x00000000),
     statusBarIconBrightness: Brightness.dark,

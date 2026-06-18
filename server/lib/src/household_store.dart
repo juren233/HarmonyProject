@@ -387,6 +387,24 @@ class HouseholdStore {
 
   Household? household(String? id) => id == null ? null : _households[id];
 
+  Household adoptExisting(
+    String id,
+    String saltBase64,
+    String authToken, {
+    List<HouseholdDevice> devices = const <HouseholdDevice>[],
+  }) {
+    final household = Household(
+      id: id,
+      saltBase64: saltBase64,
+      authToken: authToken,
+    );
+    for (final device in devices) {
+      household.devices[device.deviceId] = device;
+    }
+    _households[id] = household;
+    return household;
+  }
+
   Household create(String id, String saltBase64, String authToken) {
     final household =
         Household(id: id, saltBase64: saltBase64, authToken: authToken);

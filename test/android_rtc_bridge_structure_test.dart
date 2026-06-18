@@ -39,7 +39,8 @@ void main() {
     expect(bridge, contains('Manifest.permission.CAMERA'));
     expect(bridge, contains('Manifest.permission.RECORD_AUDIO'));
     expect(bridge, contains('ActivityCompat.requestPermissions'));
-    expect(bridge, contains('AliRtcAuthInfo'));
+    expect(bridge, isNot(contains('AliRtcAuthInfo')));
+    expect(bridge, contains('requireString(arguments, "singleToken")'));
     expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
     expect(bridge,
         contains('AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode'));
@@ -66,6 +67,9 @@ void main() {
     expect(bridge, contains('setVideoEncoderConfiguration(config)'));
     expect(bridge, isNot(contains('frameRate')));
     expect(bridge, isNot(contains('fps')));
-    expect(bridge, contains('rtcEngine.joinChannel(authInfo, null)'));
+    expect(
+      bridge,
+      contains('rtcEngine.joinChannel(singleToken, null, null, userId)'),
+    );
   });
 }

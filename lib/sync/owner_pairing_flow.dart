@@ -53,7 +53,6 @@ class OwnerPairingFlow {
       serverUrl: serverUrl,
       deviceName: deviceName,
       onPeerJoined: onPeerJoined,
-      retryAfterForbidden: true,
     );
   }
 
@@ -61,7 +60,6 @@ class OwnerPairingFlow {
     required String serverUrl,
     required String deviceName,
     PairingPeerJoined? onPeerJoined,
-    required bool retryAfterForbidden,
   }) async {
     await dispose();
     _onPeerJoined = onPeerJoined;
@@ -70,8 +68,9 @@ class OwnerPairingFlow {
     final completer = Completer<SyncMessage>();
     final existingHouseholdId = settingsController.householdId;
     final existingAuthToken = settingsController.householdAuthToken;
-    final canReuseExistingHousehold =
-        existingHouseholdId != null && existingAuthToken != null;
+    final existingSharedKeyBase64 =
+        await _secretStore.loadSharedKey() ?? settingsController.sharedKeyBase64;
+    final canReuseExistingHousehold = existingHouseholdId != null;
     _subscription = transport.messages.listen((message) {
       if (message.type == SyncMessageTypes.pairCreated ||
           message.type == SyncMessageTypes.pairError) {
@@ -103,7 +102,11 @@ class OwnerPairingFlow {
       transport.send(
         SyncMessage(SyncMessageTypes.pairCreate, {
           'householdId': canReuseExistingHousehold ? existingHouseholdId : null,
-          'authToken': canReuseExistingHousehold ? existingAuthToken : null,
+          if (existingAuthToken != null) 'authToken': existingAuthToken,
+          if (existingAuthToken != null &&
+              existingSharedKeyBase64 != null &&
+              existingSharedKeyBase64.isNotEmpty)
+            'sharedKeyBase64': existingSharedKeyBase64,
           'deviceId': await settingsController.ensureDeviceId(),
           'deviceName': deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
           'role': settingsController.deviceRole.name,
@@ -112,19 +115,6 @@ class OwnerPairingFlow {
       final message = await completer.future.timeout(timeout);
       if (message.type == SyncMessageTypes.pairError) {
         final errorMessage = message.payload['message'] as String? ?? '配对失败';
-        if (retryAfterForbidden &&
-            canReuseExistingHousehold &&
-            errorMessage == 'forbidden') {
-          await settingsController.clearSyncPairing();
-          await _secretStore.deleteSharedKey();
-          keepTransportAlive = true;
-          return _createAsOwner(
-            serverUrl: serverUrl,
-            deviceName: deviceName,
-            onPeerJoined: onPeerJoined,
-            retryAfterForbidden: false,
-          );
-        }
         throw PairingException(errorMessage);
       }
       final code = message.payload['code'] as String?;
@@ -139,11 +129,16 @@ class OwnerPairingFlow {
           expiresAtMs == null) {
         throw const PairingException('配对响应不完整');
       }
-      final sharedKeyBase64 = await (await SyncCrypto.deriveFromPairingCode(
-        code: code,
-        saltBase64: saltBase64,
-      ))
-          .exportKeyBase64();
+      final restoredHousehold = message.payload['restoredHousehold'] == true;
+      final sharedKeyBase64 = restoredHousehold &&
+              existingSharedKeyBase64 != null &&
+              existingSharedKeyBase64.isNotEmpty
+          ? existingSharedKeyBase64
+          : await (await SyncCrypto.deriveFromPairingCode(
+              code: code,
+              saltBase64: saltBase64,
+            ))
+              .exportKeyBase64();
       await _secretStore.saveSharedKey(sharedKeyBase64);
       await settingsController.saveSyncPairing(
         serverUrl: serverUrl.trim(),
@@ -151,6 +146,8 @@ class OwnerPairingFlow {
         sharedKeyBase64: sharedKeyBase64,
         householdAuthToken: authToken,
         deviceName: deviceName.trim().isEmpty ? '主人设备' : deviceName.trim(),
+        pendingInitialSyncPolicy:
+            restoredHousehold ? SyncDataPolicy.localWins : null,
       );
       keepTransportAlive = true;
       return OwnerPairingSession(

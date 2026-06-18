@@ -268,6 +268,68 @@ void main() {
     );
   });
 
+  testWidgets('已配对主人端保存自定义服务器后立即重启同步到新地址', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://old.example/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '1234',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <String, _FakeSyncTransport>{};
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (url) {
+        final transport = _FakeSyncTransport();
+        transports[url] = transport;
+        return transport;
+      },
+    );
+    SyncService.instance = service;
+    final store = PetNoteStore.seeded();
+    await service.ensureStarted(store: store);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: DevicesPage(
+          settingsController: settings,
+          store: store,
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('devices_server_field')),
+      'new.example',
+    );
+    await tester.tap(find.byKey(const ValueKey('devices_save_server_url')));
+    await tester.runAsync(() async {
+      for (var i = 0; i < 100; i++) {
+        if (transports.keys.contains('wss://new.example/ws')) {
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+
+    expect(settings.syncServerUrl, 'wss://new.example/ws');
+    expect(transports.keys, contains('wss://new.example/ws'));
+    expect(transports['ws://old.example/ws']!.disconnectCount, 1);
+    expect(transports['ws://old.example/ws']!.connected, isFalse);
+    expect(transports['wss://new.example/ws']!.connected, isTrue);
+    expect(transports['wss://new.example/ws']!.sent.first.type,
+        SyncMessageTypes.hello);
+    expect(find.text('已保存'), findsOneWidget);
+  });
+
   testWidgets('配对码过期后关闭弹窗并需要重新生成', (tester) async {
     final settings = await AppSettingsController.load();
     await settings.setSyncServerMode(SyncServerMode.custom);
@@ -540,6 +602,7 @@ class _FakeSyncTransport implements SyncTransport {
   final StreamController<Object> errorController =
       StreamController<Object>.broadcast();
   var connected = false;
+  var disconnectCount = 0;
 
   @override
   Stream<Object> get errors => errorController.stream;
@@ -560,6 +623,7 @@ class _FakeSyncTransport implements SyncTransport {
 
   @override
   Future<void> disconnect() async {
+    disconnectCount += 1;
     connected = false;
     _state.value = SyncConnectionState.disconnected;
   }

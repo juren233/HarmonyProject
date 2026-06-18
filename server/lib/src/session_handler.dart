@@ -87,22 +87,38 @@ class SessionHandler {
     final requestedHouseholdId =
         _optionalString(message.payload['householdId']);
     final existingHousehold = app.store.household(requestedHouseholdId);
+    final requestedAuthToken = _optionalString(message.payload['authToken']);
+    final requestedSharedKeyBase64 =
+        _optionalString(message.payload['sharedKeyBase64']);
+    final requestedDeviceName =
+        _optionalString(message.payload['deviceName']) ?? '设备';
+    final requestedRole =
+        _normalizedRole(_optionalString(message.payload['role'])) ?? 'owner';
     if (requestedHouseholdId != null) {
       final currentDevice = _currentDevice;
-      final requestedAuthToken = _optionalString(message.payload['authToken']);
       final isAuthenticatedDevice = householdId == requestedHouseholdId &&
           deviceId == requestedDeviceId &&
           currentDevice != null;
+      final isLegacyRegisteredDevice = existingHousehold != null &&
+          !message.payload.containsKey('authToken') &&
+          existingHousehold.devices.containsKey(requestedDeviceId);
       final hasValidToken = existingHousehold != null &&
           existingHousehold.authToken == requestedAuthToken &&
           existingHousehold.devices.containsKey(requestedDeviceId);
-      if (!isAuthenticatedDevice && !hasValidToken) {
+      final isAuthenticatedServerRestore =
+          existingHousehold == null && requestedAuthToken != null;
+      if (!isAuthenticatedDevice &&
+          !hasValidToken &&
+          !isLegacyRegisteredDevice &&
+          !isAuthenticatedServerRestore) {
         _send(
             SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
         return;
       }
     }
-    if (requestedHouseholdId != null && existingHousehold == null) {
+    if (requestedHouseholdId != null &&
+        existingHousehold == null &&
+        requestedAuthToken == null) {
       _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
       return;
     }
@@ -110,11 +126,11 @@ class SessionHandler {
     try {
       ticket = app.pairing.createCode(
         existingHouseholdId: requestedHouseholdId,
+        existingAuthToken: requestedAuthToken,
+        existingSharedKeyBase64: requestedSharedKeyBase64,
         issuerDeviceId: requestedDeviceId,
-        issuerDeviceName:
-            _optionalString(message.payload['deviceName']) ?? '设备',
-        issuerRole: _normalizedRole(_optionalString(message.payload['role'])) ??
-            'owner',
+        issuerDeviceName: requestedDeviceName,
+        issuerRole: requestedRole,
       );
     } on StateError {
       _send(SyncMessage(
@@ -130,11 +146,10 @@ class SessionHandler {
     final device = household?.devices[requestedDeviceId];
     if (device != null) {
       device
-        ..name = _optionalString(message.payload['deviceName']) ?? device.name
+        ..name = requestedDeviceName
         ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     }
-    _sessionRole =
-        _normalizedRole(_optionalString(message.payload['role'])) ?? 'owner';
+    _sessionRole = requestedRole;
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.pairCreated, {
       'code': ticket.code,
@@ -142,6 +157,8 @@ class SessionHandler {
       'authToken': ticket.authToken,
       'expiresAtMs': ticket.expiresAt.millisecondsSinceEpoch,
       'householdId': ticket.householdId,
+      if (requestedHouseholdId != null && existingHousehold == null)
+        'restoredHousehold': true,
       'hasPetDevice': household?.devices.keys.any(
             (deviceId) => deviceId != requestedDeviceId,
           ) ??
@@ -180,6 +197,8 @@ class SessionHandler {
       'householdId': result.householdId,
       'saltBase64': result.saltBase64,
       'authToken': result.authToken,
+      if (result.sharedKeyBase64 != null)
+        'sharedKeyBase64': result.sharedKeyBase64,
     }));
     for (final device in household?.devices.values ??
         const Iterable<HouseholdDevice>.empty()) {
@@ -214,19 +233,6 @@ class SessionHandler {
       return;
     }
     final rawHouseholdId = message.payload['householdId'];
-    final household =
-        app.store.household(rawHouseholdId is String ? rawHouseholdId : null);
-    if (household == null) {
-      _send(SyncMessage(
-          SyncMessageTypes.pairError, {'message': 'unknown household'}));
-      return;
-    }
-    final device = household.devices[requestedDeviceId];
-    if (device == null) {
-      _send(SyncMessage(
-          SyncMessageTypes.pairError, {'message': 'unknown device'}));
-      return;
-    }
     final requestedRole =
         _normalizedRole(_optionalString(message.payload['role']));
     if (requestedRole == null) {
@@ -234,7 +240,68 @@ class SessionHandler {
           SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
-    if (_optionalString(message.payload['authToken']) != household.authToken) {
+    final household =
+        app.store.household(rawHouseholdId is String ? rawHouseholdId : null);
+    if (household == null) {
+      final requestedAuthToken = _optionalString(message.payload['authToken']);
+      final requestedDeviceName =
+          _optionalString(message.payload['deviceName']) ?? '设备';
+      if (rawHouseholdId is String &&
+          requestedAuthToken != null &&
+          requestedAuthToken.isNotEmpty) {
+        final restoredHousehold = app.store.adoptExisting(
+          rawHouseholdId,
+          SyncCrypto.generateSaltBase64(),
+          requestedAuthToken,
+        );
+        final restoredDevice = restoredHousehold.devices.putIfAbsent(
+          requestedDeviceId,
+          () => HouseholdDevice(
+            deviceId: requestedDeviceId,
+            name: requestedDeviceName,
+          ),
+        );
+        householdId = restoredHousehold.id;
+        deviceId = requestedDeviceId;
+        _sessionRole = requestedRole;
+        restoredDevice
+          ..name = requestedDeviceName
+          ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+        app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
+        _send(SyncMessage(SyncMessageTypes.helloAck, {
+          'snapshotVersion': 0,
+          'restoredHousehold': true,
+          'restoredDevice': true,
+        }));
+        unawaited(app.store.flush());
+        return;
+      }
+      _send(SyncMessage(
+          SyncMessageTypes.pairError, {'message': 'unknown household'}));
+      return;
+    }
+    var device = household.devices[requestedDeviceId];
+    final requestedAuthToken = _optionalString(message.payload['authToken']);
+    final canRestoreDevice =
+        requestedAuthToken != null && requestedAuthToken == household.authToken;
+    var restoredDevice = false;
+    if (device == null && canRestoreDevice) {
+      restoredDevice = true;
+      device = HouseholdDevice(
+        deviceId: requestedDeviceId,
+        name: _optionalString(message.payload['deviceName']) ?? '设备',
+      );
+      household.devices[requestedDeviceId] = device;
+    }
+    if (device == null) {
+      _send(SyncMessage(
+          SyncMessageTypes.pairError, {'message': 'unknown device'}));
+      return;
+    }
+    final needsLegacyAuthTokenRestore =
+        !message.payload.containsKey('authToken');
+    if (requestedAuthToken != household.authToken &&
+        !needsLegacyAuthTokenRestore) {
       _send(
           SyncMessage(SyncMessageTypes.pairError, {'message': 'auth failed'}));
       return;
@@ -246,7 +313,11 @@ class SessionHandler {
       ..name = _optionalString(message.payload['deviceName']) ?? device.name
       ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
-    _send(const SyncMessage(SyncMessageTypes.helloAck, {'snapshotVersion': 0}));
+    _send(SyncMessage(SyncMessageTypes.helloAck, {
+      'snapshotVersion': 0,
+      if (needsLegacyAuthTokenRestore) 'authToken': household.authToken,
+      if (restoredDevice) 'restoredDevice': true,
+    }));
     unawaited(app.store.flush());
   }
 

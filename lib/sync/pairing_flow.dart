@@ -69,11 +69,15 @@ class PairingFlow {
       if (householdId == null || saltBase64 == null || authToken == null) {
         throw const PairingException('配对响应不完整');
       }
-      final crypto = await SyncCrypto.deriveFromPairingCode(
-        code: normalizedCode,
-        saltBase64: saltBase64,
-      );
-      final sharedKeyBase64 = await crypto.exportKeyBase64();
+      final restoredSharedKeyBase64 = message.payload['sharedKeyBase64'];
+      final sharedKeyBase64 =
+          restoredSharedKeyBase64 is String && restoredSharedKeyBase64.isNotEmpty
+              ? restoredSharedKeyBase64
+              : await (await SyncCrypto.deriveFromPairingCode(
+                  code: normalizedCode,
+                  saltBase64: saltBase64,
+                ))
+                  .exportKeyBase64();
       await _secretStore.saveSharedKey(sharedKeyBase64);
       await settingsController.saveSyncPairing(
         serverUrl: serverUrl.trim(),

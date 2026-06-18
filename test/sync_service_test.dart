@@ -1130,6 +1130,188 @@ void main() {
     await service.stop();
   });
 
+  test('旧配对缺认证 token 时启动同步并从 hello_ack 补回 token', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(service.isActive, isTrue);
+    final hello = transport.sent.firstWhere(
+      (message) => message.type == SyncMessageTypes.hello,
+    );
+    expect(hello.payload.containsKey('authToken'), isFalse);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.helloAck, {
+        'snapshotVersion': 0,
+        'authToken': 'restored-auth-token',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.householdAuthToken, 'restored-auth-token');
+
+    transport.setState(SyncConnectionState.disconnected);
+    transport.setState(SyncConnectionState.connected);
+    final reconnectedHello = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.hello,
+    );
+    expect(reconnectedHello.payload['authToken'], 'restored-auth-token');
+
+    await service.stop();
+  });
+
+  test('同步握手认证失败时停止服务并暴露失败状态', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('stale-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'auth failed',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(service.isActive, isFalse);
+    expect(service.failedSyncCount?.value, 1);
+  });
+
+  test('同步握手家庭不存在时停止服务并暴露失败状态', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'unknown household',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(service.isActive, isFalse);
+    expect(service.failedSyncCount?.value, 1);
+  });
+
+  test('同步握手导入新服务器家庭组后推送本机权威快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('old-house');
+    await settings.setHouseholdAuthToken('old-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(
+      store: PetNoteStore.seeded(),
+      pushStartupSnapshot: false,
+    );
+    transport.sent.clear();
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.helloAck, {
+        'snapshotVersion': 0,
+        'restoredHousehold': true,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final snapshotPush = transport.sent.firstWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(snapshotPush.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(settings.pendingResetSnapshotSyncId, isNotNull);
+
+    await service.stop();
+  });
+
+  test('清除配对后不保留旧握手失败状态', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('stale-auth-token');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'auth failed',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(service.failedSyncCount?.value, 1);
+
+    await settings.clearSyncPairing();
+
+    expect(service.failedSyncCount?.value, 0);
+  });
+
   testWidgets('同步失败胶囊在 owner engine 首次创建后订阅失败数', (tester) async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
