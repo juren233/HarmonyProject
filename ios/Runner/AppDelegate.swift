@@ -224,14 +224,27 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     return value
   }
 
+  private func requireInt(_ arguments: [String: Any], key: String) throws -> Int {
+    if let value = arguments[key] as? Int {
+      return value
+    }
+    if let value = arguments[key] as? NSNumber {
+      return value.intValue
+    }
+    throw RtcBridgeError.invalidArguments("缺少 RTC 参数 \(key)")
+  }
+
   private func configureVideoEncoder(_ rtcEngine: AliRtcEngine, arguments: [String: Any]) throws {
-    let width = arguments["videoWidth"] as? Int
-    let height = arguments["videoHeight"] as? Int
-    guard width == 1280, height == 720 else {
+    let width = try requireInt(arguments, key: "videoWidth")
+    let height = try requireInt(arguments, key: "videoHeight")
+    guard
+      width == 1280,
+      height == 720
+    else {
       throw RtcBridgeError.invalidArguments("RTC 画质必须为 720P")
     }
     let config = AliRtcVideoEncoderConfiguration()
-    config.dimensions = CGSize(width: width, height: height)
+    config.dimensions = CGSize(width: CGFloat(width), height: CGFloat(height))
     rtcEngine.setVideoEncoderConfiguration(config)
   }
 
