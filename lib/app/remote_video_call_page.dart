@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/rtc/method_channel_rtc_adapter.dart';
 import 'package:petnote/rtc/rtc_adapter.dart';
@@ -11,6 +12,22 @@ import 'package:petnote/rtc/rtc_video_view.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
+
+const Size _previewSize = Size(104, 154);
+const double _previewMargin = 18;
+const double _previewControlClearance = 110;
+
+const SystemUiOverlayStyle _remoteVideoSystemUiOverlayStyle =
+    SystemUiOverlayStyle(
+  statusBarColor: Color(0x00000000),
+  statusBarIconBrightness: Brightness.light,
+  statusBarBrightness: Brightness.dark,
+  systemNavigationBarColor: Color(0x00000000),
+  systemNavigationBarDividerColor: Color(0x00000000),
+  systemNavigationBarIconBrightness: Brightness.light,
+);
+
+enum _VideoFeed { local, remote }
 
 class RemoteVideoCallPage extends StatefulWidget {
   const RemoteVideoCallPage({
@@ -49,7 +66,10 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   bool _micEnabled = true;
   bool _speakerEnabled = true;
   bool _cameraEnabled = true;
+  bool _localVideoOnMain = false;
+  bool _isDraggingPreview = false;
   String? _statusOverride;
+  Offset? _previewOffset;
   RtcAdapter? _ownedAdapter;
   RtcTokenClient? _ownedTokenClient;
   RtcSignalingController? _ownedSignalingController;
@@ -118,54 +138,148 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
     final callStateLabel = _statusOverride ?? '发起中';
     final surfaceStatus = _statusOverride ?? statusLabel;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF101114),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: _RemoteVideoSurface(
-                title: title,
-                statusLabel: surfaceStatus,
-                petName: widget.pet.name,
-                remoteUserId: _targetDeviceId,
-              ),
-            ),
-            Positioned(
-              top: 18,
-              left: 18,
-              right: 18,
-              child: _CallHeader(
-                title: title,
-                statusLabel: callStateLabel,
-                elapsedLabel:
-                    _connectedAt == null ? null : _formatElapsed(_callElapsed),
-              ),
-            ),
-            Positioned(
-              right: 18,
-              bottom: 128,
-              child: const _LocalPreview(),
-            ),
-            Positioned(
-              left: 18,
-              right: 18,
-              bottom: 22,
-              child: _CallControls(
-                micEnabled: _micEnabled,
-                speakerEnabled: _speakerEnabled,
-                cameraEnabled: _cameraEnabled,
-                onToggleMic: _toggleMic,
-                onToggleSpeaker: _toggleSpeaker,
-                onToggleCamera: _toggleCamera,
-                onHangup: () => unawaited(_hangup()),
-                isBusy: _initializing,
-              ),
-            ),
-          ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: _remoteVideoSystemUiOverlayStyle,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF101114),
+        extendBody: true,
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final mediaPadding = MediaQuery.paddingOf(context);
+            final previewBounds = _previewBounds(
+              Size(constraints.maxWidth, constraints.maxHeight),
+              mediaPadding,
+            );
+            final previewOffset = _resolvedPreviewOffset(previewBounds);
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: _RemoteVideoSurface(
+                    title: title,
+                    statusLabel: surfaceStatus,
+                    petName: widget.pet.name,
+                    remoteUserId: _targetDeviceId,
+                    feed: _localVideoOnMain
+                        ? _VideoFeed.local
+                        : _VideoFeed.remote,
+                  ),
+                ),
+                Positioned(
+                  top: mediaPadding.top + 18,
+                  left: 18,
+                  right: 18,
+                  child: _CallHeader(
+                    title: title,
+                    statusLabel: callStateLabel,
+                    elapsedLabel: _connectedAt == null
+                        ? null
+                        : _formatElapsed(_callElapsed),
+                  ),
+                ),
+                AnimatedPositioned(
+                  key: const ValueKey('remote_video_preview_positioned'),
+                  duration: _isDraggingPreview
+                      ? Duration.zero
+                      : const Duration(milliseconds: 360),
+                  curve: Curves.easeOutCubic,
+                  left: previewOffset.dx,
+                  top: previewOffset.dy,
+                  child: _FloatingVideoPreview(
+                    feed: _localVideoOnMain
+                        ? _VideoFeed.remote
+                        : _VideoFeed.local,
+                    remoteUserId: _targetDeviceId,
+                    onTap: _swapMainVideo,
+                    onPanUpdate: (details) =>
+                        _dragPreview(details.delta, previewOffset),
+                    onPanEnd: () => _settlePreview(previewBounds),
+                  ),
+                ),
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  bottom: mediaPadding.bottom + 22,
+                  child: _CallControls(
+                    micEnabled: _micEnabled,
+                    speakerEnabled: _speakerEnabled,
+                    cameraEnabled: _cameraEnabled,
+                    onToggleMic: _toggleMic,
+                    onToggleSpeaker: _toggleSpeaker,
+                    onToggleCamera: _toggleCamera,
+                    onSwitchCamera: _switchCamera,
+                    onHangup: () => unawaited(_hangup()),
+                    isBusy: _initializing,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
+  }
+
+  Rect _previewBounds(Size size, EdgeInsets padding) {
+    final left = padding.left + _previewMargin;
+    final top = padding.top + _previewMargin;
+    final right =
+        size.width - padding.right - _previewMargin - _previewSize.width;
+    final bottom = size.height -
+        padding.bottom -
+        _previewControlClearance -
+        _previewSize.height;
+    return Rect.fromLTRB(
+      left,
+      top,
+      right < left ? left : right,
+      bottom < top ? top : bottom,
+    );
+  }
+
+  Offset _resolvedPreviewOffset(Rect bounds) {
+    final current = _previewOffset ??
+        Offset(
+          bounds.right,
+          bounds.bottom,
+        );
+    return _clampPreviewOffset(current, bounds);
+  }
+
+  Offset _clampPreviewOffset(Offset offset, Rect bounds) {
+    return Offset(
+      offset.dx.clamp(bounds.left, bounds.right).toDouble(),
+      offset.dy.clamp(bounds.top, bounds.bottom).toDouble(),
+    );
+  }
+
+  void _dragPreview(Offset delta, Offset currentOffset) {
+    setState(() {
+      _isDraggingPreview = true;
+      _previewOffset = (_previewOffset ?? currentOffset) + delta;
+    });
+  }
+
+  void _settlePreview(Rect bounds) {
+    setState(() {
+      _isDraggingPreview = false;
+      _previewOffset = _clampPreviewOffset(
+        _previewOffset ?? Offset(bounds.right, bounds.bottom),
+        bounds,
+      );
+    });
+  }
+
+  void _swapMainVideo() {
+    setState(() {
+      _localVideoOnMain = !_localVideoOnMain;
+    });
+  }
+
+  void _switchCamera() {
+    if (_rtcJoined) {
+      unawaited(_rtcAdapter?.switchCamera());
+    }
   }
 
   void _toggleMic() {
@@ -252,6 +366,9 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
         return;
       }
       _rtcJoined = true;
+      await adapter.toggleMicrophone(enabled: _micEnabled);
+      await adapter.toggleSpeaker(enabled: _speakerEnabled);
+      await adapter.toggleCamera(enabled: _cameraEnabled);
       _startCallTimer();
       if (widget.sendInviteOnJoin) {
         signalingController.sendInvite(
@@ -461,12 +578,14 @@ class _RemoteVideoSurface extends StatelessWidget {
     required this.statusLabel,
     required this.petName,
     required this.remoteUserId,
+    required this.feed,
   });
 
   final String title;
   final String statusLabel;
   final String petName;
   final String? remoteUserId;
+  final _VideoFeed feed;
 
   @override
   Widget build(BuildContext context) {
@@ -481,12 +600,16 @@ class _RemoteVideoSurface extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (remoteUserId != null)
+          if (feed == _VideoFeed.local)
+            const RtcVideoView.local(
+              key: ValueKey('remote_video_main_local_view'),
+            )
+          else if (remoteUserId != null)
             RtcVideoView.remote(
-              key: const ValueKey('remote_video_remote_view'),
+              key: const ValueKey('remote_video_main_remote_view'),
               remoteUserId: remoteUserId!,
-            ),
-          if (remoteUserId == null)
+            )
+          else
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -587,29 +710,57 @@ class _CallHeader extends StatelessWidget {
   }
 }
 
-class _LocalPreview extends StatelessWidget {
-  const _LocalPreview();
+class _FloatingVideoPreview extends StatelessWidget {
+  const _FloatingVideoPreview({
+    required this.feed,
+    required this.remoteUserId,
+    required this.onTap,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+  });
+
+  final _VideoFeed feed;
+  final String? remoteUserId;
+  final VoidCallback onTap;
+  final GestureDragUpdateCallback onPanUpdate;
+  final VoidCallback onPanEnd;
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
+    return GestureDetector(
       key: const ValueKey('remote_video_local_preview'),
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: 96,
-        height: 142,
-        decoration: BoxDecoration(
-          color: const Color(0xFF242832),
-          border: Border.all(color: const Color(0x33FFFFFF)),
-        ),
-        child: const Stack(
-          fit: StackFit.expand,
-          children: [
-            RtcVideoView.local(
-              key: ValueKey('remote_video_local_view'),
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      onPanUpdate: onPanUpdate,
+      onPanEnd: (_) => onPanEnd(),
+      child: IgnorePointer(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: _previewSize.width,
+            height: _previewSize.height,
+            decoration: BoxDecoration(
+              color: const Color(0xFF242832),
+              border: Border.all(color: const Color(0x33FFFFFF)),
             ),
-            ColoredBox(color: Color(0x11000000)),
-          ],
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (feed == _VideoFeed.local)
+                  const RtcVideoView.local(
+                    key: ValueKey('remote_video_preview_local_view'),
+                  )
+                else if (remoteUserId != null)
+                  RtcVideoView.remote(
+                    key: const ValueKey('remote_video_preview_remote_view'),
+                    remoteUserId: remoteUserId!,
+                  )
+                else
+                  const ColoredBox(color: Color(0xFF171A21)),
+                const ColoredBox(color: Color(0x11000000)),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -624,6 +775,7 @@ class _CallControls extends StatelessWidget {
     required this.onToggleMic,
     required this.onToggleSpeaker,
     required this.onToggleCamera,
+    required this.onSwitchCamera,
     required this.onHangup,
     required this.isBusy,
   });
@@ -634,6 +786,7 @@ class _CallControls extends StatelessWidget {
   final VoidCallback onToggleMic;
   final VoidCallback onToggleSpeaker;
   final VoidCallback onToggleCamera;
+  final VoidCallback onSwitchCamera;
   final VoidCallback onHangup;
   final bool isBusy;
 
@@ -660,6 +813,11 @@ class _CallControls extends StatelessWidget {
               ? Icons.videocam_rounded
               : Icons.videocam_off_rounded,
           onPressed: onToggleCamera,
+        ),
+        _CallControlButton(
+          key: const ValueKey('remote_video_switch_camera_button'),
+          icon: Icons.cameraswitch_rounded,
+          onPressed: onSwitchCamera,
         ),
         _CallControlButton(
           key: const ValueKey('remote_video_hangup_button'),

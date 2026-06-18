@@ -46,6 +46,10 @@ void main() {
     expect(bridge, contains('createRenderSurfaceView'));
     expect(bridge, contains('setLocalViewConfig'));
     expect(bridge, contains('setRemoteViewConfig'));
+    expect(bridge, contains('setRtcEngineNotify(rtcNotify)'));
+    expect(bridge, contains('onRemoteUserOnLineNotify'));
+    expect(bridge, contains('onRemoteTrackAvailableNotify'));
+    expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
     expect(bridge, contains('subscribeRemoteMediaStream'));
     expect(bridge, contains('AliRTCSdkInteractiveLive'));
     expect(bridge, contains('AliRTCSdkInteractive'));

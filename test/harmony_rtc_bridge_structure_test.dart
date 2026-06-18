@@ -39,6 +39,12 @@ void main() {
     expect(bridge, contains('AliRtcVideoTrack'));
     expect(bridge, contains('AliRtcChannelProfile'));
     expect(bridge, contains('AliRtcClientRole'));
+    expect(bridge, contains('AliRtcEngineEventListener'));
+    expect(bridge, contains('setRtcEngineEventListener(this.ensureRtcEventListener())'));
+    expect(bridge, contains('onRemoteUserOnline'));
+    expect(bridge, contains('onRemoteTrackAvailableNotify'));
+    expect(bridge, contains('deferRemoteMediaAvailable(uid)'));
+    expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
     expect(bridge, contains('StandardMessageCodec'));
     expect(bridge, contains('PlatformViewFactory'));
     expect(bridge, contains('registerViewFactory'));

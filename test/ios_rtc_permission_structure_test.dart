@@ -41,7 +41,10 @@ void main() {
     expect(appDelegate, contains('subscribeAllRemoteAudioStreams(true)'));
     expect(appDelegate, contains('subscribeAllRemoteVideoStreams(true)'));
     expect(appDelegate, contains('subscribeRemoteMediaStream'));
+    expect(appDelegate, contains('subscribeRemoteMedia(rtcEngine, uid: remoteUserId)'));
+    expect(appDelegate, contains('subscribeRemoteMedia(engine, uid: uid)'));
     expect(appDelegate, contains('onRemoteTrackAvailableNotify'));
+    expect(appDelegate, contains('DispatchQueue.main.async'));
     expect(appDelegate,
         contains('configureVideoEncoder(rtcEngine, arguments: arguments)'));
     expect(appDelegate, contains('width == 1280'));

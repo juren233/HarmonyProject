@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_device_home.dart';
@@ -313,8 +314,8 @@ void main() {
         online: true,
       ),
     ]);
-    expect(
-        find.byKey(const ValueKey('remote_video_remote_view')), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsOneWidget);
 
     // 指派给其他宠物的设备：不可连。
     await pumpCallPage(const [
@@ -326,8 +327,8 @@ void main() {
         online: true,
       ),
     ]);
-    expect(
-        find.byKey(const ValueKey('remote_video_remote_view')), findsNothing);
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsNothing);
     expect(find.byKey(const ValueKey('remote_video_status_label')),
         findsOneWidget);
 
@@ -340,8 +341,77 @@ void main() {
         online: false,
       ),
     ]);
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsOneWidget);
+  });
+
+  testWidgets('通话页沉浸显示并支持拖拽与交换主副画面', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.watch,
+          pet: pet,
+          devicesOverride: const [
+            SyncedDeviceInfo(
+              deviceId: 'pet-device',
+              name: '客厅平板',
+              role: 'pet',
+              online: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.extendBody, isTrue);
+
+    final annotated = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+      find.byType(AnnotatedRegion<SystemUiOverlayStyle>).first,
+    );
+    expect(annotated.value.statusBarColor, const Color(0x00000000));
+    expect(annotated.value.systemNavigationBarColor, const Color(0x00000000));
+
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('remote_video_preview_local_view')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_local_preview')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('remote_video_main_local_view')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('remote_video_preview_remote_view')),
+        findsOneWidget);
+
+    final preview = find.byKey(const ValueKey('remote_video_local_preview'));
+    final beforeDrag = tester.getTopLeft(preview);
+    final gesture = await tester.startGesture(tester.getCenter(preview));
+    await gesture.moveBy(const Offset(-24, -24));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-600, -600));
+    await tester.pump();
+    expect(tester.getTopLeft(preview).dx, lessThan(beforeDrag.dx));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    final settled = tester.getTopLeft(preview);
+    final mediaPadding = tester.view.padding;
     expect(
-        find.byKey(const ValueKey('remote_video_remote_view')), findsOneWidget);
+        settled.dx,
+        greaterThanOrEqualTo(
+            mediaPadding.left / tester.view.devicePixelRatio + 18));
+    expect(
+        settled.dy,
+        greaterThanOrEqualTo(
+            mediaPadding.top / tester.view.devicePixelRatio + 18));
   });
 
   testWidgets('远程视频挂断会发送 call_end 信令', (tester) async {
@@ -429,7 +499,13 @@ void main() {
         'role': 'publisher',
       }
     ]);
-    expect(adapter.calls, ['initialize', 'join']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+    ]);
     expect(adapter.joinedConfig?.appId, 'nml2ycrp');
     expect(adapter.joinedConfig?.channelId, 'call-1');
     expect(adapter.joinedConfig?.userId, 'owner-device');
@@ -445,9 +521,82 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
     await tester.pumpAndSettle();
 
-    expect(adapter.calls, ['initialize', 'join', 'leave', 'dispose']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+      'leave',
+      'dispose',
+    ]);
     expect(transport.sent, hasLength(2));
     expect(transport.sent.last.type, SyncMessageTypes.callEnd);
+  });
+
+  testWidgets('通话控制按钮会真实调用 RTC 适配器', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = RtcTokenClient(
+      baseUri: Uri.parse('https://sync.example.com'),
+      postJson: (uri, body) async {
+        return '''
+{
+  "appId": "nml2ycrp",
+  "channelId": "call-1",
+  "userId": "owner-device",
+  "role": "publisher",
+  "token": "signed-token",
+  "singleToken": "single-token",
+  "nonce": "AK-test-nonce",
+  "timestamp": 1710003600,
+  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "expiresAtMs": 1710003600000
+}
+''';
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_mic_button')));
+    await tester.tap(find.byKey(const ValueKey('remote_video_speaker_button')));
+    await tester.tap(find.byKey(const ValueKey('remote_video_camera_button')));
+    await tester
+        .tap(find.byKey(const ValueKey('remote_video_switch_camera_button')));
+    await tester.pump();
+
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+      'toggleMicrophone:false',
+      'toggleSpeaker:false',
+      'toggleCamera:false',
+      'switchCamera',
+    ]);
   });
 
   testWidgets('缺少通话依赖时会明确显示不可用状态', (tester) async {
@@ -590,7 +739,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(adapter.calls, ['initialize', 'join']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+    ]);
     expect(transport.sent, isEmpty);
 
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
@@ -658,7 +813,13 @@ void main() {
     await tester.pump();
 
     expect(find.byType(RemoteVideoCallPage), findsOneWidget);
-    expect(adapter.calls, ['initialize', 'join']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+    ]);
 
     transport.incoming.add(const RtcCallEnd(
       callId: 'call-1',
@@ -667,7 +828,15 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle(const Duration(milliseconds: 50));
 
-    expect(adapter.calls, ['initialize', 'join', 'leave', 'dispose']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+      'leave',
+      'dispose',
+    ]);
     expect(find.byType(RemoteVideoCallPage), findsNothing);
   });
 
@@ -727,7 +896,13 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(adapter.calls, ['initialize', 'join']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+    ]);
 
     final endMessage = const RtcCallEnd(
       callId: 'call-1',
@@ -738,7 +913,15 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle(const Duration(milliseconds: 50));
 
-    expect(adapter.calls, ['initialize', 'join', 'leave', 'dispose']);
+    expect(adapter.calls, [
+      'initialize',
+      'join',
+      'toggleMicrophone:true',
+      'toggleSpeaker:true',
+      'toggleCamera:true',
+      'leave',
+      'dispose',
+    ]);
   });
 }
 

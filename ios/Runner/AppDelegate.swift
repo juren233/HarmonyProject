@@ -278,7 +278,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     _ = rtcEngine.subscribeAllRemoteAudioStreams(true)
     _ = rtcEngine.subscribeAllRemoteVideoStreams(true)
     if let remoteUserId {
-      _ = rtcEngine.subscribeRemoteMediaStream(remoteUserId, videoTrack: .camera, audioTrack: .mic)
+      subscribeRemoteMedia(rtcEngine, uid: remoteUserId)
     }
   }
 
@@ -419,12 +419,19 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     rtcEngine.setRemoteViewConfig(canvas, uid: remoteUserId, for: AliRtcVideoTrack.camera)
   }
 
+  private func subscribeRemoteMedia(_ rtcEngine: AliRtcEngine, uid: String) {
+    _ = rtcEngine.subscribeRemoteMediaStream(uid, videoTrack: .camera, audioTrack: .mic)
+  }
+
   func onRemoteTrackAvailableNotify(_ uid: String, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) {
     if uid == remoteUserId {
-      guard let engine else {
-        return
+      DispatchQueue.main.async { [weak self] in
+        guard let self, uid == self.remoteUserId, let engine = self.engine else {
+          return
+        }
+        self.subscribeRemoteMedia(engine, uid: uid)
+        self.attachRemoteView(engine)
       }
-      attachRemoteView(engine)
     }
   }
 

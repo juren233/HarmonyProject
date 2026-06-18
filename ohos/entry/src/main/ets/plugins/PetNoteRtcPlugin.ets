@@ -1,7 +1,7 @@
 import { abilityAccessCtrl, bundleManager, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
 import common from '@ohos.app.ability.common';
 import UIAbility from '@ohos.app.ability.UIAbility';
-import { AliRtcChannelProfile, AliRtcClientRole, AliRtcEngine, AliRtcRenderMode, AliRtcVideoCanvas, AliRtcVideoDimensions, AliRtcVideoEncoderConfiguration, AliRtcVideoTrack, AliRtcXComponentController } from '@aliyun_video_cloud/alivcsdk_artc';
+import { AliRtcAudioTrack, AliRtcChannelProfile, AliRtcClientRole, AliRtcEngine, AliRtcEngineEventListener, AliRtcRenderMode, AliRtcVideoCanvas, AliRtcVideoDimensions, AliRtcVideoEncoderConfiguration, AliRtcVideoTrack, AliRtcXComponentController } from '@aliyun_video_cloud/alivcsdk_artc';
 import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
 import AbilityAware from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityAware';
 import { AbilityPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityPluginBinding';
@@ -47,6 +47,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   private remoteUserId: string | null = null;
   private localVideo: RtcVideoBinding | null = null;
   private remoteVideo: RtcVideoBinding | null = null;
+  private rtcEventListener: AliRtcEngineEventListener | null = null;
 
   getUniqueClassName(): string {
     return TAG;
@@ -243,7 +244,24 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
       throw new Error('应用上下文不可用');
     }
     this.engine = AliRtcEngine.getInstance('', context);
+    this.engine.setRtcEngineEventListener(this.ensureRtcEventListener());
     return this.engine;
+  }
+
+  private ensureRtcEventListener(): AliRtcEngineEventListener {
+    if (this.rtcEventListener != null) {
+      return this.rtcEventListener;
+    }
+    this.rtcEventListener = new AliRtcEngineEventListener()
+      .onRemoteUserOnline((uid: string, online: boolean) => {
+        if (online) {
+          this.deferRemoteMediaAvailable(uid);
+        }
+      })
+      .onRemoteTrackAvailableNotify((uid: string, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) => {
+        this.deferRemoteMediaAvailable(uid);
+      });
+    return this.rtcEventListener;
   }
 
   private join(call: MethodCall, result: MethodResult): void {
@@ -264,12 +282,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     engine.publishLocalVideoStream(this.cameraEnabled);
     engine.subscribeAllRemoteAudioStreams(true);
     engine.subscribeAllRemoteVideoStreams(true);
-    engine.subscribeRemoteMediaStream(
-      this.remoteUserId,
-      AliRtcVideoTrack.AliEngineVideoTrackCamera,
-      true,
-      true,
-    );
+    this.subscribeRemoteMedia(engine, this.remoteUserId);
     this.attachRemoteView(engine);
     result.success(null);
   }
@@ -373,6 +386,33 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     );
   }
 
+  private handleRemoteMediaAvailable(uid: string): void {
+    if (uid !== this.remoteUserId) {
+      return;
+    }
+    const engine = this.engine;
+    if (engine == null) {
+      return;
+    }
+    this.subscribeRemoteMedia(engine, uid);
+    this.attachRemoteView(engine);
+  }
+
+  private deferRemoteMediaAvailable(uid: string): void {
+    setTimeout(() => {
+      this.handleRemoteMediaAvailable(uid);
+    }, 0);
+  }
+
+  private subscribeRemoteMedia(engine: AliRtcEngine, uid: string): void {
+    engine.subscribeRemoteMediaStream(
+      uid,
+      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+      true,
+      true,
+    );
+  }
+
   private makeCanvas(surfaceId: string): AliRtcVideoCanvas {
     const canvas: AliRtcVideoCanvas = new AliRtcVideoCanvas();
     canvas.surfaceId = surfaceId;
@@ -401,9 +441,11 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
         );
       }
       engine.leaveChannel();
+      engine.setRtcEngineEventListener(null);
     }
     AliRtcEngine.destroyInstance();
     this.engine = null;
+    this.rtcEventListener = null;
     this.remoteUserId = null;
     this.localVideo = null;
     this.remoteVideo = null;

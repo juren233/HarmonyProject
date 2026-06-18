@@ -24,6 +24,7 @@ import com.alivc.rtc.AliRtcEngine.AliRtcAudioTrack
 import com.alivc.rtc.AliRtcEngine.AliRTCSdkChannelProfile
 import com.alivc.rtc.AliRtcEngine.AliRTCSdkClientRole
 import com.alivc.rtc.AliRtcEngineImpl
+import com.alivc.rtc.AliRtcEngineNotify
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -39,6 +40,19 @@ class PetNoteRtcBridge(
     private var localContainer: FrameLayout? = null
     private var remoteContainer: FrameLayout? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private val rtcNotify = object : AliRtcEngineNotify() {
+        override fun onRemoteUserOnLineNotify(uid: String, elapsed: Int) {
+            handleRemoteMediaAvailable(uid)
+        }
+
+        override fun onRemoteTrackAvailableNotify(
+            uid: String,
+            audioTrack: AliRtcAudioTrack,
+            videoTrack: AliRtcVideoTrack,
+        ) {
+            handleRemoteMediaAvailable(uid)
+        }
+    }
 
     init {
         channel.setMethodCallHandler(this)
@@ -125,6 +139,7 @@ class PetNoteRtcBridge(
             return existing
         }
         val created = AliRtcEngineImpl.getInstance(context)
+        created.setRtcEngineNotify(rtcNotify)
         engine = created
         return created
     }
@@ -199,13 +214,7 @@ class PetNoteRtcBridge(
         rtcEngine.publishLocalVideoStream(true)
         rtcEngine.subscribeAllRemoteAudioStreams(true)
         rtcEngine.subscribeAllRemoteVideoStreams(true)
-        remoteUserId?.let { userId ->
-            rtcEngine.subscribeRemoteMediaStream(
-                userId,
-                AliRtcVideoTrack.AliRtcVideoTrackCamera,
-                AliRtcAudioTrack.AliRtcAudioTrackMic,
-            )
-        }
+        remoteUserId?.let { userId -> subscribeRemoteMedia(rtcEngine, userId) }
     }
 
     private fun configureVideoEncoder(rtcEngine: AliRtcEngine, arguments: Map<*, *>) {
@@ -228,6 +237,17 @@ class PetNoteRtcBridge(
         engine?.destroy()
         engine = null
         remoteUserId = null
+    }
+
+    private fun handleRemoteMediaAvailable(uid: String) {
+        if (uid != remoteUserId) {
+            return
+        }
+        activity.runOnUiThread {
+            val rtcEngine = engine ?: return@runOnUiThread
+            subscribeRemoteMedia(rtcEngine, uid)
+            attachRemoteView(rtcEngine)
+        }
     }
 
     fun bindVideoView(role: String, remoteUserId: String?, container: FrameLayout) {
@@ -283,6 +303,14 @@ class PetNoteRtcBridge(
         canvas.view = renderView
         canvas.renderMode = AliRtcRenderMode.AliRtcRenderModeAuto
         rtcEngine.setRemoteViewConfig(canvas, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+    }
+
+    private fun subscribeRemoteMedia(rtcEngine: AliRtcEngine, userId: String) {
+        rtcEngine.subscribeRemoteMediaStream(
+            userId,
+            AliRtcVideoTrack.AliRtcVideoTrackCamera,
+            AliRtcAudioTrack.AliRtcAudioTrackMic,
+        )
     }
 
     private fun matchParentLayoutParams(): FrameLayout.LayoutParams {
