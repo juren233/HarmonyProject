@@ -202,8 +202,10 @@ class PetNoteRtcBridge(
         attachLocalView(rtcEngine)
         attachRemoteView(rtcEngine)
         val singleToken = requireString(arguments, "singleToken")
+        val channelId = requireString(arguments, "channelId")
         val userId = requireString(arguments, "userId")
-        rtcEngine.joinChannel(singleToken, null, null, userId)
+        val joinResult = rtcEngine.joinChannel(singleToken, channelId, userId, "")
+        require(joinResult == 0) { "join rtc channel failed: $joinResult" }
         rtcEngine.publishLocalAudioStream(true)
         rtcEngine.publishLocalVideoStream(true)
         rtcEngine.subscribeAllRemoteAudioStreams(true)
@@ -303,7 +305,9 @@ class PetNoteRtcBridge(
         rtcEngine.subscribeRemoteMediaStream(
             userId,
             AliRtcVideoTrack.AliRtcVideoTrackCamera,
+            true,
             AliRtcAudioTrack.AliRtcAudioTrackMic,
+            true,
         )
     }
 

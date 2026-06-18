@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_device_dashboard.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -89,6 +90,42 @@ void main() {
 
     expect(action?.kind, PetActionKind.markDone);
     expect(action?.sourceType, 'todo');
+  });
+
+  testWidgets('深色模式下宠物端看板使用暗色主题卡片', (tester) async {
+    final store = PetNoteStore.seeded();
+    final pet = store.pets.first;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.dark),
+        home: PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+        ),
+      ),
+    );
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.backgroundColor, darkPetNoteTokens.pageGradientTop);
+
+    final stickerFinder = find.byKey(const ValueKey('pet_dashboard_pet_card'));
+    final sticker = tester.widget<Container>(
+      find.descendant(
+        of: stickerFinder,
+        matching: find.byType(Container),
+      ),
+    );
+    final decoration = sticker.decoration as BoxDecoration;
+    expect(decoration.color, darkPetNoteTokens.listRowBackground);
+
+    final title = tester.widget<Text>(find.text(pet.name));
+    expect(title.style?.color, darkPetNoteTokens.primaryText);
   });
 
   testWidgets('同步失败时宠物端在设置旁显示胶囊', (tester) async {

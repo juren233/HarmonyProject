@@ -418,7 +418,7 @@ void main() {
       contains(
         isA<MethodCall>()
             .having((call) => call.method, 'method', 'SystemChrome.setEnabledSystemUIMode')
-            .having((call) => call.arguments, 'arguments', 'SystemUiMode.immersiveSticky'),
+            .having((call) => call.arguments, 'arguments', 'SystemUiMode.edgeToEdge'),
       ),
     );
 
@@ -440,24 +440,35 @@ void main() {
     final gesture = await tester.startGesture(tester.getCenter(preview));
     await gesture.moveBy(const Offset(-24, -24));
     await tester.pump();
-    await gesture.moveBy(const Offset(-600, -600));
+    await gesture.moveBy(const Offset(-900, -900));
     await tester.pump();
     expect(tester.getTopLeft(preview).dx, lessThan(beforeDrag.dx));
-    expect(tester.getTopLeft(preview).dx, greaterThanOrEqualTo(0));
-    expect(tester.getTopLeft(preview).dy, greaterThanOrEqualTo(0));
+    final draggedPastSafeEdge = tester.getTopLeft(preview);
+    final mediaPadding = tester.view.padding;
+    final safeLeft = mediaPadding.left / tester.view.devicePixelRatio + 18;
+    final safeTop = mediaPadding.top / tester.view.devicePixelRatio + 18;
+    expect(
+      draggedPastSafeEdge.dx,
+      lessThan(safeLeft),
+    );
+    expect(
+      draggedPastSafeEdge.dy,
+      lessThan(safeTop),
+    );
+    expect(draggedPastSafeEdge.dx, greaterThan(-72));
+    expect(draggedPastSafeEdge.dy, greaterThan(-72));
 
     await gesture.up();
+    await tester.pump();
+    final positioned = tester.widget<AnimatedPositioned>(
+      find.byKey(const ValueKey('remote_video_preview_positioned')),
+    );
+    expect(positioned.duration, const Duration(milliseconds: 520));
+    expect(positioned.curve, Curves.elasticOut);
     await tester.pumpAndSettle();
     final settled = tester.getTopLeft(preview);
-    final mediaPadding = tester.view.padding;
-    expect(
-        settled.dx,
-        greaterThanOrEqualTo(
-            mediaPadding.left / tester.view.devicePixelRatio + 18));
-    expect(
-        settled.dy,
-        greaterThanOrEqualTo(
-            mediaPadding.top / tester.view.devicePixelRatio + 18));
+    expect(settled.dx, greaterThanOrEqualTo(safeLeft));
+    expect(settled.dy, greaterThanOrEqualTo(safeTop));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

@@ -188,8 +188,8 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
                   key: const ValueKey('remote_video_preview_positioned'),
                   duration: _isDraggingPreview
                       ? Duration.zero
-                      : const Duration(milliseconds: 360),
-                  curve: Curves.easeOutCubic,
+                      : const Duration(milliseconds: 520),
+                  curve: Curves.elasticOut,
                   left: previewOffset.dx,
                   top: previewOffset.dy,
                   child: _FloatingVideoPreview(
@@ -229,7 +229,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   }
 
   Future<void> _enterImmersiveSystemUi() async {
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(_remoteVideoSystemUiOverlayStyle);
   }
 
@@ -256,6 +256,9 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
           bounds.right,
           bounds.bottom,
         );
+    if (_isDraggingPreview) {
+      return current;
+    }
     return _clampPreviewOffset(current, bounds);
   }
 

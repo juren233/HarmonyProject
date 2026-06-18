@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
@@ -27,8 +28,9 @@ class PetDeviceDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pets = store.pets;
     final selectedPet = _findPet(pets, servedPetId);
+    final tokens = context.petNoteTokens;
     return Scaffold(
-      backgroundColor: const Color(0xFF17181C),
+      backgroundColor: tokens.pageGradientTop,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
@@ -77,16 +79,17 @@ class _PetSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 '这台设备为谁服务？',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: tokens.primaryText,
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
                 ),
@@ -98,7 +101,10 @@ class _PetSelector extends StatelessWidget {
                 const SyncFailureChip(),
                 IconButton(
                   onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_rounded, color: Colors.white),
+                  icon: Icon(
+                    Icons.settings_rounded,
+                    color: tokens.primaryText,
+                  ),
                 ),
               ],
             ),
@@ -115,14 +121,21 @@ class _PetSelector extends StatelessWidget {
                       syncStatusLabel.contains('连接中'))
                     const CircularProgressIndicator()
                   else
-                    const Icon(Icons.pets, size: 64, color: Colors.white70),
+                    Icon(
+                      Icons.pets,
+                      size: 64,
+                      color: tokens.secondaryText,
+                    ),
                   const SizedBox(height: 16),
                   Text(
                     syncStatusLabel.contains('同步中') ||
                             syncStatusLabel.contains('连接中')
                         ? '正在从主人端同步数据...'
                         : '还没有添加宠物',
-                    style: const TextStyle(fontSize: 18, color: Colors.white70),
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: tokens.secondaryText,
+                    ),
                   ),
                 ],
               ),
@@ -174,17 +187,24 @@ class _DashboardContent extends StatelessWidget {
           children: [
             Expanded(
               child: _Sticker(
+                key: const ValueKey('pet_dashboard_pet_card'),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       pet.name,
-                      style: const TextStyle(
+                      style: TextStyle(
+                        color: context.petNoteTokens.primaryText,
                         fontSize: 32,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    Text('${pet.breed} · ${pet.ageLabel}'),
+                    Text(
+                      '${pet.breed} · ${pet.ageLabel}',
+                      style: TextStyle(
+                        color: context.petNoteTokens.secondaryText,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -262,23 +282,28 @@ class _DashboardContent extends StatelessWidget {
 }
 
 class _Sticker extends StatelessWidget {
-  const _Sticker({required this.child});
+  const _Sticker({super.key, required this.child});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8DF),
+        color: isDark ? tokens.listRowBackground : const Color(0xFFFFF8DF),
         borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
+        border: Border.all(color: tokens.panelBorder),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x33000000),
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.28)
+                : const Color(0x33000000),
             blurRadius: 18,
-            offset: Offset(0, 10),
+            offset: const Offset(0, 10),
           ),
         ],
       ),

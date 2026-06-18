@@ -41,6 +41,7 @@ void main() {
     expect(bridge, contains('ActivityCompat.requestPermissions'));
     expect(bridge, isNot(contains('AliRtcAuthInfo')));
     expect(bridge, contains('requireString(arguments, "singleToken")'));
+    expect(bridge, contains('requireString(arguments, "channelId")'));
     expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
     expect(bridge,
         contains('AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode'));
@@ -59,6 +60,14 @@ void main() {
     expect(bridge, contains('setDefaultSubscribeAllRemoteVideoStreams'));
     expect(bridge, contains('publishLocalAudioStream(true)'));
     expect(bridge, contains('publishLocalVideoStream(true)'));
+    expect(
+      bridge,
+      contains('AliRtcVideoTrack.AliRtcVideoTrackCamera,\n            true,'),
+    );
+    expect(
+      bridge,
+      contains('AliRtcAudioTrack.AliRtcAudioTrackMic,\n            true,'),
+    );
     expect(bridge,
         contains('join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())'));
     expect(bridge, contains('AliRtcVideoEncoderConfiguration'));
@@ -69,7 +78,8 @@ void main() {
     expect(bridge, isNot(contains('fps')));
     expect(
       bridge,
-      contains('rtcEngine.joinChannel(singleToken, null, null, userId)'),
+      contains('rtcEngine.joinChannel(singleToken, channelId, userId, "")'),
     );
+    expect(bridge, contains('require(joinResult == 0)'));
   });
 }
