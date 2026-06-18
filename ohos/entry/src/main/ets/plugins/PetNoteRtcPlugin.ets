@@ -44,7 +44,8 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   private engine: AliRtcEngine | null = null;
   private cameraEnabled: boolean = true;
   private microphoneEnabled: boolean = true;
-  private remoteUserId: string | null = null;
+  private expectedRemoteUserId: string | null = null;
+  private activeRemoteUserId: string | null = null;
   private localVideo: RtcVideoBinding | null = null;
   private remoteVideo: RtcVideoBinding | null = null;
   private rtcEventListener: AliRtcEngineEventListener | null = null;
@@ -270,7 +271,8 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     this.configureVideoEncoder(call, engine);
     const channelId = this.requireString(call, 'channelId');
     const userId = this.requireString(call, 'userId');
-    this.remoteUserId = this.requireString(call, 'remoteUserId');
+    this.expectedRemoteUserId = this.requireString(call, 'remoteUserId');
+    this.activeRemoteUserId = null;
     engine.setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive);
     engine.setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive);
     engine.setDefaultSubscribeAllRemoteAudioStreams(true);
@@ -282,7 +284,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     engine.publishLocalVideoStream(this.cameraEnabled);
     engine.subscribeAllRemoteAudioStreams(true);
     engine.subscribeAllRemoteVideoStreams(true);
-    this.subscribeRemoteMedia(engine, this.remoteUserId);
+    this.subscribeRemoteMedia(engine, this.expectedRemoteUserId);
     this.attachRemoteView(engine);
     result.success(null);
   }
@@ -296,8 +298,8 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     if (role === 'local') {
       this.localVideo = { controller, surfaceId };
     } else if (role === 'remote') {
-      const resolvedRemoteUserId = remoteUserId ?? this.remoteUserId ?? undefined;
-      this.remoteUserId = resolvedRemoteUserId ?? this.remoteUserId;
+      const resolvedRemoteUserId = remoteUserId ?? this.currentRemoteUserId() ?? undefined;
+      this.expectedRemoteUserId = remoteUserId ?? this.expectedRemoteUserId;
       this.remoteVideo = { controller, surfaceId, remoteUserId: resolvedRemoteUserId };
     } else {
       return;
@@ -324,7 +326,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
       this.localVideo = null;
     }
     if (this.remoteVideo?.controller === controller) {
-      const remoteUserId = this.remoteVideo.remoteUserId ?? this.remoteUserId;
+      const remoteUserId = this.currentRemoteUserId(this.remoteVideo.remoteUserId);
       if (engine != null && remoteUserId != null) {
         engine.setRemoteViewConfig(
           this.makeCanvas(this.remoteVideo.surfaceId),
@@ -374,7 +376,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
 
   private attachRemoteView(engine: AliRtcEngine): void {
     const video = this.remoteVideo;
-    const remoteUserId = video?.remoteUserId ?? this.remoteUserId;
+    const remoteUserId = this.currentRemoteUserId(video?.remoteUserId);
     if (video == null || remoteUserId == null) {
       return;
     }
@@ -387,13 +389,11 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   }
 
   private handleRemoteMediaAvailable(uid: string): void {
-    if (uid !== this.remoteUserId) {
-      return;
-    }
     const engine = this.engine;
     if (engine == null) {
       return;
     }
+    this.activeRemoteUserId = uid;
     this.subscribeRemoteMedia(engine, uid);
     this.attachRemoteView(engine);
   }
@@ -431,7 +431,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
           AliRtcVideoTrack.AliEngineVideoTrackCamera,
         );
       }
-      const remoteUserId = this.remoteVideo?.remoteUserId ?? this.remoteUserId;
+      const remoteUserId = this.currentRemoteUserId(this.remoteVideo?.remoteUserId);
       if (this.remoteVideo != null && remoteUserId != null) {
         engine.setRemoteViewConfig(
           this.makeCanvas(this.remoteVideo.surfaceId),
@@ -446,9 +446,14 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     AliRtcEngine.destroyInstance();
     this.engine = null;
     this.rtcEventListener = null;
-    this.remoteUserId = null;
+    this.expectedRemoteUserId = null;
+    this.activeRemoteUserId = null;
     this.localVideo = null;
     this.remoteVideo = null;
+  }
+
+  private currentRemoteUserId(fallback?: string): string | null {
+    return this.activeRemoteUserId ?? fallback ?? this.expectedRemoteUserId;
   }
 }
 

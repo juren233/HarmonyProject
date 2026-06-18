@@ -44,6 +44,10 @@ void main() {
     expect(appDelegate, contains('subscribeRemoteMedia(rtcEngine, uid: remoteUserId)'));
     expect(appDelegate, contains('subscribeRemoteMedia(engine, uid: uid)'));
     expect(appDelegate, contains('onRemoteTrackAvailableNotify'));
+    expect(appDelegate, contains('activeRemoteUserId = uid'));
+    expect(appDelegate,
+        contains('activeRemoteUserId ?? expectedRemoteUserId'));
+    expect(appDelegate, isNot(contains('if uid == remoteUserId')));
     expect(appDelegate, contains('DispatchQueue.main.async'));
     expect(appDelegate,
         contains('configureVideoEncoder(rtcEngine, arguments: arguments)'));

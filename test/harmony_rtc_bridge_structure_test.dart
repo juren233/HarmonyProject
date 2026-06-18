@@ -45,6 +45,10 @@ void main() {
     expect(bridge, contains('onRemoteTrackAvailableNotify'));
     expect(bridge, contains('deferRemoteMediaAvailable(uid)'));
     expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
+    expect(bridge, contains('this.activeRemoteUserId = uid'));
+    expect(bridge,
+        contains('this.activeRemoteUserId ?? fallback ?? this.expectedRemoteUserId'));
+    expect(bridge, isNot(contains('if (uid !== this.remoteUserId)')));
     expect(bridge, contains('StandardMessageCodec'));
     expect(bridge, contains('PlatformViewFactory'));
     expect(bridge, contains('registerViewFactory'));

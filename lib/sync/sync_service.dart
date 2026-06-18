@@ -353,10 +353,30 @@ class SyncService extends ChangeNotifier {
     if (url == null || householdId == null) {
       return null;
     }
-    final sharedKeyBase64 =
-        await _secretStore.loadSharedKey() ?? settings.sharedKeyBase64;
+    String? secureSharedKeyBase64;
+    Object? secureSharedKeyError;
+    StackTrace? secureSharedKeyStackTrace;
+    try {
+      secureSharedKeyBase64 = await _secretStore.loadSharedKey();
+    } on Object catch (error, stackTrace) {
+      secureSharedKeyError = error;
+      secureSharedKeyStackTrace = stackTrace;
+    }
+    final sharedKeyBase64 = secureSharedKeyBase64 ?? settings.sharedKeyBase64;
     if (sharedKeyBase64 == null) {
+      if (secureSharedKeyError != null) {
+        FlutterError.reportError(FlutterErrorDetails(
+          exception: secureSharedKeyError,
+          stack: secureSharedKeyStackTrace,
+          library: 'petnote sync',
+          context: ErrorDescription('读取同步安全密钥失败且没有可用的备份密钥'),
+        ));
+      }
       return null;
+    }
+    if (secureSharedKeyError != null) {
+      debugPrint('读取同步安全密钥失败，已使用设置中的备份密钥继续同步：'
+          '$secureSharedKeyError');
     }
     return _SyncConfig(
       url: url,

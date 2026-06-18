@@ -286,6 +286,64 @@ void main() {
     expect(permissionCoordinator.requestCount, 0);
   });
 
+  testWidgets('宠物端更新后安全密钥不可读仍能接收远程视频来电', (tester) async {
+    final store = PetNoteStore.seeded();
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.saveSyncPairing(
+      serverUrl: 'wss://sync.example.com/ws',
+      householdId: 'household-1',
+      sharedKeyBase64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      householdAuthToken: 'auth-token',
+      servedPetId: store.selectedPet!.id,
+    );
+    final localDeviceId = await settings.ensureDeviceId();
+    final transport = _FakeSyncTransport();
+    final syncService = SyncService(
+      settings: settings,
+      secretStore: const _UnavailableSyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await syncService.stop();
+      syncService.dispose();
+      settings.dispose();
+    });
+    final permissionCoordinator = _FakeRtcMediaPermissionCoordinator(
+      state: RtcMediaPermissionState.denied,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetDeviceHome(
+          settingsController: settings,
+          storeLoader: () async => store,
+          syncService: syncService,
+          keepAlive: _NoopDeviceKeepAlive(),
+          remoteVideoPermissionCoordinator: permissionCoordinator,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    transport.incoming.add(RtcCallInvite(
+      callId: 'call-after-update',
+      callerDeviceId: 'owner-device',
+      targetDeviceId: localDeviceId,
+      mode: RtcCallMode.call,
+      sdp: 'offer-sdp',
+    ).toSyncMessage());
+    await tester.pumpAndSettle();
+
+    expect(syncService.isActive, isTrue);
+    expect(find.text('需要开启摄像头和麦克风权限'), findsOneWidget);
+    expect(find.byType(RemoteVideoCallPage), findsNothing);
+    expect(permissionCoordinator.requestCount, 0);
+  });
+
   testWidgets('远程视频只连当前宠物对应的宠物端设备', (tester) async {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);
@@ -1104,6 +1162,21 @@ class _FakeSyncTransport implements SyncTransport {
 
   @override
   Future<void> disconnect() async {}
+}
+
+class _UnavailableSyncSecretStore implements SyncSecretStore {
+  const _UnavailableSyncSecretStore();
+
+  @override
+  Future<void> deleteSharedKey() async {}
+
+  @override
+  Future<String?> loadSharedKey() async {
+    throw const SyncSecretStoreException('secure storage unavailable');
+  }
+
+  @override
+  Future<void> saveSharedKey(String keyBase64) async {}
 }
 
 class _NoopDeviceKeepAlive extends DeviceKeepAlive {

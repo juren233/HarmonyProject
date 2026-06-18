@@ -134,7 +134,8 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   private var engine: AliRtcEngine?
   private var microphoneEnabled = true
   private var cameraEnabled = true
-  private var remoteUserId: String?
+  private var expectedRemoteUserId: String?
+  private var activeRemoteUserId: String?
   private weak var localContainer: UIView?
   private weak var remoteContainer: UIView?
 
@@ -257,7 +258,8 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     let singleToken = try requireString(arguments, key: "singleToken")
     let channelId = try requireString(arguments, key: "channelId")
     let userId = try requireString(arguments, key: "userId")
-    remoteUserId = try requireString(arguments, key: "remoteUserId")
+    expectedRemoteUserId = try requireString(arguments, key: "remoteUserId")
+    activeRemoteUserId = nil
     try configureVideoEncoder(rtcEngine, arguments: arguments)
     _ = rtcEngine.setChannelProfile(AliRtcChannelProfile.interactivelive)
     _ = rtcEngine.setClientRole(AliRtcClientRole.roleInteractive)
@@ -277,7 +279,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     _ = rtcEngine.publishLocalVideoStream(cameraEnabled)
     _ = rtcEngine.subscribeAllRemoteAudioStreams(true)
     _ = rtcEngine.subscribeAllRemoteVideoStreams(true)
-    if let remoteUserId {
+    if let remoteUserId = expectedRemoteUserId {
       subscribeRemoteMedia(rtcEngine, uid: remoteUserId)
     }
   }
@@ -346,14 +348,15 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   private func releaseEngine() {
     if let engine {
       engine.setLocalViewConfig(nil, for: AliRtcVideoTrack.camera)
-      if let remoteUserId {
+      if let remoteUserId = currentRemoteUserId {
         engine.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera)
       }
     }
     _ = engine?.leaveChannel()
     AliRtcEngine.destroy()
     engine = nil
-    remoteUserId = nil
+    expectedRemoteUserId = nil
+    activeRemoteUserId = nil
   }
 
   fileprivate func bindVideoView(role: String, remoteUserId: String?, container: UIView) {
@@ -361,7 +364,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     case "local":
       localContainer = container
     case "remote":
-      self.remoteUserId = remoteUserId ?? self.remoteUserId
+      expectedRemoteUserId = remoteUserId ?? expectedRemoteUserId
       remoteContainer = container
     default:
       return
@@ -382,7 +385,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
       localContainer = nil
     }
     if remoteContainer === container {
-      if let remoteUserId {
+      if let remoteUserId = currentRemoteUserId {
         engine?.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera)
       }
       remoteContainer = nil
@@ -406,7 +409,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   }
 
   private func attachRemoteView(_ rtcEngine: AliRtcEngine) {
-    guard let container = remoteContainer, let remoteUserId else {
+    guard let container = remoteContainer, let remoteUserId = currentRemoteUserId else {
       return
     }
     container.subviews.forEach { $0.removeFromSuperview() }
@@ -424,15 +427,18 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
   }
 
   func onRemoteTrackAvailableNotify(_ uid: String, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) {
-    if uid == remoteUserId {
-      DispatchQueue.main.async { [weak self] in
-        guard let self, uid == self.remoteUserId, let engine = self.engine else {
-          return
-        }
-        self.subscribeRemoteMedia(engine, uid: uid)
-        self.attachRemoteView(engine)
+    DispatchQueue.main.async { [weak self] in
+      guard let self, let engine = self.engine else {
+        return
       }
+      self.activeRemoteUserId = uid
+      self.subscribeRemoteMedia(engine, uid: uid)
+      self.attachRemoteView(engine)
     }
+  }
+
+  private var currentRemoteUserId: String? {
+    activeRemoteUserId ?? expectedRemoteUserId
   }
 
   private func rtcError(_ error: Error) -> FlutterError {

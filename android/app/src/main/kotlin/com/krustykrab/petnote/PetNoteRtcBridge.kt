@@ -35,7 +35,8 @@ class PetNoteRtcBridge(
 ) : MethodChannel.MethodCallHandler {
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
     private var engine: AliRtcEngine? = null
-    private var remoteUserId: String? = null
+    private var expectedRemoteUserId: String? = null
+    private var activeRemoteUserId: String? = null
     private var localContainer: FrameLayout? = null
     private var remoteContainer: FrameLayout? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -194,7 +195,8 @@ class PetNoteRtcBridge(
     private fun join(arguments: Map<*, *>) {
         val rtcEngine = ensureEngine()
         configureVideoEncoder(rtcEngine, arguments)
-        remoteUserId = requireString(arguments, "remoteUserId")
+        expectedRemoteUserId = requireString(arguments, "remoteUserId")
+        activeRemoteUserId = null
         rtcEngine.setChannelProfile(AliRTCSdkChannelProfile.AliRTCSdkInteractiveLive)
         rtcEngine.setClientRole(AliRTCSdkClientRole.AliRTCSdkInteractive)
         rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true)
@@ -210,7 +212,7 @@ class PetNoteRtcBridge(
         rtcEngine.publishLocalVideoStream(true)
         rtcEngine.subscribeAllRemoteAudioStreams(true)
         rtcEngine.subscribeAllRemoteVideoStreams(true)
-        remoteUserId?.let { userId -> subscribeRemoteMedia(rtcEngine, userId) }
+        expectedRemoteUserId?.let { userId -> subscribeRemoteMedia(rtcEngine, userId) }
     }
 
     private fun configureVideoEncoder(rtcEngine: AliRtcEngine, arguments: Map<*, *>) {
@@ -226,21 +228,20 @@ class PetNoteRtcBridge(
     private fun releaseEngine() {
         engine?.stopPreview()
         engine?.setLocalViewConfig(null as AliRtcVideoCanvas?, AliRtcVideoTrack.AliRtcVideoTrackCamera)
-        remoteUserId?.let { userId ->
+        currentRemoteUserId()?.let { userId ->
             engine?.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
         }
         engine?.leaveChannel()
         engine?.destroy()
         engine = null
-        remoteUserId = null
+        expectedRemoteUserId = null
+        activeRemoteUserId = null
     }
 
     private fun handleRemoteMediaAvailable(uid: String) {
-        if (uid != remoteUserId) {
-            return
-        }
         activity.runOnUiThread {
             val rtcEngine = engine ?: return@runOnUiThread
+            activeRemoteUserId = uid
             subscribeRemoteMedia(rtcEngine, uid)
             attachRemoteView(rtcEngine)
         }
@@ -250,7 +251,7 @@ class PetNoteRtcBridge(
         when (role) {
             "local" -> localContainer = container
             "remote" -> {
-                this.remoteUserId = remoteUserId ?: this.remoteUserId
+                expectedRemoteUserId = remoteUserId ?: expectedRemoteUserId
                 remoteContainer = container
             }
         }
@@ -269,7 +270,7 @@ class PetNoteRtcBridge(
             localContainer = null
         }
         if (remoteContainer === container) {
-            remoteUserId?.let { userId ->
+            currentRemoteUserId()?.let { userId ->
                 engine?.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
             }
             remoteContainer = null
@@ -291,7 +292,7 @@ class PetNoteRtcBridge(
 
     private fun attachRemoteView(rtcEngine: AliRtcEngine) {
         val container = remoteContainer ?: return
-        val userId = remoteUserId ?: return
+        val userId = currentRemoteUserId() ?: return
         container.removeAllViews()
         val renderView = rtcEngine.createRenderSurfaceView(context)
         container.addView(renderView, matchParentLayoutParams())
@@ -309,6 +310,10 @@ class PetNoteRtcBridge(
             AliRtcAudioTrack.AliRtcAudioTrackMic,
             true,
         )
+    }
+
+    private fun currentRemoteUserId(): String? {
+        return activeRemoteUserId ?: expectedRemoteUserId
     }
 
     private fun matchParentLayoutParams(): FrameLayout.LayoutParams {

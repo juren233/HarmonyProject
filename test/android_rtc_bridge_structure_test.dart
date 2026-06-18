@@ -52,6 +52,9 @@ void main() {
     expect(bridge, contains('onRemoteUserOnLineNotify'));
     expect(bridge, contains('onRemoteTrackAvailableNotify'));
     expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
+    expect(bridge, contains('activeRemoteUserId = uid'));
+    expect(bridge, contains('return activeRemoteUserId ?: expectedRemoteUserId'));
+    expect(bridge, isNot(contains('if (uid != remoteUserId)')));
     expect(bridge, contains('subscribeRemoteMediaStream'));
     expect(bridge, contains('AliRTCSdkInteractiveLive'));
     expect(bridge, contains('AliRTCSdkInteractive'));

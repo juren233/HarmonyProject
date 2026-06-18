@@ -716,6 +716,38 @@ void main() {
     await service.stop();
   });
 
+  test('App 更新后安全密钥不可读时使用设置中的备份密钥继续启动同步', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final sharedKey = await crypto.exportKeyBase64();
+    await settings.setSharedKeyBase64(sharedKey);
+    final secretStore = _ToggleableSyncSecretStore(null)
+      ..shouldThrowOnLoad = true;
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+
+    expect(service.isActive, isTrue);
+    expect(transport.connected, isTrue);
+    expect(transport.sent.first.type, SyncMessageTypes.hello);
+    expect(transport.sent.first.payload['authToken'], 'auth-token-1');
+
+    await service.stop();
+  });
+
   test('owner 重新配对后即使没有一次性策略也会切换到新家庭配置', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);
