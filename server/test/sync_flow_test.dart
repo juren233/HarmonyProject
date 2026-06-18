@@ -179,11 +179,13 @@ void main() {
     owner.send(SyncMessageTypes.callInvite, {
       'callId': 'call-1',
       'mode': 'watch',
+      'callerDeviceId': 'owner-1',
       'sdp': 'offer',
       'targetDeviceId': 'pet-1',
     });
     final invite = await pet.expectType(SyncMessageTypes.callInvite);
     expect(invite.payload['mode'], 'watch');
+    expect(invite.payload['callerDeviceId'], 'owner-1');
     pet.send(SyncMessageTypes.iceCandidate, {
       'callId': 'call-1',
       'candidate': 'candidate-1',

@@ -43,6 +43,28 @@ App 内同步服务器地址填写：
 wss://your.domain/ws
 ```
 
+## 阿里云 RTC Token
+
+视频通话需要服务端签发 RTC 鉴权信息。启动同步服务前，在服务器环境中设置：
+
+```bash
+export ALICLOUD_RTC_APP_ID="<你的阿里云RTC AppID>"
+export ALICLOUD_RTC_APP_KEY="<你的阿里云RTC AppKey>"
+docker compose -f server/docker-compose.yml up -d --build
+```
+
+客户端通过 `POST /rtc/token` 获取房间凭证，请求体示例：
+
+```json
+{
+  "channelId": "petnote-call-id",
+  "userId": "device-id",
+  "role": "publisher"
+}
+```
+
+响应会包含 `appId`、`channelId`、`userId`、`role`、`token`、`singleToken`、`nonce`、`timestamp`、`gslb` 和 `expiresAtMs`。`token` 用于 Android 多参数入会，`singleToken` 用于 iOS 和 Harmony 单参数入会。不要把 `ALICLOUD_RTC_APP_KEY` 写进客户端或提交到仓库。
+
 ## 阿里云 Linux 3 接入
 
 服务器域名 `petnote.juren233.top` 指向 ECS 公网 IP 后，先在安全组放行 `80`、`443`，再安装 Docker 和 Compose 插件：

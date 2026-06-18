@@ -163,6 +163,7 @@ docker compose -f server/docker-compose.yml up -d --build
 - `server/docker-compose.yml` 的 build context 依赖仓库根目录，不能先 `cd server` 再运行
 - `--build` 会确保 `server/` 和 `packages/petnote_sync_protocol/` 的最新代码重新进入镜像
 - 镜像变量必须和 `docker compose` 放在同一条命令里，或者先 `export DART_IMAGE=...` / `export RUNTIME_IMAGE=...`；如果只在前两行写 `DART_IMAGE=...`，`docker compose` 可能拿不到变量，仍然回退去拉 `docker.io/library/dart:3.6`
+- 视频通话 Token 接口需要服务器环境变量 `ALICLOUD_RTC_APP_ID` 和 `ALICLOUD_RTC_APP_KEY`；密钥只能放在服务端环境里，不能写进客户端或仓库
 - 上面的镜像源用于规避服务器访问 Docker Hub 超时；如果服务器已经配置了稳定的 Docker Hub 代理或私有镜像源，可以按实际环境改成自己的镜像地址
 - `curl http://127.0.0.1:8787/healthz` 返回 `ok` 只能说明旧容器还活着，不能证明最新代码已经进入镜像；代码更新必须以 `docker compose ... up -d --build` 成功完成为准
 

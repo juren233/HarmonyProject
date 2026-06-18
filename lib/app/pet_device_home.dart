@@ -5,7 +5,12 @@ import 'package:petnote/app/pet_device_dashboard.dart';
 import 'package:petnote/app/pet_device_settings_page.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/pet_pairing_page.dart';
+import 'package:petnote/app/remote_video_call_page.dart';
+import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/platform/device_keep_alive.dart';
+import 'package:petnote/rtc/rtc_call_models.dart';
+import 'package:petnote/rtc/rtc_incoming_call_controller.dart';
+import 'package:petnote/rtc/rtc_signaling_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_service.dart';
@@ -33,6 +38,10 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
   PetNoteStore? _store;
   SyncService? _syncService;
   late final DeviceKeepAlive _keepAlive;
+  RtcSignalingController? _rtcSignalingController;
+  RtcIncomingCallController? _incomingCallController;
+  SyncTransport? _incomingCallTransport;
+  String? _incomingCallDeviceId;
   bool _keepAliveStarted = false;
 
   @override
@@ -56,6 +65,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
   @override
   void dispose() {
     widget.settingsController.removeListener(_handleSettingsChanged);
+    unawaited(_disposeIncomingCallController());
     _store?.dispose();
     unawaited(_stopKeepAlive());
     super.dispose();
@@ -89,10 +99,12 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
     };
     if (widget.settingsController.householdId == null) {
       await service.stop();
+      await _disposeIncomingCallController();
       await _stopKeepAlive();
       return;
     }
     await service.ensureStartedForPet(store: store);
+    await _syncIncomingCallController(service, store);
     await _syncKeepAlive();
     if (mounted) {
       setState(() {});
@@ -189,6 +201,69 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
       await _keepAlive.startBackgroundKeepAlive();
       _keepAliveStarted = true;
     }
+  }
+
+  Future<void> _syncIncomingCallController(
+    SyncService service,
+    PetNoteStore store,
+  ) async {
+    final transport = service.debugTransport;
+    if (transport == null) {
+      await _disposeIncomingCallController();
+      return;
+    }
+    final localDeviceId = await widget.settingsController.ensureDeviceId();
+    if (_rtcSignalingController != null &&
+        _incomingCallController != null &&
+        identical(_incomingCallTransport, transport) &&
+        _incomingCallDeviceId == localDeviceId) {
+      return;
+    }
+    await _disposeIncomingCallController();
+    final signaling = RtcSignalingController(transport: transport);
+    _rtcSignalingController = signaling;
+    _incomingCallTransport = transport;
+    _incomingCallDeviceId = localDeviceId;
+    _incomingCallController = RtcIncomingCallController(
+      signalingController: signaling,
+      localDeviceId: localDeviceId,
+      onStartCall: (invite) => _openIncomingCall(invite, store),
+    );
+  }
+
+  void _openIncomingCall(RtcCallInvite invite, PetNoteStore store) {
+    if (!mounted) {
+      return;
+    }
+    final pet = store.petById(widget.settingsController.servedPetId ?? '') ??
+        store.selectedPet ??
+        (store.pets.isEmpty ? null : store.pets.first);
+    if (pet == null) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => RemoteVideoCallPage(
+          mode: invite.mode == RtcCallMode.watch
+              ? RemoteVideoMode.watch
+              : RemoteVideoMode.call,
+          pet: pet,
+          callId: invite.callId,
+          targetDeviceId: invite.callerDeviceId,
+          signalingController: _rtcSignalingController,
+          sendInviteOnJoin: false,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _disposeIncomingCallController() async {
+    await _incomingCallController?.dispose();
+    _incomingCallController = null;
+    await _rtcSignalingController?.dispose();
+    _rtcSignalingController = null;
+    _incomingCallTransport = null;
+    _incomingCallDeviceId = null;
   }
 
   Future<void> _stopKeepAlive() async {

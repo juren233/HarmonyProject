@@ -1,5 +1,6 @@
 import CoreHaptics
 import Flutter
+import AliVCSDK_ARTC
 import PhotosUI
 import Security
 import UniformTypeIdentifiers
@@ -34,6 +35,9 @@ import UserNotifications
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteKeepAlivePlugin") {
       PetNoteKeepAlivePlugin.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteRtcPlugin") {
+      PetNoteRtcPlugin.register(with: registrar)
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
@@ -118,6 +122,170 @@ final class PetNoteKeepAlivePlugin: NSObject, FlutterPlugin {
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+}
+
+final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
+  static let channelName = "petnote/rtc"
+
+  private var engine: AliRtcEngine?
+  private var microphoneEnabled = true
+  private var cameraEnabled = true
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteRtcPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "initialize":
+      do {
+        _ = try ensureEngine()
+        result(nil)
+      } catch {
+        result(rtcError(error))
+      }
+    case "join":
+      do {
+        guard let arguments = call.arguments as? [String: Any] else {
+          throw RtcBridgeError.invalidArguments("缺少入会参数")
+        }
+        try join(arguments: arguments)
+        result(nil)
+      } catch {
+        result(rtcError(error))
+      }
+    case "leave":
+      callEngine("leaveChannel")
+      result(nil)
+    case "toggleCamera":
+      let arguments = call.arguments as? [String: Any]
+      cameraEnabled = arguments?["enabled"] as? Bool ?? true
+      callEngine("publishLocalVideoStream:", with: cameraEnabled)
+      result(nil)
+    case "toggleMicrophone":
+      let arguments = call.arguments as? [String: Any]
+      microphoneEnabled = arguments?["enabled"] as? Bool ?? true
+      callEngine("publishLocalAudioStream:", with: microphoneEnabled)
+      result(nil)
+    case "toggleSpeaker":
+      let arguments = call.arguments as? [String: Any]
+      let enabled = arguments?["enabled"] as? Bool ?? true
+      callEngine("enableSpeakerphone:", with: enabled)
+      result(nil)
+    case "switchCamera":
+      callEngine("switchCamera")
+      result(nil)
+    case "dispose":
+      releaseEngine()
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func ensureEngine() throws -> AliRtcEngine {
+    if let engine {
+      return engine
+    }
+    let created = AliRtcEngine.sharedInstance(self, extras: nil)
+    engine = created
+    return created
+  }
+
+  private func join(arguments: [String: Any]) throws {
+    let rtcEngine = try ensureEngine()
+    let singleToken = try requireString(arguments, key: "singleToken")
+    let channelId = try requireString(arguments, key: "channelId")
+    let userId = try requireString(arguments, key: "userId")
+    try configureVideoEncoder(rtcEngine, arguments: arguments)
+    let channelParam = AliRtcChannelParam()
+    channelParam.channelId = channelId
+    channelParam.userId = userId
+    let joinResult = rtcEngine.joinChannel(singleToken, channelParam: channelParam) { _, _, _, _ in
+    }
+    guard joinResult == 0 else {
+      throw RtcBridgeError.invalidArguments("加入频道失败：\(joinResult)")
+    }
+    _ = rtcEngine.publishLocalAudioStream(microphoneEnabled)
+    _ = rtcEngine.publishLocalVideoStream(cameraEnabled)
+  }
+
+  private func requireString(_ arguments: [String: Any], key: String) throws -> String {
+    guard let value = arguments[key] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw RtcBridgeError.invalidArguments("缺少 RTC 参数 \(key)")
+    }
+    return value
+  }
+
+  private func configureVideoEncoder(_ rtcEngine: AliRtcEngine, arguments: [String: Any]) throws {
+    let width = arguments["videoWidth"] as? Int
+    let height = arguments["videoHeight"] as? Int
+    guard width == 1280, height == 720 else {
+      throw RtcBridgeError.invalidArguments("RTC 画质必须为 720P")
+    }
+    let config = AliRtcVideoEncoderConfiguration()
+    config.dimensions = CGSize(width: width, height: height)
+    rtcEngine.setVideoEncoderConfiguration(config)
+  }
+
+  private func callEngine(_ selectorName: String, with value: Bool) {
+    guard let engine else {
+      return
+    }
+    switch selectorName {
+    case "enableSpeakerphone:":
+      _ = engine.enableSpeakerphone(value)
+    case "publishLocalVideoStream:":
+      _ = engine.publishLocalVideoStream(value)
+    case "publishLocalAudioStream:":
+      _ = engine.publishLocalAudioStream(value)
+    default:
+      break
+    }
+  }
+
+  private func callEngine(_ selectorName: String) {
+    guard let engine else {
+      return
+    }
+    switch selectorName {
+    case "leaveChannel":
+      _ = engine.leaveChannel()
+    case "switchCamera":
+      _ = engine.switchCamera()
+    default:
+      break
+    }
+  }
+
+  private func releaseEngine() {
+    _ = engine?.leaveChannel()
+    AliRtcEngine.destroy()
+    engine = nil
+  }
+
+  private func rtcError(_ error: Error) -> FlutterError {
+    return FlutterError(code: "rtc_native_error", message: error.localizedDescription, details: nil)
+  }
+
+  private enum RtcBridgeError: LocalizedError {
+    case sdkUnavailable
+    case invalidArguments(String)
+
+    var errorDescription: String? {
+      switch self {
+      case .sdkUnavailable:
+        return "阿里云 RTC iOS SDK 不可用"
+      case .invalidArguments(let message):
+        return message
+      }
     }
   }
 }

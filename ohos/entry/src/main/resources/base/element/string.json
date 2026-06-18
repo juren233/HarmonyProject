@@ -15,6 +15,10 @@
     {
       "name": "calendar_permission_reason",
       "value": "用于创建和管理宠物提醒日历事件"
+    },
+    {
+      "name": "rtc_permission_reason",
+      "value": "用于视频通话时采集本机画面和声音"
     }
   ]
 }

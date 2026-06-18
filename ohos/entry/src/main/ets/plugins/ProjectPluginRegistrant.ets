@@ -7,6 +7,7 @@ import PetNoteDataPackageFileAccessPlugin from './PetNoteDataPackageFileAccessPl
 import PetNoteHarmonyNativeDockPlugin from './PetNoteHarmonyNativeDockPlugin';
 import PetNoteNotificationPlugin from './PetNoteNotificationPlugin';
 import PetNotePhotoPickerPlugin from './PetNotePhotoPickerPlugin';
+import PetNoteRtcPlugin from './PetNoteRtcPlugin';
 import SharedPreferencesPlugin from './SharedPreferencesPlugin';
 
 export class ProjectPluginRegistrant {
@@ -19,6 +20,7 @@ export class ProjectPluginRegistrant {
     flutterEngine.getPlugins()?.add(new PetNoteHarmonyNativeDockPlugin());
     flutterEngine.getPlugins()?.add(new PetNoteNotificationPlugin());
     flutterEngine.getPlugins()?.add(new PetNotePhotoPickerPlugin());
+    flutterEngine.getPlugins()?.add(new PetNoteRtcPlugin());
     flutterEngine.getPlugins()?.add(new SharedPreferencesPlugin());
   }
 }

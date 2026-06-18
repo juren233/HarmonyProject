@@ -66,7 +66,7 @@ class SyncMessageTypes {
       'device_config'; // srv→device {servedPetId?, removed?}
   // 二期视频信令（本期定义 + 服务器按 targetDeviceId 透传）
   static const callInvite =
-      'call_invite'; // {callId, mode: call|watch, sdp, targetDeviceId}
+      'call_invite'; // {callId, mode: call|watch, callerDeviceId, sdp, targetDeviceId}
   static const callAnswer = 'call_answer'; // {callId, sdp, targetDeviceId}
   static const callReject = 'call_reject'; // {callId, reason, targetDeviceId}
   static const callEnd = 'call_end'; // {callId, targetDeviceId}

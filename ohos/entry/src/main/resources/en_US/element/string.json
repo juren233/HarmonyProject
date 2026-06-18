@@ -15,6 +15,10 @@
     {
       "name": "calendar_permission_reason",
       "value": "Used to create and manage pet reminder calendar events"
+    },
+    {
+      "name": "rtc_permission_reason",
+      "value": "Used to capture camera and microphone input during video calls"
     }
   ]
 }

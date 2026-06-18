@@ -6,6 +6,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {},
+  "dependencies": {
+    "@aliyun_video_cloud/alivcsdk_artc": "6.11.0-beta"
+  },
 }
 
