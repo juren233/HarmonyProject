@@ -27,7 +27,8 @@ class RtcVideoView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (defaultTargetPlatform.name == 'ohos') {
+    final targetPlatform = defaultTargetPlatform;
+    if (targetPlatform.name == 'ohos') {
       return HarmonyOhosView(
         viewType: viewType,
         layoutDirection: Directionality.of(context),
@@ -35,24 +36,21 @@ class RtcVideoView extends StatelessWidget {
         creationParamsCodec: const StandardMessageCodec(),
       );
     }
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android:
-        return AndroidView(
-          viewType: viewType,
-          creationParams: _creationParams,
-          creationParamsCodec: const StandardMessageCodec(),
-        );
-      case TargetPlatform.iOS:
-        return UiKitView(
-          viewType: viewType,
-          creationParams: _creationParams,
-          creationParamsCodec: const StandardMessageCodec(),
-        );
-      case TargetPlatform.fuchsia:
-      case TargetPlatform.linux:
-      case TargetPlatform.macOS:
-      case TargetPlatform.windows:
-        return const ColoredBox(color: Colors.black);
+
+    if (targetPlatform == TargetPlatform.android) {
+      return AndroidView(
+        viewType: viewType,
+        creationParams: _creationParams,
+        creationParamsCodec: const StandardMessageCodec(),
+      );
     }
+    if (targetPlatform == TargetPlatform.iOS) {
+      return UiKitView(
+        viewType: viewType,
+        creationParams: _creationParams,
+        creationParamsCodec: const StandardMessageCodec(),
+      );
+    }
+    return const ColoredBox(color: Colors.black);
   }
 }

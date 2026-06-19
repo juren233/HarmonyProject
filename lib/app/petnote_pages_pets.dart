@@ -21,6 +21,130 @@ class PetsPage extends StatefulWidget {
 }
 
 class _PetsPageState extends State<PetsPage> {
+  late final NativePetPhotoPicker _nativePetPhotoPicker =
+      MethodChannelNativePetPhotoPicker();
+
+  Future<void> _confirmDeletePet(Pet pet) async {
+    final photoPath = pet.photoPath;
+    final petsBeforeDelete = List<Pet>.from(widget.store.pets);
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black54,
+      barrierDismissible: false,
+      builder: (context) {
+        final tokens = context.petNoteTokens;
+        final dialogSurfaceColor =
+            tokens.panelStrongBackground.withValues(alpha: 1);
+        return Dialog(
+          backgroundColor: dialogSurfaceColor,
+          surfaceTintColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Material(
+            key: const ValueKey('delete-pet-dialog-surface'),
+            color: dialogSurfaceColor,
+            borderRadius: BorderRadius.circular(28),
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '删除「${pet.name}」？',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: tokens.primaryText,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '删除后，这只爱宠的档案、待办、提醒和记录都会一起移除，无法恢复。',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: tokens.secondaryText,
+                          height: 1.45,
+                        ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    key: const ValueKey('delete-pet-dialog-info-panel'),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: dialogSurfaceColor,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFF2D3B4)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.info_rounded,
+                          color: Color(0xFFD9822B),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '如果只是想暂时不看这只宠物，可以先保留资料。',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF9A5B13),
+                                      height: 1.4,
+                                    ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('取消'),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFF2A65A),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.of(context).pop(true),
+                        child: const Text('确认删除'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (shouldDelete != true) {
+      return;
+    }
+    await widget.store.deletePet(pet.id);
+    if (photoPath != null &&
+        !_isPhotoPathReferencedByOtherPets(
+          photoPath,
+          petsBeforeDelete,
+          pet.id,
+        )) {
+      unawaited(_nativePetPhotoPicker.deletePetPhoto(photoPath));
+    }
+  }
+
+  bool _isPhotoPathReferencedByOtherPets(
+    String path,
+    List<Pet> pets,
+    String deletedPetId,
+  ) {
+    return pets
+        .any((item) => item.id != deletedPetId && item.photoPath == path);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pet = widget.store.selectedPet;
@@ -50,61 +174,11 @@ class _PetsPageState extends State<PetsPage> {
             itemBuilder: (context, index) {
               final item = widget.store.pets[index];
               final selected = pet?.id == item.id;
-              return GestureDetector(
+              return _PetSelectorCard(
+                pet: item,
+                selected: selected,
                 onTap: () => widget.store.selectPet(item.id),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xFFF2A65A)
-                        : const Color(0xF4FFFFFF),
-                    borderRadius: BorderRadius.circular(26),
-                  ),
-                  child: Row(
-                    children: [
-                      PetPhotoAvatar(
-                        photoPath: item.photoPath,
-                        fallbackText: item.avatarText,
-                        radius: 20,
-                        backgroundColor: selected
-                            ? const Color(0x33FFFFFF)
-                            : const Color(0xFFE8EEFF),
-                        foregroundColor:
-                            selected ? Colors.white : const Color(0xFF335FCA),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.name,
-                            style:
-                                Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                      color: selected
-                                          ? Colors.white
-                                          : const Color(0xFF17181C),
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.ageLabel,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: selected
-                                          ? Colors.white70
-                                          : const Color(0xFF6C7280),
-                                    ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                onLongPressCompleted: () => _confirmDeletePet(item),
               );
             },
           ),
@@ -201,6 +275,208 @@ class _PetsPageState extends State<PetsPage> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _PetSelectorCard extends StatefulWidget {
+  const _PetSelectorCard({
+    required this.pet,
+    required this.selected,
+    required this.onTap,
+    required this.onLongPressCompleted,
+  });
+
+  final Pet pet;
+  final bool selected;
+  final VoidCallback onTap;
+  final Future<void> Function() onLongPressCompleted;
+
+  @override
+  State<_PetSelectorCard> createState() => _PetSelectorCardState();
+}
+
+class _PetSelectorCardState extends State<_PetSelectorCard> {
+  static const _holdDuration = Duration(milliseconds: 560);
+  static const _holdCancelMoveDistance = 12.0;
+
+  Timer? _holdTimer;
+  Offset? _holdStartPosition;
+  bool _holdCompleted = false;
+  bool _suppressNextTap = false;
+  double _holdProgressTarget = 0;
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startHoldProgress() {
+    _holdTimer?.cancel();
+    setState(() {
+      _holdCompleted = false;
+      _holdProgressTarget = 1;
+    });
+    _holdTimer = Timer(_holdDuration, _completeHold);
+  }
+
+  void _cancelHoldProgress() {
+    if (_holdCompleted) {
+      return;
+    }
+    _holdTimer?.cancel();
+    _holdStartPosition = null;
+    setState(() {
+      _holdProgressTarget = 0;
+    });
+  }
+
+  void _completeHold() {
+    if (!mounted || _holdCompleted) {
+      return;
+    }
+    setState(() {
+      _holdCompleted = true;
+      _suppressNextTap = true;
+      _holdProgressTarget = 1;
+    });
+    _holdStartPosition = null;
+    widget.onLongPressCompleted().whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _holdCompleted = false;
+          _holdProgressTarget = 0;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final pet = widget.pet;
+    final borderRadius = BorderRadius.circular(26);
+    final fillColor = selected
+        ? Colors.white.withValues(alpha: 0.34)
+        : const Color(0xFFF2A65A).withValues(alpha: 0.32);
+
+    return Semantics(
+      button: true,
+      label: '宠物 ${pet.name}，长按删除',
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (event) {
+          _holdStartPosition = event.position;
+          _startHoldProgress();
+        },
+        onPointerMove: (event) {
+          final startPosition = _holdStartPosition;
+          if (startPosition == null || _holdCompleted) {
+            return;
+          }
+          if ((event.position - startPosition).distance >
+              _holdCancelMoveDistance) {
+            _cancelHoldProgress();
+          }
+        },
+        onPointerUp: (_) => _cancelHoldProgress(),
+        onPointerCancel: (_) => _cancelHoldProgress(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (_suppressNextTap) {
+              _suppressNextTap = false;
+              return;
+            }
+            widget.onTap();
+          },
+          child: AnimatedContainer(
+            key: ValueKey('pet-selector-card-${pet.id}'),
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color:
+                  selected ? const Color(0xFFF2A65A) : const Color(0xF4FFFFFF),
+              borderRadius: borderRadius,
+            ),
+            child: ClipRRect(
+              borderRadius: borderRadius,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween<double>(
+                        end: _holdProgressTarget,
+                      ),
+                      duration: _holdDuration,
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return FractionallySizedBox(
+                          key: ValueKey('pet-selector-hold-progress-${pet.id}'),
+                          alignment: Alignment.centerLeft,
+                          widthFactor: value,
+                          child: child,
+                        );
+                      },
+                      child: ColoredBox(color: fillColor),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    child: Row(
+                      children: [
+                        PetPhotoAvatar(
+                          photoPath: pet.photoPath,
+                          fallbackText: pet.avatarText,
+                          radius: 20,
+                          backgroundColor: selected
+                              ? const Color(0x33FFFFFF)
+                              : const Color(0xFFE8EEFF),
+                          foregroundColor:
+                              selected ? Colors.white : const Color(0xFF335FCA),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              pet.name,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    color: selected
+                                        ? Colors.white
+                                        : const Color(0xFF17181C),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              pet.ageLabel,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: selected
+                                        ? Colors.white70
+                                        : const Color(0xFF6C7280),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

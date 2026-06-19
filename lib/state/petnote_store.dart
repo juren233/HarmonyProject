@@ -1980,6 +1980,89 @@ class PetNoteStore extends ChangeNotifier {
     }
   }
 
+  Future<void> deletePet(String petId) {
+    return _deletePet(petId, emitMutation: true);
+  }
+
+  Future<void> _deletePet(
+    String petId, {
+    required bool emitMutation,
+  }) async {
+    final normalizedPetId = petId.trim();
+    if (normalizedPetId.isEmpty || !_petsById.containsKey(normalizedPetId)) {
+      return;
+    }
+
+    final relatedTodoIds = _todos
+        .where((item) => item.petId == normalizedPetId)
+        .map((item) => item.id)
+        .toSet();
+    final relatedReminderIds = _reminders
+        .where((item) => item.petId == normalizedPetId)
+        .map((item) => item.id)
+        .toSet();
+    final relatedRecordIds = _records
+        .where((item) => item.petId == normalizedPetId)
+        .map((item) => item.id)
+        .toSet();
+
+    _pets.removeWhere((item) => item.id == normalizedPetId);
+    _petsById.remove(normalizedPetId);
+    _todos.removeWhere((item) => item.petId == normalizedPetId);
+    _rebuildTodoIndex();
+    _reminders.removeWhere((item) => item.petId == normalizedPetId);
+    _rebuildReminderIndex();
+    _records.removeWhere((item) => item.petId == normalizedPetId);
+    _rebuildRecordIndex();
+    _overviewSelectedPetIds.remove(normalizedPetId);
+    if (_selectedPetId == normalizedPetId) {
+      _selectedPetId = _pets.isEmpty ? '' : _pets.first.id;
+    }
+    _activeTab = _pets.isEmpty ? AppTab.checklist : AppTab.pets;
+    await _removePendingMutationsForDeletedPet(
+      petId: normalizedPetId,
+      todoIds: relatedTodoIds,
+      reminderIds: relatedReminderIds,
+      recordIds: relatedRecordIds,
+    );
+    _invalidateAllDerivedData();
+    _bumpNotificationSyncVersion();
+    await _finalizeNotificationMutation(
+      pets: true,
+      todos: true,
+      reminders: true,
+      records: true,
+      overviewConfig: true,
+    );
+    if (emitMutation) {
+      await _emitDeleteMutation(PetNoteEntityType.pet, normalizedPetId);
+    }
+  }
+
+  Future<void> _removePendingMutationsForDeletedPet({
+    required String petId,
+    required Set<String> todoIds,
+    required Set<String> reminderIds,
+    required Set<String> recordIds,
+  }) async {
+    _pendingLocalMutations.removeWhere((_, mutation) {
+      if (mutation.entityType == PetNoteEntityType.pet) {
+        return mutation.entityId == petId;
+      }
+      if (mutation.entityType == PetNoteEntityType.todo) {
+        return todoIds.contains(mutation.entityId);
+      }
+      if (mutation.entityType == PetNoteEntityType.reminder) {
+        return reminderIds.contains(mutation.entityId);
+      }
+      if (mutation.entityType == PetNoteEntityType.record) {
+        return recordIds.contains(mutation.entityId);
+      }
+      return false;
+    });
+    await _savePendingLocalMutations(force: true);
+  }
+
   Future<void> addPet({
     required String name,
     required PetType type,
@@ -2567,9 +2650,12 @@ class PetNoteStore extends ChangeNotifier {
 
   Future<void> _applyDeleteMutation(PetNoteMutation mutation) async {
     switch (mutation.entityType) {
+      case PetNoteEntityType.pet:
+        await _deletePet(mutation.entityId, emitMutation: false);
+        break;
       case PetNoteEntityType.record:
         await deleteRecords([mutation.entityId]);
-      case PetNoteEntityType.pet:
+        break;
       case PetNoteEntityType.todo:
       case PetNoteEntityType.reminder:
         return;

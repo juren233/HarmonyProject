@@ -2,6 +2,7 @@
 import path from 'path'
 import { platform } from 'process'
 import { execSync } from 'child_process'
+import { fileURLToPath } from 'url'
 import { OhosAppContext, OhosHapContext, OhosHarContext, OhosPluginId, Target } from '@ohos/hvigor-ohos-plugin'
 import { hvigor, HvigorNode, HvigorPlugin } from '@ohos/hvigor'
 import { relativePath, copyDirectory, listFiles, realFilePath } from '../util/file-util'
@@ -152,11 +153,8 @@ function normalizeComparablePath(filePath: string): string {
 }
 
 function resolvePackageRootUri(flutterProjectPath: string, rootUri: string): string {
-  if (rootUri.startsWith('file:///')) {
-    return decodeURIComponent(rootUri.replace('file:///', ''))
-  }
   if (rootUri.startsWith('file://')) {
-    return decodeURIComponent(rootUri.replace('file://', ''))
+    return fileURLToPath(rootUri)
   }
   return path.resolve(flutterProjectPath, rootUri)
 }
@@ -688,7 +686,8 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
             setFlutterHarInDependencies(dependenciesOpt, targetPlatforms)
             const nativePlugins = getNativePlugins(flutterProjectPath)
             nativePlugins.forEach(nativePlugin => {
-              dependenciesOpt[nativePlugin.name] = ''
+              dependenciesOpt[nativePlugin.name] =
+                `file:${path.join(nativePlugin.path, 'ohos')}`
             })
             hapContext.setDependenciesOpt(dependenciesOpt)
           })
@@ -705,7 +704,8 @@ export function flutterHvigorPlugin(flutterProjectPath: string, flutterProjectTy
             setFlutterHarInDependencies(dependenciesOpt, targetPlatforms)
             const nativePlugins = getNativePlugins(flutterProjectPath)
             nativePlugins.forEach(nativePlugin => {
-              dependenciesOpt[nativePlugin.name] = ''
+              dependenciesOpt[nativePlugin.name] =
+                `file:${path.join(nativePlugin.path, 'ohos')}`
             })
             harContext.setDependenciesOpt(dependenciesOpt)
           })
@@ -1048,13 +1048,65 @@ function findFlutterPlugins(flutterPluginsDependenciesPath: string): JSON[] {
     return []
   }
   const fileContent = fs.readFileSync(flutterPluginsDependenciesPath, 'utf-8')
-  const pluginsByPlatform = JSON.parse(fileContent).plugins ?? {}
+  const pluginConfig = JSON.parse(fileContent)
+  const pluginsByPlatform = pluginConfig.plugins ?? {}
   const ohosPlugins = Array.isArray(pluginsByPlatform.ohos)
     ? pluginsByPlatform.ohos
     : []
-  return ohosPlugins.filter(plugin => plugin.native_build !== false)
+  const explicitPlugins = ohosPlugins.filter(plugin => plugin.native_build !== false)
+  if (explicitPlugins.length > 0) {
+    return explicitPlugins
+  }
+
+  return findOhosPluginsFromDependencyGraph(
+    path.dirname(flutterPluginsDependenciesPath),
+    pluginConfig.dependencyGraph,
+  )
 }
 
 function getNativePlugins(flutterProjectPath: string): JSON[] {
   return findFlutterPlugins(getFlutterPluginsDependenciesPath(flutterProjectPath))
+}
+
+function findOhosPluginsFromDependencyGraph(
+  flutterProjectPath: string,
+  dependencyGraph: unknown,
+): JSON[] {
+  if (!Array.isArray(dependencyGraph)) {
+    return []
+  }
+
+  const packageConfigPath = path.join(flutterProjectPath, '.dart_tool', 'package_config.json')
+  if (!fs.existsSync(packageConfigPath)) {
+    return []
+  }
+
+  try {
+    const packageConfig = JSON.parse(fs.readFileSync(packageConfigPath, 'utf-8'))
+    const packages = Array.isArray(packageConfig.packages) ? packageConfig.packages : []
+    const packageRoots = new Map<string, string>()
+    packages.forEach((pkg: { name?: string; rootUri?: string }) => {
+      if (pkg.name && pkg.rootUri) {
+        packageRoots.set(pkg.name, resolvePackageRootUri(flutterProjectPath, pkg.rootUri))
+      }
+    })
+
+    return dependencyGraph
+      .map((item: { name?: string }) => item.name)
+      .filter((name: string | undefined): name is string => !!name)
+      .map((name: string) => {
+        const packageRoot = packageRoots.get(name)
+        if (!packageRoot || !fs.existsSync(path.join(packageRoot, 'ohos', 'oh-package.json5'))) {
+          return null
+        }
+        return {
+          name,
+          path: packageRoot,
+        }
+      })
+      .filter((plugin: JSON | null): plugin is JSON => plugin !== null)
+  } catch (error) {
+    console.warn(`Failed to inspect OHOS plugins from package_config.json. ${error}`)
+    return []
+  }
 }

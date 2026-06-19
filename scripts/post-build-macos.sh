@@ -26,9 +26,10 @@ require_command flutter
 require_command xcrun
 require_command ditto
 require_command cp
+require_command pod
 
 log_step "Build iOS simulator debug app"
-flutter build ios --simulator --debug
+PETNOTE_SKIP_RTC_POD=1 flutter build ios --simulator --debug
 
 log_step "Install app to booted simulator"
 xcrun simctl install booted "$ios_simulator_app"
@@ -41,6 +42,7 @@ else
 fi
 
 log_step "Build iOS release app without codesign"
+(cd ios && pod install)
 flutter build ios --release --no-codesign
 
 log_step "Package unsigned IPA"

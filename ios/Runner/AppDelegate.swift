@@ -1,7 +1,9 @@
 import AVFoundation
 import CoreHaptics
 import Flutter
+#if !targetEnvironment(simulator)
 import AliVCSDK_ARTC
+#endif
 import PhotosUI
 import Security
 import UniformTypeIdentifiers
@@ -127,17 +129,9 @@ final class PetNoteKeepAlivePlugin: NSObject, FlutterPlugin {
   }
 }
 
-final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
+final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
   static let channelName = "petnote/rtc"
   static let videoViewType = "petnote/rtc_video_view"
-
-  private var engine: AliRtcEngine?
-  private var microphoneEnabled = true
-  private var cameraEnabled = true
-  private var expectedRemoteUserId: String?
-  private var activeRemoteUserId: String?
-  private weak var localContainer: UIView?
-  private weak var remoteContainer: UIView?
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
@@ -148,6 +142,37 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
     registrar.addMethodCallDelegate(instance, channel: channel)
     registrar.register(PetNoteRtcVideoViewFactory(rtcPlugin: instance), withId: videoViewType)
   }
+
+  #if targetEnvironment(simulator)
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "getMediaPermissionState":
+      result("unsupported")
+    case "requestMediaPermission":
+      result(["state": "unsupported", "promptHandled": false])
+    case "openMediaPermissionSettings":
+      result("unsupported")
+    case "initialize", "join", "leave", "toggleCamera", "toggleMicrophone", "toggleSpeaker", "switchCamera", "dispose":
+      result(FlutterError(code: "rtc_unsupported", message: "阿里云 RTC iOS SDK 不支持模拟器", details: nil))
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  fileprivate func bindVideoView(role: String, remoteUserId: String?, container: UIView) {}
+
+  fileprivate func unbindVideoView(container: UIView) {
+    container.subviews.forEach { $0.removeFromSuperview() }
+  }
+  #else
+
+  private var engine: AliRtcEngine?
+  private var microphoneEnabled = true
+  private var cameraEnabled = true
+  private var expectedRemoteUserId: String?
+  private var activeRemoteUserId: String?
+  private weak var localContainer: UIView?
+  private weak var remoteContainer: UIView?
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
@@ -458,7 +483,12 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin, AliRtcEngineDelegate {
       }
     }
   }
+  #endif
 }
+
+#if !targetEnvironment(simulator)
+extension PetNoteRtcPlugin: AliRtcEngineDelegate {}
+#endif
 
 final class PetNoteRtcVideoViewFactory: NSObject, FlutterPlatformViewFactory {
   private let rtcPlugin: PetNoteRtcPlugin

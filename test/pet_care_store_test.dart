@@ -91,6 +91,96 @@ void main() {
       expect(reloaded.pets.single.photoPath, isNull);
     });
 
+    test('deleting a pet removes its related data', () async {
+      final store = await PetNoteStore.load();
+
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      final petId = store.pets.single.id;
+      await store.addTodo(
+        title: '补主粮',
+        petId: petId,
+        dueAt: DateTime.parse('2026-03-28T09:00:00+08:00'),
+        note: '低敏',
+      );
+      await store.addReminder(
+        title: '驱虫',
+        petId: petId,
+        scheduledAt: DateTime.parse('2026-03-29T10:30:00+08:00'),
+        kind: ReminderKind.deworming,
+        recurrence: '每月',
+        note: '饭后',
+      );
+      await store.addRecord(
+        petId: petId,
+        type: PetRecordType.medical,
+        title: '门诊记录',
+        recordDate: DateTime.parse('2026-03-27T14:00:00+08:00'),
+        summary: '恢复正常',
+        note: '继续观察',
+      );
+
+      await store.deletePet(petId);
+
+      expect(store.pets, isEmpty);
+      expect(store.todos, isEmpty);
+      expect(store.reminders, isEmpty);
+      expect(store.records, isEmpty);
+      expect(store.selectedPet, isNull);
+    });
+
+    test('applying remote pet deletion does not emit a local delete mutation',
+        () async {
+      final store = PetNoteStore.seeded();
+
+      await store.updatePet(
+        petId: 'pet-2',
+        name: 'Milo Local',
+        type: PetType.dog,
+        breed: 'Corgi',
+        sex: 'Male',
+        birthday: '2022-09-05',
+        weightKg: 11.2,
+        neuterStatus: PetNeuterStatus.notNeutered,
+        feedingPreferences: '散步后补水，晚饭分两次喂',
+        allergies: '无已知过敏',
+        note: '本地待发送资料',
+      );
+
+      await store.applyMutation(
+        const PetNoteMutation(
+          id: 'remote-delete-pet-1',
+          entityType: PetNoteEntityType.pet,
+          entityId: 'pet-1',
+          kind: PetNoteMutationKind.delete,
+        ),
+      );
+
+      expect(store.petById('pet-1'), isNull);
+      expect(store.todoById('todo-1'), isNull);
+      expect(store.reminderById('reminder-1'), isNull);
+      expect(store.recordById('record-1'), isNull);
+      expect(
+        store.pendingLocalMutations.where(
+          (mutation) =>
+              mutation.entityType == PetNoteEntityType.pet &&
+              mutation.entityId == 'pet-1',
+        ),
+        isEmpty,
+      );
+      expect(store.pendingLocalMutations, hasLength(1));
+    });
+
     test('notification sync version changes only when schedulable data changes',
         () async {
       final store = await PetNoteStore.load();

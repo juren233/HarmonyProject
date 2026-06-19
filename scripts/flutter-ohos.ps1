@@ -235,7 +235,7 @@ function Ensure-HvigorPluginPatched {
 
   $refreshStartMarker = "console.info('Refresh Flutter package config for OHOS IDE run start')"
   $backupStateMarker = "console.info('Backup Flutter shared state start')"
-  $pluginGuardMarker = 'const pluginsByPlatform = JSON.parse(fileContent).plugins ?? {}'
+  $pluginGuardMarker = 'findOhosPluginsFromDependencyGraph'
 
   $stateHelpersSnippet = @'
 const MANAGED_FLUTTER_STATE_FILES = [

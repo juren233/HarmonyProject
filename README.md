@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/juren233/PetNote/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/juren233/PetNote/release.yml?branch=main&label=Release" alt="Release workflow"></a>
-  <img src="https://img.shields.io/badge/version-1.3.7%2B21-orange" alt="Version 1.3.7+21">
+  <img src="https://img.shields.io/badge/version-1.4.0--beta.16%2B38-orange" alt="Version 1.4.0-beta.16+38">
   <img src="https://img.shields.io/badge/platforms-Android%20%7C%20iOS%20%7C%20HarmonyOS-brightgreen" alt="Platforms">
   <img src="https://img.shields.io/badge/stack-Flutter%20%2B%20OHOS%20Flutter-blue" alt="Flutter and OHOS Flutter">
 </p>
@@ -905,7 +905,7 @@ Harmony / ArkTS 运行时问题警醒：
 - “为什么我只加了一个 Harmony 原生插件，结果先是 ArkTS 编译报错、再是安装后启动闪退？”
   因为这类问题常常不是单点 bug，而是三层约束一起踩中：一是 ArkTS 对 TypeScript 动态语法支持更严格，像 `in` 这类写法会直接编译失败；二是 Harmony / ArkUI 的原生对象不能随意用对象字面量整体替换嵌套字段，否则可能在 `FlutterView.ets` 这类桥接层触发 `Obj is not a Valid object`；三是新增原生插件文件如果被 Git 忽略，本地虽能编过，协作者和 CI 却可能拿不到实现文件。排查时应按“ArkTS 语法兼容性 → FlutterView / hvigor 补丁链路 → Git 跟踪状态”这个顺序逐层确认。
 - “为什么 `GeneratedPluginRegistrant.ets` 偶发报 `Cannot find module 'url_launcher_harmonyos'`？”
-  这通常是 DevEco / hvigor daemon 或 ArkTS / OHPM 增量缓存还在使用旧依赖图。先在 [ohos](./ohos) 下执行 `./hvigorw.bat --stop-daemon` 后重试；如果仍失败，再删除本地生成的 `ohos/.hvigor`、`ohos/entry/build`、`ohos/oh_modules` 后重新执行 `./hvigorw.bat assembleHap --stacktrace`。这些目录都是本地生成物，不要提交。
+  这通常是 DevEco / hvigor daemon 或 ArkTS / OHPM 增量缓存还在使用旧依赖图。先在 [ohos](./ohos) 下执行 `./hvigorw.bat --stop-daemon` 后重试；如果仍失败，再删除本地生成的 `ohos/.hvigor`、`ohos/entry/build`、`ohos/oh_modules` 后重新执行 `./hvigorw.bat assembleHap --stacktrace`。如果清缓存后仍然缺模块，检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin) 是否能从 `.flutter-plugins-dependencies` 的 `dependencyGraph` 和 `.dart_tool/package_config.json` 回退识别带 `ohos/oh-package.json5` 的插件，并把插件依赖注入为真实 `file:` 路径。这些目录都是本地生成物，不要提交。
 - “为什么我只改了 `ohos/build-profile.json5` 里的密文，自己机器能跑，别人却在 `SignHap` 报 `Signature material verification failed`？”
   因为这两个密文和本机 `ohos/sign/material` 是配套关系，不是通用密码。只提密文、不带成套材料，其他机器大概率无法解密通过；这种 diff 默认应视为本地签名噪音，而不是共享改动。
 - “为什么不要直接把 OHOS Flutter SDK 当普通目录提交？”
