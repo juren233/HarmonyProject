@@ -2,6 +2,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url "https://storage.flutter-io.cn/download.flutter.io" }
         maven { url "https://maven.aliyun.com/repository/public" }
     }
 }
