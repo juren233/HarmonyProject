@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/juren233/PetNote/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/juren233/PetNote/release.yml?branch=main&label=Release" alt="Release workflow"></a>
-  <img src="https://img.shields.io/badge/version-1.4.0--beta.16%2B38-orange" alt="Version 1.4.0-beta.16+38">
+  <img src="https://img.shields.io/badge/version-1.4.0--beta.17%2B39-orange" alt="Version 1.4.0-beta.17+39">
   <img src="https://img.shields.io/badge/platforms-Android%20%7C%20iOS%20%7C%20HarmonyOS-brightgreen" alt="Platforms">
   <img src="https://img.shields.io/badge/stack-Flutter%20%2B%20OHOS%20Flutter-blue" alt="Flutter and OHOS Flutter">
 </p>
