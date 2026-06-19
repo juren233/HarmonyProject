@@ -6,6 +6,7 @@ services:
       args:
         DART_IMAGE: ${DART_IMAGE:-dart:3.6}
         RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     restart: unless-stopped
     environment:
       PORT: "8787"

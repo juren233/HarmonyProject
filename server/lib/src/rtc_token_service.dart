@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:math';
-
 import 'package:crypto/crypto.dart';
 
 enum RtcUserRole {
@@ -112,7 +111,7 @@ class RtcTokenService {
     final nonce = (_nonceFactory ?? _randomNonce)();
     final token = sha256
         .convert(
-            '$appId$appKey$normalizedChannelId$normalizedUserId$timestamp'
+            '$appId$appKey$normalizedChannelId$normalizedUserId$nonce$timestamp'
                 .codeUnits)
         .toString();
     final singleToken = base64Encode(utf8.encode(jsonEncode({
@@ -138,11 +137,8 @@ class RtcTokenService {
   }
 
   String _randomNonce() {
-    const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz';
     final random = Random.secure();
-    return List.generate(
-      16,
-      (_) => alphabet[random.nextInt(alphabet.length)],
-    ).join();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    return 'AK-${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
   }
 }

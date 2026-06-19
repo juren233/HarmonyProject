@@ -7,6 +7,7 @@ class RtcJoinConfig {
     required this.channelId,
     required this.userId,
     required this.remoteUserId,
+    required this.role,
     required this.token,
     required this.singleToken,
     required this.nonce,
@@ -21,6 +22,7 @@ class RtcJoinConfig {
   final String channelId;
   final String userId;
   final String remoteUserId;
+  final String role;
   final String token;
   final String singleToken;
   final String nonce;
@@ -31,6 +33,7 @@ class RtcJoinConfig {
         'channelId': channelId,
         'userId': userId,
         'remoteUserId': remoteUserId,
+        'role': role,
         'token': token,
         'singleToken': singleToken,
         'nonce': nonce,

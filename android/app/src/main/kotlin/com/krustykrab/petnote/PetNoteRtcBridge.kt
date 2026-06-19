@@ -6,11 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.alivc.rtc.AliRtcAuthInfo
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngine.AliRtcMuteLocalAudioMode
 import com.alivc.rtc.AliRtcEngine.AliRtcRenderMode
@@ -23,6 +27,7 @@ import com.alivc.rtc.AliRtcEngine.AliRtcAudioTrack
 import com.alivc.rtc.AliRtcEngine.AliRTCSdkChannelProfile
 import com.alivc.rtc.AliRtcEngine.AliRTCSdkClientRole
 import com.alivc.rtc.AliRtcEngineImpl
+import com.alivc.rtc.AliRtcEngineEventListener
 import com.alivc.rtc.AliRtcEngineNotify
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -40,8 +45,38 @@ class PetNoteRtcBridge(
     private var localContainer: FrameLayout? = null
     private var remoteContainer: FrameLayout? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingJoinResult: MethodChannel.Result? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val joinTimeoutRunnable = Runnable {
+        completeJoinWithError(-1, "join rtc channel timed out")
+    }
+    private val rtcEventListener = object : AliRtcEngineEventListener() {
+        override fun onJoinChannelResult(result: Int, channel: String, userId: String, elapsed: Int) {
+            Log.i(TAG, "onJoinChannelResult result=$result channel=$channel userId=$userId elapsed=$elapsed")
+            mainHandler.post {
+                handleJoinChannelResult(result, channel)
+            }
+        }
+
+        override fun onJoinChannelResult(result: Int, channel: String, elapsed: Int) {
+            Log.i(TAG, "onJoinChannelResult result=$result channel=$channel elapsed=$elapsed")
+            mainHandler.post {
+                handleJoinChannelResult(result, channel)
+            }
+        }
+
+        override fun onOccurError(error: Int, msg: String) {
+            Log.e(TAG, "onOccurError error=$error message=$msg")
+            if (pendingJoinResult != null) {
+                mainHandler.post {
+                    completeJoinWithError(error, msg)
+                }
+            }
+        }
+    }
     private val rtcNotify = object : AliRtcEngineNotify() {
         override fun onRemoteUserOnLineNotify(uid: String, elapsed: Int) {
+            Log.i(TAG, "onRemoteUserOnLineNotify uid=$uid elapsed=$elapsed")
             handleRemoteMediaAvailable(uid)
         }
 
@@ -50,7 +85,41 @@ class PetNoteRtcBridge(
             audioTrack: AliRtcAudioTrack,
             videoTrack: AliRtcVideoTrack,
         ) {
+            Log.i(TAG, "onRemoteTrackAvailableNotify uid=$uid audio=$audioTrack video=$videoTrack")
             handleRemoteMediaAvailable(uid)
+        }
+
+        override fun onFirstVideoPacketReceived(uid: String, videoTrack: AliRtcVideoTrack, timeCost: Int) {
+            Log.i(TAG, "onFirstVideoPacketReceived uid=$uid video=$videoTrack timeCost=$timeCost")
+        }
+
+        override fun onFirstAudioPacketReceived(uid: String, audioTrack: AliRtcAudioTrack, timeCost: Int) {
+            Log.i(TAG, "onFirstAudioPacketReceived uid=$uid audio=$audioTrack timeCost=$timeCost")
+        }
+
+        override fun onFirstRemoteVideoFrameDrawn(
+            uid: String,
+            videoTrack: AliRtcVideoTrack,
+            width: Int,
+            height: Int,
+            elapsed: Int,
+        ) {
+            Log.i(
+                TAG,
+                "onFirstRemoteVideoFrameDrawn uid=$uid video=$videoTrack size=${width}x$height elapsed=$elapsed",
+            )
+        }
+
+        override fun onFirstRemoteAudioDecoded(uid: String, audioTrack: AliRtcAudioTrack, elapsed: Int) {
+            Log.i(TAG, "onFirstRemoteAudioDecoded uid=$uid audio=$audioTrack elapsed=$elapsed")
+        }
+
+        override fun onAuthInfoExpired() {
+            Log.e(TAG, "onAuthInfoExpired")
+        }
+
+        override fun onCalledApiExecuted(error: Int, api: String, result: String) {
+            Log.i(TAG, "onCalledApiExecuted error=$error api=$api result=$result")
         }
     }
 
@@ -75,11 +144,11 @@ class PetNoteRtcBridge(
                     result.success(openMediaPermissionSettings())
                 }
                 "join" -> {
-                    join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())
-                    result.success(null)
+                    join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>(), result)
                 }
                 "leave" -> {
-                    engine?.leaveChannel()
+                    cancelPendingJoin("rtc join was cancelled by leave")
+                    resetRtcSession()
                     result.success(null)
                 }
                 "toggleCamera" -> {
@@ -102,7 +171,8 @@ class PetNoteRtcBridge(
                     result.success(null)
                 }
                 "dispose" -> {
-                    releaseEngine()
+                    cancelPendingJoin("rtc join was cancelled by dispose")
+                    resetRtcSession()
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -116,7 +186,8 @@ class PetNoteRtcBridge(
         channel.setMethodCallHandler(null)
         pendingPermissionResult?.success(permissionRequestResult(mediaPermissionState(), false))
         pendingPermissionResult = null
-        releaseEngine()
+        cancelPendingJoin("rtc join was cancelled by close")
+        resetRtcSession()
     }
 
     fun handlePermissionResult(requestCode: Int, grantResults: IntArray): Boolean {
@@ -139,6 +210,7 @@ class PetNoteRtcBridge(
             return existing
         }
         val created = AliRtcEngineImpl.getInstance(context)
+        created.setRtcEngineEventListener(rtcEventListener)
         created.setRtcEngineNotify(rtcNotify)
         engine = created
         return created
@@ -192,27 +264,79 @@ class PetNoteRtcBridge(
         )
     }
 
-    private fun join(arguments: Map<*, *>) {
+    private fun join(arguments: Map<*, *>, result: MethodChannel.Result) {
+        pendingJoinResult?.error(
+            "rtc_join_replaced",
+            "rtc join was replaced by a new join request",
+            null,
+        )
+        pendingJoinResult = result
         val rtcEngine = ensureEngine()
         configureVideoEncoder(rtcEngine, arguments)
         expectedRemoteUserId = requireString(arguments, "remoteUserId")
         activeRemoteUserId = null
-        rtcEngine.setChannelProfile(AliRTCSdkChannelProfile.AliRTCSdkInteractiveLive)
-        rtcEngine.setClientRole(AliRTCSdkClientRole.AliRTCSdkInteractive)
-        rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true)
-        rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true)
+        logResult("setChannelProfile", rtcEngine.setChannelProfile(AliRTCSdkChannelProfile.AliRTCSdkInteractiveLive))
+        logResult("setClientRole", rtcEngine.setClientRole(AliRTCSdkClientRole.AliRTCSdkInteractive))
+        logResult("setDefaultSubscribeAllRemoteAudioStreams", rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true))
+        logResult("setDefaultSubscribeAllRemoteVideoStreams", rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true))
         attachLocalView(rtcEngine)
         attachRemoteView(rtcEngine)
-        val singleToken = requireString(arguments, "singleToken")
         val channelId = requireString(arguments, "channelId")
         val userId = requireString(arguments, "userId")
-        val joinResult = rtcEngine.joinChannel(singleToken, channelId, userId, "")
-        require(joinResult == 0) { "join rtc channel failed: $joinResult" }
-        rtcEngine.publishLocalAudioStream(true)
-        rtcEngine.publishLocalVideoStream(true)
-        rtcEngine.subscribeAllRemoteAudioStreams(true)
-        rtcEngine.subscribeAllRemoteVideoStreams(true)
+        val authInfo = AliRtcAuthInfo().apply {
+            appId = requireString(arguments, "appId")
+            this.channelId = channelId
+            this.userId = userId
+            nonce = requireNullableString(arguments, "nonce") ?: ""
+            role = requireString(arguments, "role")
+            timestamp = requireLong(arguments, "timestamp")
+            token = requireString(arguments, "token")
+        }
+        Log.i(TAG, "join requested channelId=$channelId userId=$userId remoteUserId=$expectedRemoteUserId")
+        val joinResult = rtcEngine.joinChannel(authInfo, "")
+        logResult("joinChannel", joinResult)
+        if (joinResult != 0) {
+            completeJoinWithError(joinResult, "join rtc channel failed: $joinResult")
+            return
+        }
+        mainHandler.removeCallbacks(joinTimeoutRunnable)
+        mainHandler.postDelayed(joinTimeoutRunnable, JOIN_TIMEOUT_MS)
+    }
+
+    private fun handleJoinChannelResult(result: Int, channel: String) {
+        val pendingResult = pendingJoinResult ?: return
+        if (result != 0) {
+            completeJoinWithError(result, "join rtc channel failed asynchronously: $result channel=$channel")
+            return
+        }
+        val rtcEngine = engine
+        if (rtcEngine == null) {
+            completeJoinWithError(0, "join rtc channel succeeded after engine was released")
+            return
+        }
+        logResult("publishLocalAudioStream", rtcEngine.publishLocalAudioStream(true))
+        logResult("publishLocalVideoStream", rtcEngine.publishLocalVideoStream(true))
+        logResult("subscribeAllRemoteAudioStreams", rtcEngine.subscribeAllRemoteAudioStreams(true))
+        logResult("subscribeAllRemoteVideoStreams", rtcEngine.subscribeAllRemoteVideoStreams(true))
         expectedRemoteUserId?.let { userId -> subscribeRemoteMedia(rtcEngine, userId) }
+        pendingJoinResult = null
+        mainHandler.removeCallbacks(joinTimeoutRunnable)
+        pendingResult.success(null)
+    }
+
+    private fun completeJoinWithError(code: Int, message: String) {
+        val pendingResult = pendingJoinResult ?: return
+        pendingJoinResult = null
+        mainHandler.removeCallbacks(joinTimeoutRunnable)
+        resetRtcSession()
+        pendingResult.error("rtc_join_failed", "$message (code=$code)", null)
+    }
+
+    private fun cancelPendingJoin(message: String) {
+        val pendingResult = pendingJoinResult ?: return
+        pendingJoinResult = null
+        mainHandler.removeCallbacks(joinTimeoutRunnable)
+        pendingResult.error("rtc_join_cancelled", message, null)
     }
 
     private fun configureVideoEncoder(rtcEngine: AliRtcEngine, arguments: Map<*, *>) {
@@ -222,18 +346,26 @@ class PetNoteRtcBridge(
         val config = AliRtcVideoEncoderConfiguration()
         config.dimensions = AliRtcVideoDimensions(width, height)
         config.bitrate = AliRtcVideoEncoderBitrate.AliRtcVideoEncoderStandardBitrate.getValue()
-        rtcEngine.setVideoEncoderConfiguration(config)
+        logResult("setVideoEncoderConfiguration", rtcEngine.setVideoEncoderConfiguration(config))
     }
 
-    private fun releaseEngine() {
-        engine?.stopPreview()
-        engine?.setLocalViewConfig(null as AliRtcVideoCanvas?, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+    private fun resetRtcSession() {
+        val rtcEngine = engine ?: return
+        Log.i(TAG, "resetRtcSession")
+        logResult("stopPreview", rtcEngine.stopPreview())
+        logResult(
+            "clearLocalViewConfig",
+            rtcEngine.setLocalViewConfig(null as AliRtcVideoCanvas?, AliRtcVideoTrack.AliRtcVideoTrackCamera),
+        )
         currentRemoteUserId()?.let { userId ->
-            engine?.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+            logResult(
+                "clearRemoteViewConfig",
+                rtcEngine.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera),
+            )
         }
-        engine?.leaveChannel()
-        engine?.destroy()
-        engine = null
+        logResult("leaveChannel", rtcEngine.leaveChannel())
+        localContainer?.removeAllViews()
+        remoteContainer?.removeAllViews()
         expectedRemoteUserId = null
         activeRemoteUserId = null
     }
@@ -286,8 +418,8 @@ class PetNoteRtcBridge(
         val canvas = AliRtcVideoCanvas()
         canvas.view = renderView
         canvas.renderMode = AliRtcRenderMode.AliRtcRenderModeAuto
-        rtcEngine.setLocalViewConfig(canvas, AliRtcVideoTrack.AliRtcVideoTrackCamera)
-        rtcEngine.startPreview()
+        logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, AliRtcVideoTrack.AliRtcVideoTrackCamera))
+        logResult("startPreview", rtcEngine.startPreview())
     }
 
     private fun attachRemoteView(rtcEngine: AliRtcEngine) {
@@ -299,17 +431,29 @@ class PetNoteRtcBridge(
         val canvas = AliRtcVideoCanvas()
         canvas.view = renderView
         canvas.renderMode = AliRtcRenderMode.AliRtcRenderModeAuto
-        rtcEngine.setRemoteViewConfig(canvas, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+        logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera))
     }
 
     private fun subscribeRemoteMedia(rtcEngine: AliRtcEngine, userId: String) {
-        rtcEngine.subscribeRemoteMediaStream(
-            userId,
-            AliRtcVideoTrack.AliRtcVideoTrackCamera,
-            true,
-            AliRtcAudioTrack.AliRtcAudioTrackMic,
-            true,
+        logResult(
+            "subscribeRemoteMediaStream",
+            rtcEngine.subscribeRemoteMediaStream(
+                userId,
+                AliRtcVideoTrack.AliRtcVideoTrackCamera,
+                true,
+                AliRtcAudioTrack.AliRtcAudioTrackMic,
+                true,
+            ),
         )
+    }
+
+    private fun logResult(operation: String, code: Int) {
+        val message = "$operation result=$code"
+        if (code == 0) {
+            Log.i(TAG, message)
+        } else {
+            Log.e(TAG, message)
+        }
     }
 
     private fun currentRemoteUserId(): String? {
@@ -329,10 +473,14 @@ class PetNoteRtcBridge(
         return value
     }
 
+    private fun requireNullableString(arguments: Map<*, *>, key: String): String? {
+        return arguments[key] as? String
+    }
+
     private fun requireLong(arguments: Map<*, *>, key: String): Long {
         return when (val value = arguments[key]) {
-            is Int -> value.toLong()
             is Long -> value
+            is Int -> value.toLong()
             is Number -> value.toLong()
             else -> throw IllegalArgumentException("missing rtc $key")
         }
@@ -348,8 +496,10 @@ class PetNoteRtcBridge(
     }
 
     private companion object {
+        const val TAG = "PetNoteRtc"
         const val CHANNEL_NAME = "petnote/rtc"
         const val MEDIA_PERMISSION_REQUEST_CODE = 9421
+        const val JOIN_TIMEOUT_MS = 15000L
         val mediaPermissions = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,

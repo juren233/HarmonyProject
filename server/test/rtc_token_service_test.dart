@@ -24,7 +24,7 @@ void main() {
       'ALICLOUD_RTC_APP_KEY': 'fake-app-key-for-test',
     },
         now: () => DateTime.utc(2024, 3, 9, 16),
-        nonceFactory: () => 'AK-test-nonce');
+        nonceFactory: () => 'AK-nonce-a');
 
     final token = service.issueToken(
       channelId: 'petnote-demo',
@@ -37,12 +37,12 @@ void main() {
     expect(token.channelId, 'petnote-demo');
     expect(token.userId, 'owner-device');
     expect(token.role, RtcUserRole.publisher);
-    expect(token.nonce, 'AK-test-nonce');
+    expect(token.nonce, 'AK-nonce-a');
     expect(token.timestamp, 1710003600);
     expect(token.gslb, ['https://rgslb.rtc.aliyuncs.com']);
     expect(
       token.token,
-      'bec3093026403ef80106c9484d3d6ff503179a6953eeb7b28d3cd88279d802f4',
+      'a4cfe9929469496ff79005d234aa322e48cd22c8c7569affb41d2da36e6b6efe',
     );
     expect(token.singleToken, isA<String>());
     expect(token.singleToken, isNot(contains('fake-app-key-for-test')));
@@ -53,7 +53,7 @@ void main() {
     expect(decodedSingleToken['appid'], 'nml2ycrp');
     expect(decodedSingleToken['channelid'], 'petnote-demo');
     expect(decodedSingleToken['userid'], 'owner-device');
-    expect(decodedSingleToken['nonce'], 'AK-test-nonce');
+    expect(decodedSingleToken['nonce'], 'AK-nonce-a');
     expect(decodedSingleToken['timestamp'], 1710003600);
     expect(decodedSingleToken['token'], token.token);
     expect(
@@ -62,7 +62,7 @@ void main() {
         containsAll(['singleToken', 'nonce', 'timestamp', 'gslb']));
   });
 
-  test('Token 签名遵循官方字段且不受 nonce 影响', () {
+  test('Token 签名包含 nonce', () {
     final baseService = RtcTokenService.fromEnvironment(const {
       'ALICLOUD_RTC_APP_ID': 'nml2ycrp',
       'ALICLOUD_RTC_APP_KEY': 'fake-app-key-for-test',
@@ -88,7 +88,25 @@ void main() {
     );
 
     expect(baseToken.timestamp, changedNonceToken.timestamp);
-    expect(baseToken.token, changedNonceToken.token);
+    expect(baseToken.nonce, 'AK-nonce-a');
+    expect(changedNonceToken.nonce, 'AK-nonce-b');
+    expect(baseToken.token, isNot(changedNonceToken.token));
+  });
+
+  test('默认 nonce 使用 AK 前缀且不超过 64 字节', () {
+    final service = RtcTokenService.fromEnvironment(const {
+      'ALICLOUD_RTC_APP_ID': 'nml2ycrp',
+      'ALICLOUD_RTC_APP_KEY': 'fake-app-key-for-test',
+    });
+
+    final token = service.issueToken(
+      channelId: 'petnote-demo',
+      userId: 'owner-device',
+      role: RtcUserRole.publisher,
+    );
+
+    expect(token.nonce, startsWith('AK-'));
+    expect(utf8.encode(token.nonce).length, lessThanOrEqualTo(64));
   });
 
   test('拒绝空房间或空用户', () {

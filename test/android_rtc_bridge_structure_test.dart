@@ -39,9 +39,13 @@ void main() {
     expect(bridge, contains('Manifest.permission.CAMERA'));
     expect(bridge, contains('Manifest.permission.RECORD_AUDIO'));
     expect(bridge, contains('ActivityCompat.requestPermissions'));
-    expect(bridge, isNot(contains('AliRtcAuthInfo')));
-    expect(bridge, contains('requireString(arguments, "singleToken")'));
     expect(bridge, contains('requireString(arguments, "channelId")'));
+    expect(bridge, contains('AliRtcAuthInfo'));
+    expect(bridge, contains('requireString(arguments, "appId")'));
+    expect(bridge, contains('requireNullableString(arguments, "nonce")'));
+    expect(bridge, contains('requireString(arguments, "role")'));
+    expect(bridge, contains('requireLong(arguments, "timestamp")'));
+    expect(bridge, contains('requireString(arguments, "token")'));
     expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
     expect(bridge,
         contains('AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode'));
@@ -49,11 +53,18 @@ void main() {
     expect(bridge, contains('setLocalViewConfig'));
     expect(bridge, contains('setRemoteViewConfig'));
     expect(bridge, contains('setRtcEngineNotify(rtcNotify)'));
+    expect(bridge, contains('setRtcEngineEventListener(rtcEventListener)'));
+    expect(bridge, contains('onJoinChannelResult'));
+    expect(bridge, contains('onOccurError'));
     expect(bridge, contains('onRemoteUserOnLineNotify'));
     expect(bridge, contains('onRemoteTrackAvailableNotify'));
+    expect(bridge, contains('onFirstVideoPacketReceived'));
+    expect(bridge, contains('onFirstAudioPacketReceived'));
+    expect(bridge, contains('onFirstRemoteVideoFrameDrawn'));
     expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
     expect(bridge, contains('activeRemoteUserId = uid'));
-    expect(bridge, contains('return activeRemoteUserId ?: expectedRemoteUserId'));
+    expect(
+        bridge, contains('return activeRemoteUserId ?: expectedRemoteUserId'));
     expect(bridge, isNot(contains('if (uid != remoteUserId)')));
     expect(bridge, contains('subscribeRemoteMediaStream'));
     expect(bridge, contains('AliRTCSdkInteractiveLive'));
@@ -63,16 +74,12 @@ void main() {
     expect(bridge, contains('setDefaultSubscribeAllRemoteVideoStreams'));
     expect(bridge, contains('publishLocalAudioStream(true)'));
     expect(bridge, contains('publishLocalVideoStream(true)'));
+    expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
+    expect(bridge, contains('AliRtcAudioTrack.AliRtcAudioTrackMic'));
     expect(
-      bridge,
-      contains('AliRtcVideoTrack.AliRtcVideoTrackCamera,\n            true,'),
-    );
-    expect(
-      bridge,
-      contains('AliRtcAudioTrack.AliRtcAudioTrackMic,\n            true,'),
-    );
-    expect(bridge,
-        contains('join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())'));
+        bridge,
+        contains(
+            'join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>(), result)'));
     expect(bridge, contains('AliRtcVideoEncoderConfiguration'));
     expect(bridge, contains('AliRtcVideoDimensions(width, height)'));
     expect(bridge, contains('width == 1280 && height == 720'));
@@ -81,8 +88,26 @@ void main() {
     expect(bridge, isNot(contains('fps')));
     expect(
       bridge,
-      contains('rtcEngine.joinChannel(singleToken, channelId, userId, "")'),
+      contains('rtcEngine.joinChannel(authInfo, "")'),
     );
-    expect(bridge, contains('require(joinResult == 0)'));
+    expect(bridge, isNot(contains('require(joinResult == 0)')));
+    expect(bridge, contains('pendingJoinResult'));
+    expect(bridge, contains('handleJoinChannelResult(result, channel)'));
+    expect(bridge, contains('completeJoinWithError'));
+    expect(bridge, contains('joinTimeoutRunnable'));
+    expect(bridge, contains('JOIN_TIMEOUT_MS = 15000L'));
+    expect(
+        bridge, contains('postDelayed(joinTimeoutRunnable, JOIN_TIMEOUT_MS)'));
+    expect(bridge, contains('cancelPendingJoin'));
+    expect(bridge, contains('resetRtcSession()'));
+    expect(bridge, contains('logResult("leaveChannel"'));
+    expect(bridge, isNot(contains('.destroy()')));
+    expect(bridge, contains('pendingResult.success(null)'));
+    expect(bridge, contains('pendingResult.error("rtc_join_failed"'));
+    expect(bridge, contains('Log.i(TAG, "join requested'));
+    expect(bridge, contains('logResult("publishLocalAudioStream"'));
+    expect(bridge, contains('logResult("publishLocalVideoStream"'));
+    expect(bridge, contains('"subscribeRemoteMediaStream"'));
+    expect(bridge, contains('"setRemoteViewConfig"'));
   });
 }

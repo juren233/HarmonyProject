@@ -39,6 +39,7 @@ class RtcTokenPayload {
       channelId: channelId,
       userId: userId,
       remoteUserId: remoteUserId,
+      role: role,
       token: token,
       singleToken: singleToken,
       nonce: nonce,
@@ -58,7 +59,8 @@ class RtcTokenClient {
     bool? closeClientOnDispose,
   })  : _baseUri = baseUri,
         _client = client ?? (postJson == null ? http.Client() : null),
-        _ownsClient = closeClientOnDispose ?? (client == null && postJson == null),
+        _ownsClient =
+            closeClientOnDispose ?? (client == null && postJson == null),
         _postJson = postJson,
         _now = now,
         _cacheRefreshWindow = cacheRefreshWindow;
@@ -149,7 +151,9 @@ class RtcTokenClient {
       body: jsonEncode(body),
     );
     if (response.statusCode != 200) {
-      throw StateError('rtc token request failed: ${response.statusCode}');
+      throw StateError(
+        'rtc token request failed: ${response.statusCode} ${response.body}',
+      );
     }
     return response.body;
   }
@@ -207,5 +211,6 @@ class _RtcTokenCacheKey {
   }
 
   @override
-  int get hashCode => Object.hash(channelId, userId, role, householdId, authToken);
+  int get hashCode =>
+      Object.hash(channelId, userId, role, householdId, authToken);
 }

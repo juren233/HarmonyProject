@@ -1,7 +1,10 @@
 ARG DART_IMAGE=dart:3.6
 ARG RUNTIME_IMAGE=debian:bookworm-slim
+ARG PUB_HOSTED_URL=https://pub.dev
 
 FROM ${DART_IMAGE} AS build
+ARG PUB_HOSTED_URL
+ENV PUB_HOSTED_URL=${PUB_HOSTED_URL}
 WORKDIR /workspace
 COPY packages/petnote_sync_protocol /workspace/packages/petnote_sync_protocol
 COPY server /workspace/server
