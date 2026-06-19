@@ -200,7 +200,7 @@ void main() {
     await ws.sink.close();
   });
 
-  test('已有 household 的 hello 缺少 token 会拒绝', () async {
+  test('旧版已登记设备缺 token 时 hello_ack 补发 token', () async {
     final created = app.pairing.createCode(
       issuerDeviceId: 'owner-1',
       issuerDeviceName: '主人手机',
@@ -214,8 +214,8 @@ void main() {
       'deviceName': '主人手机',
     }).encode());
     final reply = SyncMessage.decode(await ws.stream.first as String);
-    expect(reply.type, SyncMessageTypes.pairError);
-    expect(reply.payload['message'], 'auth failed');
+    expect(reply.type, SyncMessageTypes.helloAck);
+    expect(reply.payload['authToken'], created.authToken);
     await ws.sink.close();
   });
 

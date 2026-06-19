@@ -42,7 +42,7 @@ void main() {
     expect(token.gslb, ['https://rgslb.rtc.aliyuncs.com']);
     expect(
       token.token,
-      'd40edfd4d9130f4752bfabf3892d736bceb0d81c332210a05d1969130a8f8a31',
+      'bec3093026403ef80106c9484d3d6ff503179a6953eeb7b28d3cd88279d802f4',
     );
     expect(token.singleToken, isA<String>());
     expect(token.singleToken, isNot(contains('fake-app-key-for-test')));
@@ -62,7 +62,7 @@ void main() {
         containsAll(['singleToken', 'nonce', 'timestamp', 'gslb']));
   });
 
-  test('Token 签名包含 nonce', () {
+  test('Token 签名遵循官方字段且不受 nonce 影响', () {
     final baseService = RtcTokenService.fromEnvironment(const {
       'ALICLOUD_RTC_APP_ID': 'nml2ycrp',
       'ALICLOUD_RTC_APP_KEY': 'fake-app-key-for-test',
@@ -88,7 +88,7 @@ void main() {
     );
 
     expect(baseToken.timestamp, changedNonceToken.timestamp);
-    expect(baseToken.token, isNot(changedNonceToken.token));
+    expect(baseToken.token, changedNonceToken.token);
   });
 
   test('拒绝空房间或空用户', () {

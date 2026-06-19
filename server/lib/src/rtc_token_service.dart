@@ -112,7 +112,7 @@ class RtcTokenService {
     final nonce = (_nonceFactory ?? _randomNonce)();
     final token = sha256
         .convert(
-            '$appId$appKey$normalizedChannelId$normalizedUserId$nonce$timestamp'
+            '$appId$appKey$normalizedChannelId$normalizedUserId$timestamp'
                 .codeUnits)
         .toString();
     final singleToken = base64Encode(utf8.encode(jsonEncode({
