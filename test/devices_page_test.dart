@@ -151,11 +151,14 @@ void main() {
 
     expect(find.text('1234'), findsOneWidget);
 
-    flow.joinPeer('pet-1', '客厅平板');
+    await flow.joinPeer('pet-1', '客厅平板');
     await tester.pump();
 
     expect(find.byType(DevicesPage), findsOneWidget);
     expect(find.text('1234'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(
+        find.byKey(const ValueKey('devices_feedback_banner')), findsOneWidget);
     expect(find.text('客厅平板 已配对 ✓'), findsOneWidget);
   });
 
@@ -179,7 +182,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    flow.joinPeer(
+    await flow.joinPeer(
       'pet-1',
       '客厅平板',
       dataPolicy: SyncDataPolicy.remoteWins,
@@ -244,12 +247,14 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('devices_generate_code')));
     await tester.pump();
-    flow.joinPeer(
-      'pet-1',
-      '客厅平板',
-      dataPolicy: SyncDataPolicy.remoteWins,
+    unawaited(
+      flow.joinPeer(
+        'pet-1',
+        '客厅平板',
+        dataPolicy: SyncDataPolicy.remoteWins,
+      ),
     );
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 10));
 
     expect(settings.pendingInitialSyncPolicy, isNull);
     expect(transports, hasLength(2));
@@ -450,6 +455,9 @@ void main() {
       ),
     );
 
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('devices_join_code_entry')));
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('devices_join_code_entry')));
     await tester.pump();
     await tester.enterText(
@@ -465,6 +473,10 @@ void main() {
     expect(flow.deviceName, '我的手机');
     expect(flow.dataPolicy, SyncDataPolicy.remoteWins);
     expect(settings.deviceRole, DeviceRole.owner);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(
+        find.byKey(const ValueKey('devices_feedback_banner')), findsOneWidget);
+    expect(find.text('配对成功'), findsOneWidget);
   });
 
   testWidgets('设备列表不展示当前设备', (tester) async {
@@ -586,12 +598,12 @@ class _FakeOwnerPairingFlow extends OwnerPairingFlow {
     );
   }
 
-  void joinPeer(
+  Future<void> joinPeer(
     String deviceId,
     String deviceName, {
     SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
-  }) {
-    onPeerJoined?.call(deviceId, deviceName, dataPolicy);
+  }) async {
+    await onPeerJoined?.call(deviceId, deviceName, dataPolicy);
   }
 }
 

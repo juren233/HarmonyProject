@@ -8,6 +8,7 @@ class PetsPage extends StatefulWidget {
     required this.onEditPet,
     this.aiInsightsService,
     this.remoteVideoPermissionCoordinator,
+    this.interactionHapticsDriver,
   });
 
   final PetNoteStore store;
@@ -15,6 +16,7 @@ class PetsPage extends StatefulWidget {
   final ValueChanged<Pet> onEditPet;
   final AiInsightsService? aiInsightsService;
   final RtcMediaPermissionCoordinator? remoteVideoPermissionCoordinator;
+  final InteractionHapticsDriver? interactionHapticsDriver;
 
   @override
   State<PetsPage> createState() => _PetsPageState();
@@ -23,6 +25,8 @@ class PetsPage extends StatefulWidget {
 class _PetsPageState extends State<PetsPage> {
   late final NativePetPhotoPicker _nativePetPhotoPicker =
       MethodChannelNativePetPhotoPicker();
+  late final InteractionHapticsDriver _interactionHapticsDriver =
+      widget.interactionHapticsDriver ?? MethodChannelInteractionHaptics();
 
   Future<void> _confirmDeletePet(Pet pet) async {
     final photoPath = pet.photoPath;
@@ -179,6 +183,7 @@ class _PetsPageState extends State<PetsPage> {
                 selected: selected,
                 onTap: () => widget.store.selectPet(item.id),
                 onLongPressCompleted: () => _confirmDeletePet(item),
+                interactionHapticsDriver: _interactionHapticsDriver,
               );
             },
           ),
@@ -285,12 +290,14 @@ class _PetSelectorCard extends StatefulWidget {
     required this.selected,
     required this.onTap,
     required this.onLongPressCompleted,
+    required this.interactionHapticsDriver,
   });
 
   final Pet pet;
   final bool selected;
   final VoidCallback onTap;
   final Future<void> Function() onLongPressCompleted;
+  final InteractionHapticsDriver interactionHapticsDriver;
 
   @override
   State<_PetSelectorCard> createState() => _PetSelectorCardState();
@@ -309,6 +316,7 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
   @override
   void dispose() {
     _holdTimer?.cancel();
+    unawaited(widget.interactionHapticsDriver.stopDeleteHoldRamp());
     super.dispose();
   }
 
@@ -318,14 +326,18 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
       _holdCompleted = false;
       _holdProgressTarget = 1;
     });
+    unawaited(widget.interactionHapticsDriver.playDeleteHoldRamp(
+      durationMs: _holdDuration.inMilliseconds,
+    ));
     _holdTimer = Timer(_holdDuration, _completeHold);
   }
 
   void _cancelHoldProgress() {
-    if (_holdCompleted) {
+    if (_holdCompleted || _holdStartPosition == null) {
       return;
     }
     _holdTimer?.cancel();
+    unawaited(widget.interactionHapticsDriver.stopDeleteHoldRamp());
     _holdStartPosition = null;
     setState(() {
       _holdProgressTarget = 0;
@@ -341,6 +353,7 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
       _suppressNextTap = true;
       _holdProgressTarget = 1;
     });
+    unawaited(_playCompletionHaptics());
     _holdStartPosition = null;
     widget.onLongPressCompleted().whenComplete(() {
       if (mounted) {
@@ -350,6 +363,11 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
         });
       }
     });
+  }
+
+  Future<void> _playCompletionHaptics() async {
+    await widget.interactionHapticsDriver.stopDeleteHoldRamp();
+    await widget.interactionHapticsDriver.playDeleteConfirmImpact();
   }
 
   @override

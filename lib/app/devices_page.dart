@@ -42,6 +42,8 @@ class _DevicesPageState extends State<DevicesPage> {
   late SyncServerMode _serverMode;
   OwnerPairingFlow? _pairingFlow;
   Timer? _countdownTimer;
+  Timer? _feedbackDismissTimer;
+  String? _feedbackMessage;
   bool _generating = false;
   bool _savingServerUrl = false;
   BuildContext? _pairingDialogContext;
@@ -58,6 +60,7 @@ class _DevicesPageState extends State<DevicesPage> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _feedbackDismissTimer?.cancel();
     _pairingFlow?.dispose();
     _serverController.dispose();
     super.dispose();
@@ -78,108 +81,127 @@ class _DevicesPageState extends State<DevicesPage> {
         ),
         body: SafeArea(
           top: false,
-          child: AnimatedBuilder(
-            animation: engine?.devices ?? const AlwaysStoppedAnimation(null),
-            builder: (context, _) {
-              final currentDeviceId = widget.settingsController.deviceId;
-              final devices = (widget.initialDevices ??
-                      engine?.devices.value ??
-                      const <SyncedDeviceInfo>[])
-                  .where((device) => device.deviceId != currentDeviceId)
-                  .toList(growable: false);
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-                children: [
-                  SectionCard(
-                    title: '同步服务器',
+          child: Stack(
+            children: [
+              AnimatedBuilder(
+                animation:
+                    engine?.devices ?? const AlwaysStoppedAnimation(null),
+                builder: (context, _) {
+                  final currentDeviceId = widget.settingsController.deviceId;
+                  final devices = (widget.initialDevices ??
+                          engine?.devices.value ??
+                          const <SyncedDeviceInfo>[])
+                      .where((device) => device.deviceId != currentDeviceId)
+                      .toList(growable: false);
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                     children: [
-                      HyperSegmentedControl(
-                        key: const ValueKey('devices_server_mode_control'),
-                        items: const [
-                          SegmentItem(
-                            key: 'official',
-                            label: '官方服务器',
+                      SectionCard(
+                        title: '同步服务器',
+                        children: [
+                          HyperSegmentedControl(
+                            key: const ValueKey('devices_server_mode_control'),
+                            items: const [
+                              SegmentItem(
+                                key: 'official',
+                                label: '官方服务器',
+                              ),
+                              SegmentItem(
+                                key: 'custom',
+                                label: '自定义',
+                              ),
+                            ],
+                            selectedKey: _serverMode.name,
+                            onChanged: _setServerModeByKey,
                           ),
-                          SegmentItem(
-                            key: 'custom',
-                            label: '自定义',
+                          if (_serverMode == SyncServerMode.custom)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                TextField(
+                                  key: const ValueKey('devices_server_field'),
+                                  controller: _serverController,
+                                  keyboardType: TextInputType.url,
+                                  decoration: const InputDecoration(
+                                    labelText: '服务器地址',
+                                  ),
+                                  onSubmitted: _saveServerUrlAndRestart,
+                                  onEditingComplete: () =>
+                                      _saveServerUrlAndRestart(
+                                    _serverController.text,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton(
+                                  key: const ValueKey(
+                                    'devices_save_server_url',
+                                  ),
+                                  onPressed: _savingServerUrl
+                                      ? null
+                                      : () => _saveServerUrlAndRestart(
+                                            _serverController.text,
+                                          ),
+                                  child: Text(_savingServerUrl ? '保存中' : '保存'),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      SectionCard(
+                        title: '添加设备',
+                        children: [
+                          const Text('生成 4 位配对码后，在另一台设备输入即可加入当前家庭组。'),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              key: const ValueKey('devices_generate_code'),
+                              onPressed: _generating ? null : _generateCode,
+                              child: Text(_generating ? '生成中' : '生成配对码'),
+                            ),
                           ),
                         ],
-                        selectedKey: _serverMode.name,
-                        onChanged: _setServerModeByKey,
                       ),
-                      if (_serverMode == SyncServerMode.custom)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextField(
-                              key: const ValueKey('devices_server_field'),
-                              controller: _serverController,
-                              keyboardType: TextInputType.url,
-                              decoration:
-                                  const InputDecoration(labelText: '服务器地址'),
-                              onSubmitted: _saveServerUrlAndRestart,
-                              onEditingComplete: () =>
-                                  _saveServerUrlAndRestart(
-                                _serverController.text,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton(
-                              key: const ValueKey('devices_save_server_url'),
-                              onPressed: _savingServerUrl
-                                  ? null
-                                  : () => _saveServerUrlAndRestart(
-                                        _serverController.text,
-                                      ),
-                              child: Text(_savingServerUrl ? '保存中' : '保存'),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  SectionCard(
-                    title: '添加设备',
-                    children: [
-                      const Text('生成 4 位配对码后，在另一台设备输入即可加入当前家庭组。'),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          key: const ValueKey('devices_generate_code'),
-                          onPressed: _generating ? null : _generateCode,
-                          child: Text(_generating ? '生成中' : '生成配对码'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SectionCard(
-                    title: '已配对设备',
-                    children: [
-                      ListRow(
-                        key: const ValueKey('devices_join_code_entry'),
-                        title: '输入配对码',
-                        subtitle: '加入另一台设备',
-                        onTap: _showJoinCodeDialog,
-                      ),
-                      if (devices.isEmpty)
-                        const ListRow(title: '暂无设备', subtitle: '未配对')
-                      else
-                        for (final device in devices)
-                          _DeviceRow(
-                            key: ValueKey('device_item_${device.deviceId}'),
-                            device: device,
-                            petName: _petName(device.servedPetId),
-                            onRename: (name) =>
-                                engine?.renameDevice(device.deviceId, name),
-                            onRemove: () =>
-                                engine?.removeDevice(device.deviceId),
+                      SectionCard(
+                        title: '已配对设备',
+                        children: [
+                          ListRow(
+                            key: const ValueKey('devices_join_code_entry'),
+                            title: '输入配对码',
+                            subtitle: '加入另一台设备',
+                            onTap: _showJoinCodeDialog,
                           ),
+                          if (devices.isEmpty)
+                            const ListRow(title: '暂无设备', subtitle: '未配对')
+                          else
+                            for (final device in devices)
+                              _DeviceRow(
+                                key: ValueKey('device_item_${device.deviceId}'),
+                                device: device,
+                                petName: _petName(device.servedPetId),
+                                onRename: (name) =>
+                                    engine?.renameDevice(device.deviceId, name),
+                                onRemove: () =>
+                                    engine?.removeDevice(device.deviceId),
+                              ),
+                        ],
+                      ),
                     ],
+                  );
+                },
+              ),
+              if (_feedbackMessage != null)
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: MediaQuery.viewPaddingOf(context).bottom + 24,
+                  child: PageFeedbackBanner(
+                    key: const ValueKey('devices_feedback_banner'),
+                    message: _feedbackMessage!,
+                    tone: PageFeedbackTone.success,
                   ),
-                ],
-              );
-            },
+                ),
+            ],
           ),
         ),
       ),
@@ -250,7 +272,7 @@ class _DevicesPageState extends State<DevicesPage> {
             return;
           }
           _closePairingDialog();
-          messenger.showSnackBar(SnackBar(content: Text('$name 已配对 ✓')));
+          _showPairingFeedback('$name 已配对 ✓');
         },
       );
       if (!mounted) {
@@ -324,9 +346,7 @@ class _DevicesPageState extends State<DevicesPage> {
                 }
                 navigator.pop();
                 dialogClosed = true;
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('配对成功')),
-                );
+                _showPairingFeedback('配对成功');
               } on PairingException catch (error) {
                 messenger.showSnackBar(SnackBar(content: Text(error.message)));
               } on OfficialSyncServerException catch (error) {
@@ -466,6 +486,21 @@ class _DevicesPageState extends State<DevicesPage> {
     }
     _pairingDialogContext = null;
     Navigator.of(dialogContext).pop();
+  }
+
+  void _showPairingFeedback(String message) {
+    _feedbackDismissTimer?.cancel();
+    setState(() {
+      _feedbackMessage = message;
+    });
+    _feedbackDismissTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _feedbackMessage = null;
+      });
+    });
   }
 
   String _petName(String? petId) {

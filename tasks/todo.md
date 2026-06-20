@@ -162,3 +162,33 @@
 - Harmony 已从 `@aliyun_video_cloud/alivcsdk_artc` 迁移到 `@dingrtc/dingrtc 3.5.0`，平台视图内部改用官方 `DingRtcVideoView(canvasId)` 与 `RtcEngineVideoCanvas.xComponentId`，不再使用旧 `AliRtcXComponentController`。
 - DingRTC OHOS bytecode HAR 要求 project-level `useNormalizedOHMUrl=true`，已按官方 Ohos Demo 的 product-level `buildOption.strictMode` 方式补入 [ohos/build-profile.json5](../ohos/build-profile.json5)。这次结论是否需要补充进 README，避免后续重复踩坑？
 - Harmony 当前构建失败只剩签名材料缺失：`Invalid storeFile value ... ./sign/OpenHarmony.p12`。这属于 README 已记录的本机/共享签名边界，不是 DingRTC ArkTS 编译失败。
+
+## 2026-06-20 设备配对成功提示样式替换
+
+- [x] 复用现有 `PageFeedbackBanner` 成功态替换设备配对成功默认 `SnackBar` → 验证: 配对成功时出现浅绿横幅且无 `SnackBar`
+- [x] 更新设备页配对成功 widget 测试 → 验证: `test/devices_page_test.dart` 覆盖主人端回调与输入配对码加入路径
+- [x] 运行聚焦 Flutter 测试并检查本地噪音 → 验证: `flutter test test/devices_page_test.dart` + `git status --short`
+
+### Review
+
+- 设备页两处配对成功路径已从默认 `SnackBar` 改为复用 `PageFeedbackBanner` 成功态：主人端生成配对码后对端加入显示 `客厅平板 已配对 ✓`，输入配对码加入显示 `配对成功`；错误提示和保存服务器地址提示仍沿用原有 `SnackBar`。
+- 验证通过：`flutter test test/devices_page_test.dart --plain-name '配对成功回调只关闭配对码弹窗而不退出设备页'`；`flutter test test/devices_page_test.dart --plain-name '主人端可通过已配对列表入口输入配对码'`。两条路径均断言无 `SnackBar` 且有 `devices_feedback_banner`。
+- 全量 `flutter test test/devices_page_test.dart` 仍被既有同步重绑用例挡住：`主人端重绑收到宠物端加入后重启同步服务使用新配对配置` 期望 `pendingInitialSyncPolicy == null`，实际为 `SyncDataPolicy.localWins`。该失败不来自本次 UI 样式替换；测试产生的 `pubspec.lock` 版本翻转噪音已恢复。
+
+## 2026-06-20 长按删除卡片三端触觉反馈
+
+- [x] 新增共享 Interaction Haptics 门面并提供 Flutter 降级 → 验证: MethodChannel 单元测试覆盖 ramp/stop/confirm
+- [x] 接入爱宠卡片长按生命周期 → 验证: widget 测试覆盖开始、取消、完成触觉调用顺序
+- [x] 实现 Android/iOS/Harmony 原生触觉桥 → 验证: 三端结构测试覆盖注册、渐强播放、停止和确认反馈
+- [x] 跑聚焦测试与三端最低构建验证 → 验证: Flutter 测试、Android build、iOS release no-codesign、Harmony CompileArkTS/PackageHap
+
+### Review
+
+- 新增 `petnote/interaction_haptics` 统一通道，Dart 侧通过 `InteractionHapticsDriver` 调用 `playDeleteHoldRamp`、`stopDeleteHoldRamp`、`playDeleteConfirmImpact`；原生插件缺失或异常时降级到 Flutter `HapticFeedback`，不阻塞删除 UI。
+- Android 使用 `VibrationEffect` primitive composition，降级到 amplitude waveform / one-shot；iOS 使用 Core Haptics continuous intensity curve + transient confirm，并保留 `UIImpactFeedbackGenerator` fallback；Harmony 使用 `@ohos.vibrator` 的递增短振动序列模拟渐强，并声明 `ohos.permission.VIBRATE`。
+- 验证通过：`flutter test test/interaction_haptics_test.dart test/interaction_haptics_structure_test.dart test/pets_page_subtitle_test.dart`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`。
+- `flutter build ios --simulator --debug` 未通过，失败点是既有 `DingRTC_iOS` pod 缺 simulator xcframework slice 路径，未进入本次 Swift 触觉插件编译；改用 README 认可的 no-codesign 真机 release 构建验证 Swift 语法。
+- Harmony 使用 DevEco hvigor 链路通过 `CompileArkTS` 与 `PackageHap`，最终 `SignHap` 因本机缺 `./sign/OpenHarmony.p12` 失败；这是 README 已记录的签名材料边界，不是本次插件编译失败。
+- 二次蓝军审查修正：完成长按时 Dart 侧改为顺序执行 `stopDeleteHoldRamp()` 后再 `playDeleteConfirmImpact()`，避免 stop/confirm fire-and-forget 竞态吞掉确认震动；新增 widget 测试锁定该顺序。
+- 二次蓝军审查修正：Android 优先使用覆盖完整长按时长的 amplitude waveform，primitive composition 只作为无 amplitude control 的降级；Harmony 确认震动前只清理待执行 ramp 定时器，不再先调用异步 stopVibration 造成确认震动竞态。
+- 二次验证通过：`flutter test test/interaction_haptics_test.dart test/interaction_haptics_structure_test.dart test/pets_page_subtitle_test.dart`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`；Harmony 仍通过 `CompileArkTS` / `PackageHap` 后停在缺 `./sign/OpenHarmony.p12`。

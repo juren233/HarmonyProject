@@ -44,6 +44,7 @@ ohos/entry/src/main/ets/plugins/*
 !ohos/entry/src/main/ets/plugins/PetNotePhotoPickerPlugin.ets
 !ohos/entry/src/main/ets/plugins/KeepAlivePlugin.ets
 !ohos/entry/src/main/ets/plugins/PetNoteRtcPlugin.ets
+!ohos/entry/src/main/ets/plugins/PetNoteInteractionHapticsPlugin.ets
 ohos/entry/src/main/resources/rawfile/flutter_assets/
 
 # DevTools

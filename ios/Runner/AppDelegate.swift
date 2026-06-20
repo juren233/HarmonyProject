@@ -48,6 +48,9 @@ import UserNotifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteIntroHapticsPlugin") {
       PetNoteIntroHapticsPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteInteractionHapticsPlugin") {
+      PetNoteInteractionHapticsPlugin.register(with: registrar)
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "IosNativeOverviewRangeButtonPlugin") {
       IosNativeOverviewRangeButtonPlugin.register(with: registrar)
     }
@@ -1173,6 +1176,170 @@ final class PetNoteNativeOptionPickerPlugin: NSObject, FlutterPlugin, UIAdaptive
       "errorCode": code,
       "errorMessage": message,
     ]
+  }
+}
+
+final class PetNoteInteractionHapticsPlugin: NSObject, FlutterPlugin {
+  static let channelName = "petnote/interaction_haptics"
+
+  private var engine: CHHapticEngine?
+  private var activePlayer: CHHapticAdvancedPatternPlayer?
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteInteractionHapticsPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "playDeleteHoldRamp":
+      let arguments = call.arguments as? [String: Any]
+      let durationMs = arguments?["durationMs"] as? Int ?? 560
+      playDeleteHoldRamp(durationMs: durationMs, result: result)
+    case "stopDeleteHoldRamp":
+      stopDeleteHoldRamp(result: result)
+    case "playDeleteConfirmImpact":
+      playDeleteConfirmImpact(result: result)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func playDeleteHoldRamp(durationMs: Int, result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *), supportsHaptics else {
+      result(nil)
+      return
+    }
+
+    do {
+      let engine = try prepareEngine()
+      try stopActivePlayerIfNeeded()
+      let pattern = try makeDeleteHoldRampPattern(durationMs: durationMs)
+      let player = try engine.makeAdvancedPlayer(with: pattern)
+      activePlayer = player
+      try player.start(atTime: CHHapticTimeImmediate)
+    } catch {
+      playImpactFallback()
+    }
+    result(nil)
+  }
+
+  private func stopDeleteHoldRamp(result: @escaping FlutterResult) {
+    if #available(iOS 13.0, *) {
+      try? stopActivePlayerIfNeeded()
+    }
+    result(nil)
+  }
+
+  private func playDeleteConfirmImpact(result: @escaping FlutterResult) {
+    guard #available(iOS 13.0, *), supportsHaptics else {
+      playImpactFallback()
+      result(nil)
+      return
+    }
+
+    do {
+      let engine = try prepareEngine()
+      let pattern = try makeDeleteConfirmImpactPattern()
+      let player = try engine.makePlayer(with: pattern)
+      try player.start(atTime: CHHapticTimeImmediate)
+    } catch {
+      playImpactFallback()
+    }
+    result(nil)
+  }
+
+  private func playImpactFallback() {
+    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+  }
+
+  private var supportsHaptics: Bool {
+    guard #available(iOS 13.0, *) else {
+      return false
+    }
+    return CHHapticEngine.capabilitiesForHardware().supportsHaptics
+  }
+
+  @available(iOS 13.0, *)
+  private func prepareEngine() throws -> CHHapticEngine {
+    if let engine {
+      try engine.start()
+      return engine
+    }
+
+    let engine = try CHHapticEngine()
+    engine.isAutoShutdownEnabled = false
+    engine.stoppedHandler = { [weak self] _ in
+      self?.activePlayer = nil
+    }
+    engine.resetHandler = { [weak self] in
+      self?.activePlayer = nil
+      self?.engine = nil
+    }
+    try engine.start()
+    self.engine = engine
+    return engine
+  }
+
+  @available(iOS 13.0, *)
+  private func stopActivePlayerIfNeeded() throws {
+    guard let activePlayer else {
+      return
+    }
+    try activePlayer.stop(atTime: CHHapticTimeImmediate)
+    self.activePlayer = nil
+  }
+
+  @available(iOS 13.0, *)
+  private func makeDeleteHoldRampPattern(durationMs: Int) throws -> CHHapticPattern {
+    let duration = max(0.18, Double(durationMs) / 1000.0)
+    let event = CHHapticEvent(
+      eventType: .hapticContinuous,
+      parameters: [
+        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.22),
+        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.18),
+      ],
+      relativeTime: 0,
+      duration: duration
+    )
+    let intensityCurve = CHHapticParameterCurve(
+      parameterID: .hapticIntensityControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.00),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration * 0.22, value: 0.24),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration * 0.54, value: 0.58),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration * 0.86, value: 0.96),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration, value: 0.00),
+      ],
+      relativeTime: 0
+    )
+    let sharpnessCurve = CHHapticParameterCurve(
+      parameterID: .hapticSharpnessControl,
+      controlPoints: [
+        CHHapticParameterCurve.ControlPoint(relativeTime: 0.00, value: 0.12),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration * 0.70, value: 0.26),
+        CHHapticParameterCurve.ControlPoint(relativeTime: duration, value: 0.10),
+      ],
+      relativeTime: 0
+    )
+    return try CHHapticPattern(events: [event], parameterCurves: [intensityCurve, sharpnessCurve])
+  }
+
+  @available(iOS 13.0, *)
+  private func makeDeleteConfirmImpactPattern() throws -> CHHapticPattern {
+    let event = CHHapticEvent(
+      eventType: .hapticTransient,
+      parameters: [
+        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.78),
+        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.42),
+      ],
+      relativeTime: 0
+    )
+    return try CHHapticPattern(events: [event], parameters: [])
   }
 }
 

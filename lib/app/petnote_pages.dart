@@ -10,6 +10,7 @@ import 'package:petnote/ai/ai_insights_service.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/app/interaction_feedback.dart';
+import 'package:petnote/app/interaction_haptics.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
