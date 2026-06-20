@@ -14,7 +14,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.alivc.rtc.AliRtcAuthInfo
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngine.AliRtcMuteLocalAudioMode
 import com.alivc.rtc.AliRtcEngine.AliRtcRenderMode
@@ -283,17 +282,9 @@ class PetNoteRtcBridge(
         attachRemoteView(rtcEngine)
         val channelId = requireString(arguments, "channelId")
         val userId = requireString(arguments, "userId")
-        val authInfo = AliRtcAuthInfo().apply {
-            appId = requireString(arguments, "appId")
-            this.channelId = channelId
-            this.userId = userId
-            nonce = requireNullableString(arguments, "nonce") ?: ""
-            role = requireString(arguments, "role")
-            timestamp = requireLong(arguments, "timestamp")
-            token = requireString(arguments, "token")
-        }
+        val singleToken = requireString(arguments, "singleToken")
         Log.i(TAG, "join requested channelId=$channelId userId=$userId remoteUserId=$expectedRemoteUserId")
-        val joinResult = rtcEngine.joinChannel(authInfo, "")
+        val joinResult = rtcEngine.joinChannel(singleToken, channelId, userId, "")
         logResult("joinChannel", joinResult)
         if (joinResult != 0) {
             completeJoinWithError(joinResult, "join rtc channel failed: $joinResult")

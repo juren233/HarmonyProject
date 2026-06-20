@@ -40,12 +40,7 @@ void main() {
     expect(bridge, contains('Manifest.permission.RECORD_AUDIO'));
     expect(bridge, contains('ActivityCompat.requestPermissions'));
     expect(bridge, contains('requireString(arguments, "channelId")'));
-    expect(bridge, contains('AliRtcAuthInfo'));
-    expect(bridge, contains('requireString(arguments, "appId")'));
-    expect(bridge, contains('requireNullableString(arguments, "nonce")'));
-    expect(bridge, contains('requireString(arguments, "role")'));
-    expect(bridge, contains('requireLong(arguments, "timestamp")'));
-    expect(bridge, contains('requireString(arguments, "token")'));
+    expect(bridge, contains('requireString(arguments, "singleToken")'));
     expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
     expect(bridge,
         contains('AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode'));
@@ -88,7 +83,7 @@ void main() {
     expect(bridge, isNot(contains('fps')));
     expect(
       bridge,
-      contains('rtcEngine.joinChannel(authInfo, "")'),
+      contains('rtcEngine.joinChannel(singleToken, channelId, userId, "")'),
     );
     expect(bridge, isNot(contains('require(joinResult == 0)')));
     expect(bridge, contains('pendingJoinResult'));
