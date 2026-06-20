@@ -2,6 +2,7 @@ name: PetNote Release
 
 on:
   push:
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -274,7 +275,7 @@ jobs:
           release_exists="${{ steps.duplicate.outputs.exists }}"
 
           if [[ "${should_publish_release}" == "true" && "${release_exists}" == "true" ]]; then
-            should_build="false"
+            echo "Release already exists, skipping publish but still building artifacts"
             should_publish_release="false"
           fi
 
@@ -349,7 +350,12 @@ jobs:
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --release --target-platform "android-${{ matrix.scriptTarget }}" --no-tree-shake-icons
+          flutter build apk \
+            --release \
+            --target-platform "android-${{ matrix.scriptTarget }}" \
+            --build-name "${{ needs.resolve-release-plan.outputs.version_core }}" \
+            --build-number "${{ needs.resolve-release-plan.outputs.version_build }}" \
+            --no-tree-shake-icons
 
       - name: Rename Built APK
         shell: bash
@@ -424,7 +430,12 @@ jobs:
 
       - name: Build iOS Without Codesign
         shell: bash
-        run: flutter build ios --release --no-codesign
+        run: >
+          flutter build ios
+          --release
+          --no-codesign
+          --build-name "${{ needs.resolve-release-plan.outputs.version_core }}"
+          --build-number "${{ needs.resolve-release-plan.outputs.version_build }}"
 
       - name: Package Unsigned IPA
         shell: bash
