@@ -21,33 +21,38 @@
   - Android 构建命令显式传入 `--build-name` 和 `--build-number`。
   - iOS 未签名 IPA 构建命令也显式传入 `--build-name` 和 `--build-number`。
   - `.github/workflows/release.yml` 增加 `workflow_dispatch`，支持在 GitHub 网页手动触发同一套构建。
+  - Release workflow 会按 GitHub Actions run number 自动递增外显 beta 版本号，例如 `beta.19`、`beta.20`、`beta.21`。
 
 当前本地检查到 `main` 分支比 `origin/main` 多提交时，要先执行 `git push origin main`，否则 GitHub 上不会有这些修改，也不会触发对应 Actions。
 
 ## 自动版本号规则
 
-当前 workflow 会把 `pubspec.yaml` 的版本拆成两部分：
+当前 `pubspec.yaml` 仍保留基础版本：
 
 ```yaml
 version: 1.4.0-beta.18+40
 ```
 
-- `1.4.0-beta.18` 是外显版本号，用作 `--build-name` 和 Release tag `v1.4.0-beta.18`。
+- `1.4.0` 是外显版本的基础号。
+- `beta.18` 是仓库里的基线，不再代表每次 Actions 发布的最终 beta 后缀。
 - `+40` 是本地兜底 build number；GitHub Actions 正常运行时会被自动 build number 覆盖。
 - GitHub Actions 内部 build number 来自 `git rev-list --count HEAD`。
+- GitHub Actions 外显 beta 后缀来自 `GITHUB_RUN_NUMBER + auto_beta_run_offset`。
+- 当前 `release.yml` 配置为 `auto_beta_run_offset: -111`，所以 run 130 会发布 `1.4.0-beta.19`，run 131 会发布 `1.4.0-beta.20`，后续依次递增。
 
 构建时会显式执行等价逻辑：
 
 ```bash
-flutter build apk --build-name <pubspec version core> --build-number <git commit count>
-flutter build ios --build-name <pubspec version core> --build-number <git commit count>
+flutter build apk --build-name <resolved beta version> --build-number <git commit count>
+flutter build ios --build-name <resolved beta version> --build-number <git commit count>
 ```
 
 因此每次新的提交触发构建时：
 
 - Android 的 `versionCode` 会随提交数递增。
 - iOS 的 `CFBundleVersion` 会随提交数递增。
-- 外显版本号不会自动从 `beta.18` 变成 `beta.19`；如果需要新的 Release tag，仍需手动改 `pubspec.yaml` 的外显版本号。
+- Android 的 `versionName`、iOS 的 `CFBundleShortVersionString`、Release tag 和文件名都会使用解析后的 `beta.N`。
+- 每触发一次新的 workflow run，beta 后缀会随 run number 递增；如果某次构建失败，这个 beta 编号也会被 run number 消耗掉。
 
 ## 当前 workflow 触发规则
 
@@ -154,7 +159,7 @@ Actions -> PetNote Release
 Actions -> PetNote Release -> Run workflow
 ```
 
-手动触发时同样会按当前分支的 HEAD 计算 build number。
+手动触发时同样会按当前分支的 HEAD 计算 build number，并按新的 workflow run number 计算外显 beta 后缀。
 
 ### 5. 下载构建产物
 
@@ -231,23 +236,23 @@ ios.enabled: true
 
 ### 同名 tag 或 Release 已存在
 
-Release tag 由 `pubspec.yaml` 的版本号自动生成，例如：
+Release tag 由 workflow 解析后的外显 beta 版本自动生成。例如当前基础版本：
 
 ```yaml
 version: 1.4.0-beta.18+40
 ```
 
-会生成：
+如果本次 GitHub Actions run number 是 130，会生成：
 
 ```text
-v1.4.0-beta.18
+v1.4.0-beta.19
 ```
 
 如果 GitHub 上已经有同名 Release 或 tag，workflow 会跳过创建新的 Release，避免重复发布。
 
 处理方式：
 
-- 推荐：更新 `pubspec.yaml` 的外显版本号，例如从 `1.4.0-beta.18+40` 改到 `1.4.0-beta.19+41`。
+- 推荐：正常重新触发一次新的 workflow run，让 run number 进入下一个 `beta.N`。
 - 不推荐但可行：手动删除 GitHub 上同名 Release 和 tag 后重新 push。
 
 ### Android 签名 Secrets 缺失
@@ -283,7 +288,7 @@ rg '^version:' pubspec.yaml
 - `git branch --show-current`：确认在预期分支。
 - `git log --oneline origin/main..HEAD`：确认哪些提交准备 push。
 - `release.yml`：确认 Android / iOS 构建开关符合本次目标。
-- `pubspec.yaml`：确认外显版本号是否需要变化，避免 Release tag 重复。
+- `pubspec.yaml`：确认基础版本号是否需要变化；常规 beta 后缀由 Actions 自动递增。
 
 确认无误后：
 
@@ -295,4 +300,4 @@ git push origin main
 
 当前 `.github/workflows/release.yml` 已配置 `workflow_dispatch`，可以在 GitHub 网页上点按钮手动运行。
 
-注意：手动触发不会新增 commit。如果同一个 commit 被重复手动构建，自动 build number 也会相同，因为它来自当前 commit count。想让 build number 继续递增，需要先产生新的提交并 push。
+注意：手动触发不会新增 commit。如果同一个 commit 被重复手动构建，内部 build number 会相同，因为它来自当前 commit count；但外显 beta 后缀会随新的 workflow run number 递增。

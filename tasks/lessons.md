@@ -9,3 +9,4 @@
 - 双端 RTC 排障时，必须先向用户区分 UI 连接状态和原生 SDK 媒体面入会状态；如果修复异步入会判断会让“已连接”变成“连接失败”，要提前说明这是暴露真实失败而不是媒体链路倒退，并给用户一个是否保留旧展示的选择。
 - 审查 GitHub Actions 构建数量时，不能只看 job 显示名里的 matrix 字段组合下结论；必须同时核对 matrix include 数量、artifact 名称和构建命令。`(arm64-v8a, arm64)` 这类显示通常是“产物 ABI + Flutter target 映射”，不等于构建了两个 APK。
 - 做 GitHub Actions 自动版本号时，不能只确认解析步骤算出了 `version_build`；必须同时确认 Android / iOS 构建命令都显式消费这个值，例如 `flutter build ... --build-number`，否则可能出现日志显示自动递增但产物版本号仍沿用 `pubspec.yaml` 或平台默认值。
+- 用户要求“版本号递增”时，必须分清内部构建号 `+build` 和用户可见外显版本 `beta.N`；Release tag、文件名、Android `versionName`、iOS `CFBundleShortVersionString` 都要一起核对，不能只改内部 build number。

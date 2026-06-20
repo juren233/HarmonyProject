@@ -1,6 +1,8 @@
 enabled: true
 build_if_not_enabled: true
 pre_release: true
+auto_beta_enabled: true
+auto_beta_run_offset: -111
 
 android:
   enabled: true
@@ -18,29 +20,33 @@ ios:
 # 3. pre_release=false 时创建正式 Release；pre_release=true 时创建 pre-release。
 # 4. main / beta 分支 + enabled=true：按 pre_release 开关创建 Release 或 pre-release。
 # 5. 其他分支 + enabled=true：只上传 Actions artifacts，不创建 Release。
-# 6. Release tag 由工作流自动取自 pubspec.yaml 的版本号（去掉 +build 后加 v 前缀），
-#    本文件无需也不应再填写 tag 字段；升版本只改 pubspec.yaml 一处即可。
+# 6. auto_beta_enabled=true 时，Release 外显版本号由 pubspec.yaml 的基础版本号
+#    和 GitHub Actions run number 共同计算：
+#    resolved beta = GITHUB_RUN_NUMBER + auto_beta_run_offset。
+#    当前 offset=-111，因此 run 130 -> 1.4.0-beta.19，run 131 -> 1.4.0-beta.20。
+# 7. Release tag 由工作流自动取自解析后的外显版本号（加 v 前缀），
+#    本文件无需也不应再填写 tag 字段；常规 beta 递增不需要手动改 pubspec.yaml。
 #    例如：version: 1.0.0+1 自动生成 tag v1.0.0
-#    例如：version: 1.0.0-beta.1+2 自动生成 tag v1.0.0-beta.1
-#    如果本文件残留了 tag 字段且与 pubspec 版本不一致，解析步骤会报错并提示删除。
-# 7. pubspec.yaml 的预发布版本必须使用标准 SemVer 格式，
+#    例如：version: 1.0.0-beta.1+2 且自动 beta 解析到 beta.19，则生成 tag v1.0.0-beta.19
+#    如果本文件残留了 tag 字段且与解析后的版本不一致，解析步骤会报错并提示删除。
+# 8. pubspec.yaml 的预发布版本必须使用标准 SemVer 格式，
 #    例如 1.0.0-beta.1、1.0.0-rc.1，不能写成 1.0.0beta.1。
-# 8. Android Release / pre-release 的类型由 pre_release 控制：
+# 9. Android Release / pre-release 的类型由 pre_release 控制：
 #    pre_release=false -> Release
 #    pre_release=true -> pre-release
 #    other branches -> artifacts only，不受 pre_release 影响
-# 9. android.enabled=true 表示本次构建包含 Android 安装包。
-# 10. artifacts 用于声明要构建的 APK CPU 架构：
+# 10. android.enabled=true 表示本次构建包含 Android 安装包。
+# 11. artifacts 用于声明要构建的 APK CPU 架构：
 #    arm64-v8a = 大多数 64 位 Android 真机，推荐优先提供
 #    armeabi-v7a = 较老的 32 位 Android 设备
 #    x86_64 = Android 模拟器或少量 x86_64 设备
-# 11. ios.enabled=true 表示本次构建包含 iOS 未签名 IPA。
-# 12. iOS artifacts 当前支持 unsigned-ipa，产物需自行签名后才能安装到真机或分发。
-# 13. 每个 Android 架构生成独立 APK，便于用户按设备选择安装。
-# 14. 如果同名 tag/release 已存在，工作流会跳过后续构建与发布，避免重复创建。
-# 15. 如果需要重新创建同名 release（例如内部 build number 变化，但外显版本号不变），
+# 12. ios.enabled=true 表示本次构建包含 iOS 未签名 IPA。
+# 13. iOS artifacts 当前支持 unsigned-ipa，产物需自行签名后才能安装到真机或分发。
+# 14. 每个 Android 架构生成独立 APK，便于用户按设备选择安装。
+# 15. 如果同名 tag/release 已存在，工作流会跳过后续构建与发布，避免重复创建。
+# 16. 如果需要重新创建同名 release（例如内部 build number 变化，但外显版本号不变），
 #     先手动删除 GitHub 上同名 release 和 tag，再重新 push 触发创建。
-# 16. Release / pre-release 说明内容使用中文版，并直接提取本次 push 携带的提交说明。
-# 17. pre_release=true 生成的 pre-release 顶部会自动加入 GitHub 原生 `IMPORTANT` 提示块，提醒用户这是测试版。
-# 18. 所有已发布版本的说明底部都会自动加入中文“版本选择”区块，
+# 17. Release / pre-release 说明内容使用中文版，并直接提取本次 push 携带的提交说明。
+# 18. pre_release=true 生成的 pre-release 顶部会自动加入 GitHub 原生 `IMPORTANT` 提示块，提醒用户这是测试版。
+# 19. 所有已发布版本的说明底部都会自动加入中文“版本选择”区块，
 #     并为每个 APK / IPA 提供可直接点击下载的蓝字链接。

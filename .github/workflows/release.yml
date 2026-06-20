@@ -48,6 +48,8 @@ jobs:
           enabled = False
           build_if_not_enabled = False
           pre_release = False
+          auto_beta_enabled = False
+          auto_beta_run_offset = None
           tag = ""
           android_section_found = False
           android_enabled = None
@@ -83,6 +85,10 @@ jobs:
                 build_if_not_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
               elif stripped.startswith(("pre_release:", "prerelease:", "pre-release:")):
                 pre_release = stripped.split(":", 1)[1].strip().lower() == "true"
+              elif stripped.startswith("auto_beta_enabled:"):
+                auto_beta_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
+              elif stripped.startswith("auto_beta_run_offset:"):
+                auto_beta_run_offset = int(stripped.split(":", 1)[1].strip())
               elif stripped.startswith("tag:"):
                 value = stripped.split(":", 1)[1].strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
@@ -134,6 +140,30 @@ jobs:
 
           version_full = version_line.split(":", 1)[1].strip()
           version_core, _, version_build = version_full.partition("+")
+
+          if auto_beta_enabled:
+            if auto_beta_run_offset is None:
+              raise SystemExit("release.yml must define auto_beta_run_offset when auto_beta_enabled=true.")
+
+            run_number_raw = os.environ.get("GITHUB_RUN_NUMBER", "")
+            if not run_number_raw.isdigit():
+              raise SystemExit("GITHUB_RUN_NUMBER must be available and numeric when auto_beta_enabled=true.")
+
+            version_match = re.fullmatch(r"(?P<base>\d+\.\d+\.\d+)(?:-beta\.\d+)?", version_core)
+            if version_match is None:
+              raise SystemExit(
+                "auto_beta_enabled=true requires pubspec.yaml version core like 1.4.0-beta.18 or 1.4.0."
+              )
+
+            beta_number = int(run_number_raw) + auto_beta_run_offset
+            if beta_number <= 0:
+              raise SystemExit(
+                f"auto beta number must be positive; got {beta_number} from run {run_number_raw} "
+                f"and offset {auto_beta_run_offset}."
+              )
+
+            version_core = f"{version_match.group('base')}-beta.{beta_number}"
+            print(f"Using auto beta version from GitHub run number: {version_core}")
 
           # Auto-increment build number using git commit count
           # This ensures every push gets a unique, monotonically increasing build number
@@ -195,13 +225,14 @@ jobs:
             if not abis:
               abis = []
 
-          # The release tag is derived from pubspec.yaml so the version only
-          # needs to be bumped in one place. A leftover explicit tag in
-          # release.yml is tolerated only when it matches the derived value.
+          # The release tag is derived from the resolved runtime version so the
+          # same value is used for the tag, filenames, and mobile build-name.
+          # A leftover explicit tag in release.yml is tolerated only when it
+          # matches the derived value.
           derived_tag = f"v{version_core}"
           if tag and tag != derived_tag:
             raise SystemExit(
-              f"release.yml tag {tag} conflicts with pubspec version {version_core}; "
+              f"release.yml tag {tag} conflicts with resolved version {version_core}; "
               f"remove the tag field from release.yml (it is derived automatically as {derived_tag})."
             )
           tag = derived_tag

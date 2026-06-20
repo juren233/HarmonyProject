@@ -113,6 +113,7 @@
 - [x] Android signing 改用现有 `scripts/prepare-android-signing.sh`，保持 GitHub Secrets 和 Gradle 签名协议不变 → 验证: Actions 中 `Prepare Android Signing` 成功
 - [x] Android APK 构建改为 Linux 上直接执行 `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` → 验证: Actions 生成 `apk-arm64-v8a`
 - [x] 推送后对比 Linux runner 实际耗时与上一轮 Windows runner `11m1s` → 验证: Linux runner Android job `7m50s`
+- [x] 修复 GitHub Actions 外显 beta 版本号自动递增 → 验证: workflow 嵌入解析脚本在 `GITHUB_RUN_NUMBER=130` 时输出 `version_core=1.4.0-beta.19` / `tag=v1.4.0-beta.19`
 
 ## 2026-06-20 iOS / Harmony RTC 复用与构建验收
 
