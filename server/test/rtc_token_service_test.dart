@@ -41,7 +41,7 @@ void main() {
     expect(token.role, RtcUserRole.publisher);
     expect(token.nonce, 'AK-nonce-a');
     expect(token.timestamp, 1710003600);
-    expect(token.gslb, ['https://rgslb.rtc.aliyuncs.com']);
+    expect(token.gslb, ['https://gslb.dingrtc.com']);
     expect(token.singleToken, isA<String>());
     expect(token.singleToken, token.token);
     expect(token.singleToken, isNot(contains('fake-app-key-for-test')));

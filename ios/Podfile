@@ -30,7 +30,7 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
-  pod 'AliVCSDK_ARTC' unless ENV['PETNOTE_SKIP_RTC_POD'] == '1'
+  pod 'DingRTC_iOS', '~> 3.9.38' unless ENV['PETNOTE_SKIP_RTC_POD'] == '1'
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths

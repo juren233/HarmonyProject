@@ -7,7 +7,6 @@
   "author": "",
   "license": "",
   "dependencies": {
-    "@aliyun_video_cloud/alivcsdk_artc": "6.11.0-beta"
+    "@dingrtc/dingrtc": "3.5.0"
   },
 }
-

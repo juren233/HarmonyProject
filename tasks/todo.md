@@ -83,6 +83,9 @@
 - [x] 检查官方 Demo 依赖与 SDK 来源，不把 AppKey 写入 PetNote 仓库 → 验证: 临时 Demo 使用阿里云 Maven `com.ding.rtc:dingrtc-basic:3.9.0` 构建成功
 - [x] 构建并安装官方 Android Demo 到两台真机 → 验证: `:app:assembleDebug` 成功，APK SHA256 `4b8830f12fb77e5d7bc8701d738c0fe686462d6043ae92fc693ade4b9592482e`
 - [x] 双端加入同一官方 Demo 频道并抓取日志 → 验证: 手机端出现 `onJoinChannelResult, result=0`，随后收到平板远端上线、音视频轨道、订阅返回 0 和远端首帧渲染
+- [x] 补齐官方 iOS DingRTC Demo SDK 与临时 token，不把 AppKey/token 写入 PetNote 仓库 → 验证: `DingRTC.xcframework` 放在外部 Demo `iOS/SDK`，`xcodebuild ... DEVELOPMENT_TEAM=G9CUU32QMD PRODUCT_BUNDLE_IDENTIFIER=com.krustykrab.dingrtcdemo IPHONEOS_DEPLOYMENT_TARGET=15.0 build` 成功
+- [x] 安装并启动官方 iOS DingRTC Demo 抓 console 日志 → 验证: iPhone 端先因新 App 网络权限被系统拦截报 `Denied over Wi-Fi interface`，允许网络后重启出现 `Join channel successfully.`
+- [x] 官方 iOS Demo 与官方 Android Demo 跨端互通验证 → 验证: iOS 端频道 `ios-demo-0620` 用户 `ios-demo-1`，Android 平板用户 `android-demo-1`；iOS 日志出现 `User android-demo-1 join channel`、`start audio`、`start video`、`unmute audio/video`，Android UI 层同时显示 `ios-demo-1` 和 `android-demo-1`
 
 ## 2026-06-20 Android DingRTC 3.x 迁移计划
 
@@ -110,3 +113,52 @@
 - [x] Android signing 改用现有 `scripts/prepare-android-signing.sh`，保持 GitHub Secrets 和 Gradle 签名协议不变 → 验证: Actions 中 `Prepare Android Signing` 成功
 - [x] Android APK 构建改为 Linux 上直接执行 `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` → 验证: Actions 生成 `apk-arm64-v8a`
 - [x] 推送后对比 Linux runner 实际耗时与上一轮 Windows runner `11m1s` → 验证: Linux runner Android job `7m50s`
+- [x] 修复 GitHub Actions 外显 beta 版本号自动递增 → 验证: workflow 嵌入解析脚本在 `GITHUB_RUN_NUMBER=130` 时输出 `version_core=1.4.0-beta.19` / `tag=v1.4.0-beta.19`
+
+## 2026-06-20 iOS / Harmony RTC 复用与构建验收
+
+- [x] 删除 Android CI 临时测试分支 → 验证: 本地和远端均无 `codex/android-ci-linux-runner`
+- [x] 对比 Android 已验证 DingRTC 3.x 桥接与 iOS/Harmony 当前 RTC 实现，明确哪些可复用、哪些必须平台专用 → 验证: iOS/Harmony 复用异步入会状态机，不直接复用 Android DingRTC SDK；结构测试覆盖 pending join、timeout、错误回传
+- [x] 使用 macOS DevEco CLI 链路构建 Harmony x64 HAP → 验证: `ohpm install --all` 成功；DevEco `hvigor.js assembleHap -p product=default -p buildMode=debug --no-daemon` 通过 ArkTS/PackageHap 并产出 unsigned HAP，签名阶段因共享基线缺本地证书失败
+- [x] 安装 Harmony HAP 到已启动虚拟机 → 验证: 本地 `hap-sign-tool.jar` 签出 `entry-default-signed.hap`，`hdc -t 127.0.0.1:5555 install -r ...` 成功，`aa start -a EntryAbility -b com.krustykrab.petnote` 成功
+- [x] 构建 iOS 未签名 IPA → 验证: `flutter build ios --release --no-codesign` 成功并产出 `build/ios/Runner-unsigned.ipa`，SHA256 `f9fe423646bccdf6af9718a395eedd8789d1b8741f47515f555cf2e5fad23cf3`
+- [x] 清理构建残留和进程 → 验证: 无 Gradle/Kotlin/Flutter 测试构建残留；仅有常驻 `xcodebuildmcp` 工具服务；git 噪音限于本次 RTC 源码/测试/任务记录
+
+### Review
+
+- Android 已验证 DingRTC 3.x 的 SDK 层不能直接复制到 iOS/Harmony：iOS 仍是 `AliVCSDK_ARTC 7.11.0`，Harmony 仍是 `@aliyun_video_cloud/alivcsdk_artc 6.11.0-beta`。本轮复用的是“异步入会回调成功后才向 Flutter 返回成功、失败/超时回传错误、成功后再发布/订阅”的状态机。
+- Harmony 构建实测发现 README 的 macOS `hvigorw` 命令与当前仓库实际入口不完全一致：`ohos/` 没有 Unix `hvigorw`，本机可用 DevEco 自带 node 执行 `tools/hvigor/hvigor/bin/hvigor.js`。如果这次结论会影响后续协作，是否同时补充到 README？
+- Harmony unsigned HAP SHA256: `26ac5b5ef3395e0f6413df53b35bb599e5ffe89eb4bfdc38f5d2093b83e5d439`；本地签出的 signed HAP SHA256: `ff07971321742defeff3f0129eb2c11328c54dde90ff6f1fd7788487dc05ce7d`。
+
+## 2026-06-20 iOS 主人端 RTC 连接失败复测
+
+- [x] 抓取 iPhone 主人端控制台日志 → 验证: `devicectl --console` 下复现连接失败，日志显示 `joinChannel result=-1`，随后 `onJoinChannelResult result=16974081 channel= userId=`
+- [x] 对照 iOS `AliRtcEngine.h` 改为 `AliRtcAuthInfo` 入会 → 验证: `AliRtcAuthInfo` 需要 `appId/channelId/userId/nonce/token/timestamp`；iOS 桥接改用 `joinChannel(authInfo, name:onResultWithUserId:)`
+- [x] 更新 iOS 结构测试 → 验证: 防止退回 `joinChannel(singleToken...)`
+- [x] 构建新版 iOS 未签名 IPA → 验证: `flutter build ios --release --no-codesign` 通过，`build/ios/Runner-unsigned.ipa` SHA256 `d2c6479f8bf924e605d30a49edefa58060d8cdbcfb7642235f24fc504ab23f49`
+- [ ] 安装新版 IPA 到 Ebato 的 iPhone 后复测 → 验证: `joinChannel result=0` 且异步 `onJoinChannelResult result=0`，或保留新的错误码继续核查
+
+### Review
+
+- 这次 iOS 主人端失败不是同步、信令、权限或 Token 请求前置失败；日志已经进入原生 RTC，并打印出非空 `channelId/userId/remoteUserId`。
+- 直接根因是 iOS 端使用 token 字符串重载时 SDK 同步拒绝入会，表现为 `joinChannel result=-1` 和空 channel/user 回调；当前修复切换到 SDK 头文件明确要求字段完整的 `AliRtcAuthInfo` 入会形态。
+- 本机无法直接用 `flutter run` 安装调试包到 iPhone，原因是 Apple 账号 `souitou@outlook.com` 登录被拒且缺少 `com.krustykrab.petnote` 开发 provisioning profile；这不是本次 Swift 编译失败。
+
+## 2026-06-20 iOS / Harmony DingRTC 迁移
+
+- [x] 对照官方 DingRTC iOS / Ohos Demo，确认两端最小迁移 API → 验证: iOS 使用 `DingRtcEngine/DingRtcAuthInfo/DingRtcVideoCanvas`，Ohos 使用 `DingRtcSDK.create/AuthInfo/DingRtcVideoView`
+- [x] 迁移 iOS 原生桥与 CocoaPods 依赖到 DingRTC → 验证: 结构测试检查 `DingRTC_iOS`、`import DingRTC`、`joinChannel(authInfo)`，并禁止旧 `AliRtc*`
+- [x] 迁移 Harmony 原生桥与 OHPM 依赖到 DingRTC → 验证: 结构测试检查 `@dingrtc/dingrtc`、`DingRtcEventListener`、`DingRtcVideoView`，并禁止旧 `@aliyun_video_cloud/alivcsdk_artc`
+- [x] 将服务端默认 GSLB 收敛为官方 DingRTC 地址 → 验证: server token 测试期望 `https://gslb.dingrtc.com`
+- [x] 运行 Flutter 结构/RTC token 相关测试 → 验证: `flutter test test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart test/rtc_token_client_test.dart test/rtc_adapter_test.dart`，10/10 pass
+- [x] 运行 server token 相关测试 → 验证: `cd server && dart test test/rtc_token_service_test.dart test/server_app_test.dart`，14/14 pass
+- [x] 执行 iOS 依赖安装与未签名 IPA 构建 → 验证: `cd ios && pod install` 成功安装 `DingRTC_iOS 3.9.38`；`flutter build ios --release --no-codesign` 通过；`build/ios/Runner-unsigned.ipa` SHA256 `38ff86d07062fd9eae5d79ad4deb80521bcd8675e4e5fb8647e92b5b41d26610`
+- [x] 执行 Harmony OHPM / DevEco CLI 构建 → 验证: `ohpm install --all` 成功拉取 `@dingrtc/dingrtc 3.5.0`；DevEco `hvigor.js assembleHap ...` 通过 `CompileArkTS` 与 `PackageHap`，签名阶段因本机缺 `./sign/OpenHarmony.p12` 失败；unsigned HAP SHA256 `59547c836583d02d61b42ed041e81f459965a58c68a6d67ad33f5104f0eccd50`
+- [x] 清理构建残留与 lockfile 噪音 → 验证: `git status --short --untracked-files=all` 只保留必要源码、测试和任务记录；无 Flutter/Gradle/Java/hvigor 构建残留进程，只有常驻 `xcodebuildmcp` 工具服务
+
+### Review
+
+- iOS 已从 `AliVCSDK_ARTC` 迁移到 `DingRTC_iOS 3.9.38`，原生桥改用 `DingRtcEngine`、`DingRtcAuthInfo`、`DingRtcVideoCanvas`、`joinChannel(authInfo, name:)`，并继续保留“异步入会成功后才向 Flutter 返回成功”的状态机。
+- Harmony 已从 `@aliyun_video_cloud/alivcsdk_artc` 迁移到 `@dingrtc/dingrtc 3.5.0`，平台视图内部改用官方 `DingRtcVideoView(canvasId)` 与 `RtcEngineVideoCanvas.xComponentId`，不再使用旧 `AliRtcXComponentController`。
+- DingRTC OHOS bytecode HAR 要求 project-level `useNormalizedOHMUrl=true`，已按官方 Ohos Demo 的 product-level `buildOption.strictMode` 方式补入 [ohos/build-profile.json5](../ohos/build-profile.json5)。这次结论是否需要补充进 README，避免后续重复踩坑？
+- Harmony 当前构建失败只剩签名材料缺失：`Invalid storeFile value ... ./sign/OpenHarmony.p12`。这属于 README 已记录的本机/共享签名边界，不是 DingRTC ArkTS 编译失败。

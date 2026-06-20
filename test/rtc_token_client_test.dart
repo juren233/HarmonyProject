@@ -29,7 +29,7 @@ void main() {
           'singleToken': 'single-token-value',
           'nonce': 'AK-nonce',
           'timestamp': 1710003600,
-          'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+          'gslb': ['https://gslb.dingrtc.com'],
           'expiresAtMs': 1710003600000,
         });
       },
@@ -46,7 +46,7 @@ void main() {
     expect(token.appId, 'nml2ycrp');
     expect(token.nonce, 'AK-nonce');
     expect(token.timestamp, 1710003600);
-    expect(token.gslb, ['https://rgslb.rtc.aliyuncs.com']);
+    expect(token.gslb, ['https://gslb.dingrtc.com']);
     expect(requestBody, containsPair('householdId', 'household-1'));
     expect(requestBody, containsPair('authToken', 'auth-token'));
     final joinConfig = token.toJoinConfig(remoteUserId: 'pet-device');
@@ -73,7 +73,7 @@ void main() {
           'singleToken': 'single-token-$requestCount',
           'nonce': 'AK-nonce-$requestCount',
           'timestamp': 1710003600 + requestCount,
-          'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+          'gslb': ['https://gslb.dingrtc.com'],
           'expiresAtMs': DateTime.utc(2024, 3, 9, 16, 1).millisecondsSinceEpoch,
         });
       },
@@ -120,7 +120,7 @@ void main() {
           'singleToken': 'single-token-$requestCount',
           'nonce': 'AK-nonce-$requestCount',
           'timestamp': 1710003600 + requestCount,
-          'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+          'gslb': ['https://gslb.dingrtc.com'],
           'expiresAtMs': DateTime.utc(2024, 3, 9, 17).millisecondsSinceEpoch,
         });
       },
@@ -166,7 +166,7 @@ void main() {
           'singleToken': 'single-token-$requestCount',
           'nonce': 'AK-nonce-$requestCount',
           'timestamp': 1710003600 + requestCount,
-          'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+          'gslb': ['https://gslb.dingrtc.com'],
           'expiresAtMs': DateTime.utc(2024, 3, 9, 17).millisecondsSinceEpoch,
         });
       },
@@ -207,7 +207,7 @@ void main() {
             'singleToken': 'single-token-bad',
             'nonce': 'AK-bad',
             'timestamp': 1710003600,
-            'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+            'gslb': ['https://gslb.dingrtc.com'],
             'expiresAtMs': 1710003600000,
           });
         }
@@ -220,7 +220,7 @@ void main() {
           'singleToken': 'single-token-good',
           'nonce': 'AK-good',
           'timestamp': 1710003601,
-          'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+          'gslb': ['https://gslb.dingrtc.com'],
           'expiresAtMs': 1710003600000,
         });
       },

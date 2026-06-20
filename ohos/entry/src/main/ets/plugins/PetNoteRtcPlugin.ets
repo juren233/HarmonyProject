@@ -1,7 +1,7 @@
 import { abilityAccessCtrl, bundleManager, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
 import common from '@ohos.app.ability.common';
 import UIAbility from '@ohos.app.ability.UIAbility';
-import { AliRtcAudioTrack, AliRtcChannelProfile, AliRtcClientRole, AliRtcEngine, AliRtcEngineEventListener, AliRtcRenderMode, AliRtcVideoCanvas, AliRtcVideoDimensions, AliRtcVideoEncoderConfiguration, AliRtcVideoTrack, AliRtcXComponentController } from '@aliyun_video_cloud/alivcsdk_artc';
+import { DingRtc, DingRtcConstants, DingRtcEventListener, DingRtcSDK, DingRtcVideoView } from '@dingrtc/dingrtc';
 import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
 import AbilityAware from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityAware';
 import { AbilityPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityPluginBinding';
@@ -26,7 +26,6 @@ interface RtcVideoCreationParams {
 }
 
 interface RtcVideoBinding {
-  controller: AliRtcXComponentController;
   surfaceId: string;
   remoteUserId?: string;
 }
@@ -41,14 +40,16 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   private pluginBinding: FlutterPluginBinding | null = null;
   private ability: UIAbility | null = null;
   private abilityBinding: AbilityPluginBinding | null = null;
-  private engine: AliRtcEngine | null = null;
+  private engine: DingRtc | null = null;
   private cameraEnabled: boolean = true;
   private microphoneEnabled: boolean = true;
   private expectedRemoteUserId: string | null = null;
   private activeRemoteUserId: string | null = null;
   private localVideo: RtcVideoBinding | null = null;
   private remoteVideo: RtcVideoBinding | null = null;
-  private rtcEventListener: AliRtcEngineEventListener | null = null;
+  private rtcEventListener: DingRtcEventListener | null = null;
+  private pendingJoinResult: MethodResult | null = null;
+  private joinTimeoutId: number = -1;
 
   getUniqueClassName(): string {
     return TAG;
@@ -103,6 +104,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
           this.join(call, result);
           break;
         case 'leave':
+          this.cancelPendingJoin('rtc join was cancelled by leave');
           this.engine?.leaveChannel();
           result.success(null);
           break;
@@ -125,6 +127,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
           result.success(null);
           break;
         case 'dispose':
+          this.cancelPendingJoin('rtc join was cancelled by dispose');
           this.releaseEngine();
           result.success(null);
           break;
@@ -236,7 +239,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     });
   }
 
-  private ensureEngine(): AliRtcEngine {
+  private ensureEngine(): DingRtc {
     if (this.engine != null) {
       return this.engine;
     }
@@ -244,81 +247,123 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     if (context == null) {
       throw new Error('应用上下文不可用');
     }
-    this.engine = AliRtcEngine.getInstance('', context);
-    this.engine.setRtcEngineEventListener(this.ensureRtcEventListener());
+    this.engine = DingRtcSDK.create(context);
+    this.engine.setEventListener(this.ensureRtcEventListener());
     return this.engine;
   }
 
-  private ensureRtcEventListener(): AliRtcEngineEventListener {
+  private ensureRtcEventListener(): DingRtcEventListener {
     if (this.rtcEventListener != null) {
       return this.rtcEventListener;
     }
-    this.rtcEventListener = new AliRtcEngineEventListener()
-      .onJoinChannel((result: number, channel: string, userId: string, elapsed: number) => {
-        this.log(`onJoinChannel result=${result} channel=${channel} userId=${userId} elapsed=${elapsed}`);
-      })
-      .onOccurError((error: number, msg: string) => {
-        this.log(`onOccurError error=${error} message=${msg}`);
-      })
-      .onRemoteUserOnline((uid: string, online: boolean) => {
-        this.log(`onRemoteUserOnline uid=${uid} online=${online}`);
-        if (online) {
-          this.deferRemoteMediaAvailable(uid);
-        }
-      })
-      .onRemoteTrackAvailableNotify((uid: string, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) => {
-        this.log(`onRemoteTrackAvailableNotify uid=${uid} audio=${audioTrack} video=${videoTrack}`);
-        this.deferRemoteMediaAvailable(uid);
-      })
-      .onFirstVideoPacketReceived((uid: string, videoTrack: AliRtcVideoTrack, timeCost: number) => {
-        this.log(`onFirstVideoPacketReceived uid=${uid} video=${videoTrack} timeCost=${timeCost}`);
-      })
-      .onFirstAudioPacketReceived((uid: string, audioTrack: AliRtcAudioTrack, timeCost: number) => {
-        this.log(`onFirstAudioPacketReceived uid=${uid} audio=${audioTrack} timeCost=${timeCost}`);
-      })
-      .onFirstRemoteVideoFrameDrawn((uid: string, videoTrack: AliRtcVideoTrack, width: number, height: number, elapsed: number) => {
-        this.log(`onFirstRemoteVideoFrameDrawn uid=${uid} video=${videoTrack} size=${width}x${height} elapsed=${elapsed}`);
-      });
+    this.rtcEventListener = new PetNoteDingRtcEventListener(this);
     return this.rtcEventListener;
   }
 
   private join(call: MethodCall, result: MethodResult): void {
+    if (this.pendingJoinResult != null) {
+      this.pendingJoinResult.error('rtc_join_replaced', 'rtc join was replaced by a new join request', null);
+    }
+    this.pendingJoinResult = result;
     const engine = this.ensureEngine();
-    const singleToken = this.requireString(call, 'singleToken');
+    const token = this.requireString(call, 'token');
+    const appId = this.requireString(call, 'appId');
     this.configureVideoEncoder(call, engine);
     const channelId = this.requireString(call, 'channelId');
     const userId = this.requireString(call, 'userId');
     this.expectedRemoteUserId = this.requireString(call, 'remoteUserId');
     this.activeRemoteUserId = null;
-    this.logResult('setChannelProfile', engine.setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive));
-    this.logResult('setClientRole', engine.setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive));
-    this.logResult('setDefaultSubscribeAllRemoteAudioStreams', engine.setDefaultSubscribeAllRemoteAudioStreams(true));
-    this.logResult('setDefaultSubscribeAllRemoteVideoStreams', engine.setDefaultSubscribeAllRemoteVideoStreams(true));
     this.attachLocalView(engine);
     this.attachRemoteView(engine);
     this.log(`join requested channelId=${channelId} userId=${userId} remoteUserId=${this.expectedRemoteUserId}`);
-    this.logResult('joinChannelWithToken', engine.joinChannelWithToken(singleToken, '', '', userId));
+    const authInfo = new DingRtcConstants.AuthInfo();
+    authInfo.channelId = channelId;
+    authInfo.userId = userId;
+    authInfo.appId = appId;
+    authInfo.token = token;
+    const joinResult = engine.joinChannel(authInfo, userId);
+    this.logResult('joinChannel', joinResult ?? -1);
+    if (joinResult !== 0) {
+      this.completeJoinWithError(joinResult, `join rtc channel failed: ${joinResult}`);
+      return;
+    }
+    this.scheduleJoinTimeout();
+  }
+
+  handleJoinChannelResult(code: number, channel: string): void {
+    if (this.pendingJoinResult == null) {
+      return;
+    }
+    if (code !== 0) {
+      this.completeJoinWithError(code, `join rtc channel failed asynchronously: ${code} channel=${channel}`);
+      return;
+    }
+    const engine = this.engine;
+    if (engine == null) {
+      this.completeJoinWithError(0, 'join rtc channel succeeded after engine was released');
+      return;
+    }
     this.logResult('publishLocalAudioStream', engine.publishLocalAudioStream(this.microphoneEnabled));
     this.logResult('publishLocalVideoStream', engine.publishLocalVideoStream(this.cameraEnabled));
     this.logResult('subscribeAllRemoteAudioStreams', engine.subscribeAllRemoteAudioStreams(true));
     this.logResult('subscribeAllRemoteVideoStreams', engine.subscribeAllRemoteVideoStreams(true));
-    this.subscribeRemoteMedia(engine, this.expectedRemoteUserId);
+    const remoteUserId = this.currentRemoteUserId();
+    if (remoteUserId != null) {
+      this.subscribeRemoteMedia(engine, remoteUserId);
+    }
     this.attachRemoteView(engine);
-    result.success(null);
+    const pendingResult = this.pendingJoinResult;
+    this.pendingJoinResult = null;
+    this.cancelJoinTimeout();
+    pendingResult?.success(null);
+  }
+
+  completeJoinWithError(code: number, message: string): void {
+    const pendingResult = this.pendingJoinResult;
+    if (pendingResult == null) {
+      return;
+    }
+    this.pendingJoinResult = null;
+    this.cancelJoinTimeout();
+    this.releaseEngine();
+    pendingResult.error('rtc_join_failed', `${message} (code=${code})`, null);
+  }
+
+  private cancelPendingJoin(message: string): void {
+    const pendingResult = this.pendingJoinResult;
+    if (pendingResult == null) {
+      return;
+    }
+    this.pendingJoinResult = null;
+    this.cancelJoinTimeout();
+    pendingResult.error('rtc_join_cancelled', message, null);
+  }
+
+  private scheduleJoinTimeout(): void {
+    this.cancelJoinTimeout();
+    this.joinTimeoutId = setTimeout(() => {
+      this.completeJoinWithError(-1, 'join rtc channel timed out');
+    }, 15000);
+  }
+
+  private cancelJoinTimeout(): void {
+    if (this.joinTimeoutId >= 0) {
+      clearTimeout(this.joinTimeoutId);
+      this.joinTimeoutId = -1;
+    }
   }
 
   bindVideoView(
     role: string,
     remoteUserId: string | null,
-    controller: AliRtcXComponentController,
     surfaceId: string,
   ): void {
     if (role === 'local') {
-      this.localVideo = { controller, surfaceId };
+      this.localVideo = { surfaceId };
     } else if (role === 'remote') {
       const resolvedRemoteUserId = remoteUserId ?? this.currentRemoteUserId() ?? undefined;
       this.expectedRemoteUserId = remoteUserId ?? this.expectedRemoteUserId;
-      this.remoteVideo = { controller, surfaceId, remoteUserId: resolvedRemoteUserId };
+      this.remoteVideo = { surfaceId, remoteUserId: resolvedRemoteUserId };
     } else {
       return;
     }
@@ -330,29 +375,25 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     }
   }
 
-  unbindVideoView(controller: AliRtcXComponentController): void {
-    const engine: AliRtcEngine | null = this.engine;
-    const localVideo = this.localVideo;
-    if (localVideo?.controller === controller) {
+  unbindVideoView(surfaceId: string): void {
+    const engine = this.engine;
+    if (this.localVideo?.surfaceId === surfaceId) {
       if (engine != null) {
         engine.stopPreview();
         engine.setLocalViewConfig(
-          this.makeCanvas(localVideo.surfaceId),
-          null,
-          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+          this.makeCanvas(this.localVideo.surfaceId),
+          DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
         );
       }
       this.localVideo = null;
     }
-    const remoteVideo = this.remoteVideo;
-    if (remoteVideo?.controller === controller) {
-      const remoteUserId = this.currentRemoteUserId(remoteVideo.remoteUserId);
+    if (this.remoteVideo?.surfaceId === surfaceId) {
+      const remoteUserId = this.currentRemoteUserId(this.remoteVideo.remoteUserId);
       if (engine != null && remoteUserId != null) {
         engine.setRemoteViewConfig(
-          this.makeCanvas(remoteVideo.surfaceId),
-          null,
+          this.makeCanvas(this.remoteVideo.surfaceId),
           remoteUserId,
-          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+          DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
         );
       }
       this.remoteVideo = null;
@@ -367,22 +408,18 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     return value;
   }
 
-  private configureVideoEncoder(call: MethodCall, engine: AliRtcEngine): void {
+  private configureVideoEncoder(call: MethodCall, engine: DingRtc): void {
     const width = call.argument('videoWidth') as number | undefined;
     const height = call.argument('videoHeight') as number | undefined;
     if (width !== 1280 || height !== 720) {
       throw new Error('RTC 画质必须为 720P');
     }
-    const config: AliRtcVideoEncoderConfiguration = new AliRtcVideoEncoderConfiguration();
-    const dimensions: AliRtcVideoDimensions = new AliRtcVideoDimensions();
-    dimensions.width = width;
-    dimensions.height = height;
-    config.dimensions = dimensions;
+    const config = new DingRtcConstants.RtcEngineVideoEncoderConfiguration(width, height);
     engine.setVideoEncoderConfiguration(config);
     this.logResult('setVideoEncoderConfiguration', 0);
   }
 
-  private attachLocalView(engine: AliRtcEngine): void {
+  private attachLocalView(engine: DingRtc): void {
     const video = this.localVideo;
     if (video == null) {
       return;
@@ -391,14 +428,13 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
       'setLocalViewConfig',
       engine.setLocalViewConfig(
         this.makeCanvas(video.surfaceId),
-        video.controller,
-        AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
       ),
     );
     this.logResult('startPreview', engine.startPreview());
   }
 
-  private attachRemoteView(engine: AliRtcEngine): void {
+  private attachRemoteView(engine: DingRtc): void {
     const video = this.remoteVideo;
     const remoteUserId = this.currentRemoteUserId(video?.remoteUserId);
     if (video == null || remoteUserId == null) {
@@ -408,15 +444,14 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
       'setRemoteViewConfig',
       engine.setRemoteViewConfig(
         this.makeCanvas(video.surfaceId),
-        video.controller,
         remoteUserId,
-        AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
       ),
     );
   }
 
   private handleRemoteMediaAvailable(uid: string): void {
-    const engine: AliRtcEngine | null = this.engine;
+    const engine = this.engine;
     if (engine == null) {
       return;
     }
@@ -425,19 +460,18 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     this.attachRemoteView(engine);
   }
 
-  private deferRemoteMediaAvailable(uid: string): void {
+  deferRemoteMediaAvailable(uid: string): void {
     setTimeout(() => {
       this.handleRemoteMediaAvailable(uid);
     }, 0);
   }
 
-  private subscribeRemoteMedia(engine: AliRtcEngine, uid: string): void {
+  private subscribeRemoteMedia(engine: DingRtc, uid: string): void {
     this.logResult(
-      'subscribeRemoteMediaStream',
-      engine.subscribeRemoteMediaStream(
+      'subscribeRemoteVideoStream',
+      engine.subscribeRemoteVideoStream(
         uid,
-        AliRtcVideoTrack.AliEngineVideoTrackCamera,
-        true,
+        DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
         true,
       ),
     );
@@ -451,37 +485,37 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     console.info(`[${TAG}] ${message}`);
   }
 
-  private makeCanvas(surfaceId: string): AliRtcVideoCanvas {
-    const canvas: AliRtcVideoCanvas = new AliRtcVideoCanvas();
-    canvas.surfaceId = surfaceId;
-    canvas.renderMode = AliRtcRenderMode.AliEngineRenderModeAuto;
+  logRtcEvent(message: string): void {
+    this.log(message);
+  }
+
+  private makeCanvas(surfaceId: string): DingRtcConstants.RtcEngineVideoCanvas {
+    const canvas: DingRtcConstants.RtcEngineVideoCanvas = { xComponentId: surfaceId };
     return canvas;
   }
 
   private releaseEngine(): void {
-    const engine: AliRtcEngine | null = this.engine;
+    this.cancelJoinTimeout();
+    const engine = this.engine;
     if (engine != null) {
       if (this.localVideo != null) {
         engine.stopPreview();
         engine.setLocalViewConfig(
           this.makeCanvas(this.localVideo.surfaceId),
-          null,
-          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+          DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
         );
       }
       const remoteUserId = this.currentRemoteUserId(this.remoteVideo?.remoteUserId);
       if (this.remoteVideo != null && remoteUserId != null) {
         engine.setRemoteViewConfig(
           this.makeCanvas(this.remoteVideo.surfaceId),
-          null,
           remoteUserId,
-          AliRtcVideoTrack.AliEngineVideoTrackCamera,
+          DingRtcConstants.RtcEngineVideoTrack.RtcEngineVideoTrackCamera,
         );
       }
       engine.leaveChannel();
-      engine.setRtcEngineEventListener(null);
     }
-    AliRtcEngine.destroyInstance();
+    engine?.release();
     this.engine = null;
     this.rtcEventListener = null;
     this.expectedRemoteUserId = null;
@@ -492,6 +526,39 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
 
   private currentRemoteUserId(fallback?: string): string | null {
     return this.activeRemoteUserId ?? fallback ?? this.expectedRemoteUserId;
+  }
+}
+
+class PetNoteDingRtcEventListener extends DingRtcEventListener {
+  private readonly plugin: PetNoteRtcPlugin;
+
+  constructor(plugin: PetNoteRtcPlugin) {
+    super();
+    this.plugin = plugin;
+  }
+
+  onJoinChannelResult(result: number, channel: string, userId: string, elapsed: number): void {
+    this.plugin.logRtcEvent(`onJoinChannelResult result=${result} channel=${channel} userId=${userId} elapsed=${elapsed}`);
+    this.plugin.handleJoinChannelResult(result, channel);
+  }
+
+  onOccurError(error: number, message: string): void {
+    this.plugin.logRtcEvent(`onOccurError error=${error} message=${message}`);
+    this.plugin.completeJoinWithError(error, message);
+  }
+
+  onRemoteUserOnLineNotify(uid: string, elapsed: number): void {
+    this.plugin.logRtcEvent(`onRemoteUserOnLineNotify uid=${uid} elapsed=${elapsed}`);
+    this.plugin.deferRemoteMediaAvailable(uid);
+  }
+
+  onRemoteTrackAvailableNotify(
+    uid: string,
+    audioTrack: DingRtcConstants.RtcEngineAudioTrack,
+    videoTrack: DingRtcConstants.RtcEngineVideoTrack,
+  ): void {
+    this.plugin.logRtcEvent(`onRemoteTrackAvailableNotify uid=${uid} audio=${audioTrack} video=${videoTrack}`);
+    this.plugin.deferRemoteMediaAvailable(uid);
   }
 }
 
@@ -520,7 +587,6 @@ class PetNoteRtcVideoPlatformView extends PlatformView {
     this.plugin.bindVideoView(
       this.state.role,
       this.state.remoteUserId,
-      this.state.controller,
       this.state.surfaceId,
     );
   }
@@ -538,7 +604,7 @@ class PetNoteRtcVideoPlatformView extends PlatformView {
   }
 
   dispose(): void {
-    this.plugin.unbindVideoView(this.state.controller);
+    this.plugin.unbindVideoView(this.state.surfaceId);
   }
 
   private applyCreationParams(args: Any): void {
@@ -560,7 +626,6 @@ class PetNoteRtcVideoViewState {
   role: string = 'remote';
   remoteUserId: string | null = null;
   readonly surfaceId: string;
-  readonly controller: AliRtcXComponentController = new AliRtcXComponentController();
 
   constructor(viewId: number) {
     this.surfaceId = `petnote_rtc_video_${viewId}`;
@@ -579,10 +644,14 @@ struct PetNoteRtcVideoView {
   @ObjectLink state: PetNoteRtcVideoViewState;
 
   build() {
-    XComponent({
-      id: this.state.surfaceId,
-      type: XComponentType.SURFACE,
-      controller: this.state.controller,
+    DingRtcVideoView({
+      canvasId: this.state.surfaceId,
+      onLoad: (() => {
+        console.info(`[${TAG}] surface create ${this.state.surfaceId}`);
+      }),
+      onDestroy: (() => {
+        console.info(`[${TAG}] surface release ${this.state.surfaceId}`);
+      }),
     })
       .width('100%')
       .height('100%')
