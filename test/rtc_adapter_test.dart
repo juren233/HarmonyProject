@@ -33,7 +33,7 @@ void main() {
         singleToken: 'single-token',
         nonce: 'AK-nonce',
         timestamp: 1710003600,
-        gslb: const ['https://rgslb.rtc.aliyuncs.com'],
+        gslb: const ['https://gslb.dingrtc.com'],
       ),
     );
     await adapter.toggleMicrophone(enabled: false);
@@ -63,7 +63,7 @@ void main() {
       'singleToken': 'single-token',
       'nonce': 'AK-nonce',
       'timestamp': 1710003600,
-      'gslb': ['https://rgslb.rtc.aliyuncs.com'],
+      'gslb': ['https://gslb.dingrtc.com'],
       'videoWidth': 1280,
       'videoHeight': 720,
     });

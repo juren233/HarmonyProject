@@ -1,7 +1,15 @@
 PODS:
-  - AliVCSDK_ARTC (7.11.0):
-    - AliVCSDK_ARTC/Default (= 7.11.0)
-  - AliVCSDK_ARTC/Default (7.11.0)
+  - DingRTC_iOS (3.9.38):
+    - DingRTC_iOS/AudioEnhance (= 3.9.38)
+    - DingRTC_iOS/FaceBeauty (= 3.9.38)
+    - DingRTC_iOS/RtcBasic (= 3.9.38)
+    - DingRTC_iOS/VirtualBackground (= 3.9.38)
+    - DingRTC_iOS/Whiteboard (= 3.9.38)
+  - DingRTC_iOS/AudioEnhance (3.9.38)
+  - DingRTC_iOS/FaceBeauty (3.9.38)
+  - DingRTC_iOS/RtcBasic (3.9.38)
+  - DingRTC_iOS/VirtualBackground (3.9.38)
+  - DingRTC_iOS/Whiteboard (3.9.38)
   - Flutter (1.0.0)
   - package_info_plus (0.4.5):
     - Flutter
@@ -12,7 +20,7 @@ PODS:
     - Flutter
 
 DEPENDENCIES:
-  - AliVCSDK_ARTC
+  - DingRTC_iOS (~> 3.9.38)
   - Flutter (from `Flutter`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
@@ -20,7 +28,7 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
-    - AliVCSDK_ARTC
+    - DingRTC_iOS
 
 EXTERNAL SOURCES:
   Flutter:
@@ -33,12 +41,12 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
 
 SPEC CHECKSUMS:
-  AliVCSDK_ARTC: 746ae545f16c74c519914e6b85afbebcf426a7fe
+  DingRTC_iOS: b627ea75871e5a17e185c67e388d9cf8dbfaa327
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
-PODFILE CHECKSUM: a18e6d712f5d7fe6264cf093d62dc17b61953162
+PODFILE CHECKSUM: f207245d33f9e9e161b226368e523cae5884747e
 
 COCOAPODS: 1.16.2

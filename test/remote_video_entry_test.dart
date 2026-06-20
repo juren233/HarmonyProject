@@ -69,7 +69,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -457,7 +457,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -625,7 +625,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -745,7 +745,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -836,7 +836,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -892,7 +892,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -992,7 +992,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -1058,7 +1058,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -1121,7 +1121,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -1205,7 +1205,7 @@ void main() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';
@@ -1311,7 +1311,7 @@ RtcTokenClient _fakeRtcTokenClient() {
   "singleToken": "single-token",
   "nonce": "AK-test-nonce",
   "timestamp": 1710003600,
-  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "gslb": ["https://gslb.dingrtc.com"],
   "expiresAtMs": 1710003600000
 }
 ''';

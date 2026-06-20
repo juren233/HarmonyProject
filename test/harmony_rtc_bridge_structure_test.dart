@@ -15,10 +15,9 @@ void main() {
 
     expect(module, contains('ohos.permission.CAMERA'));
     expect(module, contains('ohos.permission.MICROPHONE'));
-    expect(ohPackage,
-        contains('"@aliyun_video_cloud/alivcsdk_artc": "6.11.0-beta"'));
+    expect(ohPackage, contains('"@dingrtc/dingrtc": "3.5.0"'));
     expect(registrant, contains('PetNoteRtcPlugin'));
-    expect(bridge, contains('AliRtcVideoEncoderConfiguration'));
+    expect(bridge, contains('DingRtcConstants.RtcEngineVideoEncoderConfiguration'));
     expect(bridge, contains('AbilityAware'));
     expect(bridge, contains('abilityAccessCtrl'));
     expect(bridge, contains("'getMediaPermissionState'"));
@@ -33,22 +32,23 @@ void main() {
     expect(bridge, contains("const CHANNEL_NAME = 'petnote/rtc'"));
     expect(
         bridge, contains("const VIDEO_VIEW_TYPE = 'petnote/rtc_video_view'"));
-    expect(bridge, contains('AliRtcXComponentController'));
-    expect(bridge, contains('AliRtcVideoCanvas'));
-    expect(bridge, contains('AliRtcRenderMode'));
-    expect(bridge, contains('AliRtcVideoTrack'));
-    expect(bridge, contains('AliRtcChannelProfile'));
-    expect(bridge, contains('AliRtcClientRole'));
-    expect(bridge, contains('AliRtcEngineEventListener'));
-    expect(bridge,
-        contains('setRtcEngineEventListener(this.ensureRtcEventListener())'));
-    expect(bridge, contains('onJoinChannel'));
+    expect(bridge, contains('DingRtcVideoView'));
+    expect(bridge, contains('DingRtcSDK.create(context)'));
+    expect(bridge, contains('DingRtcEventListener'));
+    expect(bridge, contains('new PetNoteDingRtcEventListener(this)'));
+    expect(bridge, contains('setEventListener(this.ensureRtcEventListener())'));
+    expect(bridge, contains('onJoinChannelResult'));
     expect(bridge, contains('onOccurError'));
-    expect(bridge, contains('onRemoteUserOnline'));
+    expect(bridge, contains('onRemoteUserOnLineNotify'));
     expect(bridge, contains('onRemoteTrackAvailableNotify'));
-    expect(bridge, contains('onFirstVideoPacketReceived'));
-    expect(bridge, contains('onFirstAudioPacketReceived'));
-    expect(bridge, contains('onFirstRemoteVideoFrameDrawn'));
+    expect(bridge, contains('private pendingJoinResult: MethodResult | null'));
+    expect(bridge, contains('private joinTimeoutId: number = -1'));
+    expect(bridge, contains('this.pendingJoinResult = result'));
+    expect(bridge, contains('this.scheduleJoinTimeout()'));
+    expect(bridge, contains('handleJoinChannelResult'));
+    expect(bridge, contains('completeJoinWithError'));
+    expect(bridge, contains("'rtc_join_failed'"));
+    expect(bridge, contains('join rtc channel timed out'));
     expect(bridge, contains('deferRemoteMediaAvailable(uid)'));
     expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
     expect(bridge, contains('this.activeRemoteUserId = uid'));
@@ -60,52 +60,41 @@ void main() {
     expect(bridge, contains('StandardMessageCodec'));
     expect(bridge, contains('PlatformViewFactory'));
     expect(bridge, contains('registerViewFactory'));
-    expect(bridge, contains('XComponent({'));
-    expect(bridge, contains("AliRtcEngine.getInstance('', context)"));
-    expect(bridge, contains("this.requireString(call, 'singleToken')"));
+    expect(bridge, contains('DingRtcVideoView({'));
+    expect(bridge, contains('DingRtcSDK.create(context)'));
+    expect(bridge, contains("this.requireString(call, 'token')"));
+    expect(bridge, contains("this.requireString(call, 'appId')"));
     expect(bridge, contains("this.requireString(call, 'channelId')"));
     expect(bridge, contains("this.requireString(call, 'userId')"));
     expect(bridge, contains("this.requireString(call, 'remoteUserId')"));
     expect(bridge, contains('this.configureVideoEncoder(call, engine)'));
     expect(bridge, contains("width !== 1280 || height !== 720"));
-    expect(bridge, contains('new AliRtcVideoEncoderConfiguration()'));
-    expect(bridge, contains('new AliRtcVideoDimensions()'));
-    expect(bridge, contains('dimensions.width = width'));
-    expect(bridge, contains('dimensions.height = height'));
-    expect(bridge, contains('config.dimensions = dimensions'));
+    expect(bridge, contains(
+        'new DingRtcConstants.RtcEngineVideoEncoderConfiguration(width, height)'));
     expect(bridge, contains('engine.setVideoEncoderConfiguration(config)'));
     expect(bridge, isNot(contains('frameRate')));
     expect(bridge, isNot(contains('fps')));
-    expect(
-        bridge,
-        contains(
-            'setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive)'));
-    expect(
-        bridge,
-        contains(
-            'setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive)'));
     expect(bridge, contains('attachLocalView(engine)'));
     expect(bridge, contains('attachRemoteView(engine)'));
-    expect(
-        bridge,
-        contains(
-            "engine.joinChannelWithToken(singleToken, '', '', userId)"));
-    expect(bridge, contains("this.logResult('joinChannelWithToken'"));
+    expect(bridge, contains('new DingRtcConstants.AuthInfo()'));
+    expect(bridge, contains('engine.joinChannel(authInfo, userId)'));
+    expect(bridge, contains("this.logResult('joinChannel'"));
     expect(bridge, contains("this.logResult('publishLocalVideoStream'"));
     expect(bridge, contains("this.logResult('publishLocalAudioStream'"));
-    expect(bridge, contains("'subscribeRemoteMediaStream'"));
+    expect(bridge, contains("'subscribeRemoteVideoStream'"));
     expect(bridge, contains("'setRemoteViewConfig'"));
     expect(bridge, contains('publishLocalVideoStream'));
     expect(bridge, contains('publishLocalAudioStream'));
     expect(bridge, contains('subscribeAllRemoteAudioStreams(true)'));
     expect(bridge, contains('subscribeAllRemoteVideoStreams(true)'));
-    expect(bridge, contains('subscribeRemoteMediaStream'));
+    expect(bridge, contains('subscribeRemoteVideoStream'));
     expect(bridge, contains('setLocalViewConfig'));
     expect(bridge, contains('setRemoteViewConfig'));
-    expect(bridge, contains('AliEngineRenderModeAuto'));
-    expect(bridge, contains('AliEngineVideoTrackCamera'));
+    expect(bridge, contains('RtcEngineVideoTrackCamera'));
     expect(bridge, contains('enableSpeakerphone'));
-    expect(bridge, contains('AliRtcEngine.destroyInstance()'));
+    expect(bridge, contains('engine?.release()'));
+    expect(bridge, isNot(contains('@aliyun_video_cloud/alivcsdk_artc')));
+    expect(bridge, isNot(contains('AliRtc')));
     expect(rtcVideoView, contains('HarmonyOhosView'));
     expect(rtcVideoView, contains("targetPlatform.name == 'ohos'"));
     expect(rtcVideoView, contains('creationParams: _creationParams'));

@@ -2,7 +2,7 @@ import AVFoundation
 import CoreHaptics
 import Flutter
 #if !targetEnvironment(simulator)
-import AliVCSDK_ARTC
+import DingRTC
 #endif
 import PhotosUI
 import Security
@@ -166,13 +166,15 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
   }
   #else
 
-  private var engine: AliRtcEngine?
+  private var engine: DingRtcEngine?
   private var microphoneEnabled = true
   private var cameraEnabled = true
   private var expectedRemoteUserId: String?
   private var activeRemoteUserId: String?
   private weak var localContainer: UIView?
   private weak var remoteContainer: UIView?
+  private var pendingJoinResult: FlutterResult?
+  private var joinTimeoutWorkItem: DispatchWorkItem?
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
@@ -194,12 +196,12 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
         guard let arguments = call.arguments as? [String: Any] else {
           throw RtcBridgeError.invalidArguments("缺少入会参数")
         }
-        try join(arguments: arguments)
-        result(nil)
+        try join(arguments: arguments, result: result)
       } catch {
         result(rtcError(error))
       }
     case "leave":
+      cancelPendingJoin(message: "rtc join was cancelled by leave")
       callEngine("leaveChannel")
       result(nil)
     case "toggleCamera":
@@ -221,6 +223,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
       callEngine("switchCamera")
       result(nil)
     case "dispose":
+      cancelPendingJoin(message: "rtc join was cancelled by dispose")
       releaseEngine()
       result(nil)
     default:
@@ -228,11 +231,11 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func ensureEngine() throws -> AliRtcEngine {
+  private func ensureEngine() throws -> DingRtcEngine {
     if let engine {
       return engine
     }
-    let created = AliRtcEngine.sharedInstance(self, extras: nil)
+    let created = DingRtcEngine.sharedInstance(self, extras: nil)
     engine = created
     return created
   }
@@ -278,35 +281,102 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func join(arguments: [String: Any]) throws {
+  private func join(arguments: [String: Any], result: @escaping FlutterResult) throws {
+    if let pendingJoinResult {
+      pendingJoinResult(FlutterError(
+        code: "rtc_join_replaced",
+        message: "rtc join was replaced by a new join request",
+        details: nil
+      ))
+    }
+    pendingJoinResult = result
     let rtcEngine = try ensureEngine()
-    let singleToken = try requireString(arguments, key: "singleToken")
+    let token = try requireString(arguments, key: "token")
+    let appId = try requireString(arguments, key: "appId")
     let channelId = try requireString(arguments, key: "channelId")
     let userId = try requireString(arguments, key: "userId")
+    let gslbServer = preferredGslbServer(arguments)
     expectedRemoteUserId = try requireString(arguments, key: "remoteUserId")
     activeRemoteUserId = nil
     try configureVideoEncoder(rtcEngine, arguments: arguments)
-    logResult("setChannelProfile", rtcEngine.setChannelProfile(AliRtcChannelProfile.interactivelive))
-    logResult("setClientRole", rtcEngine.setClientRole(AliRtcClientRole.roleInteractive))
-    logResult("setDefaultSubscribeAllRemoteAudioStreams", rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true))
-    logResult("setDefaultSubscribeAllRemoteVideoStreams", rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true))
+    logResult("subscribeAllRemoteAudioStreams", rtcEngine.subscribeAllRemoteAudioStreams(true))
+    logResult("subscribeAllRemoteVideoStreams", rtcEngine.subscribeAllRemoteVideoStreams(false))
     attachLocalView(rtcEngine)
     attachRemoteView(rtcEngine)
     rtcLog("join requested channelId=\(channelId) userId=\(userId) remoteUserId=\(expectedRemoteUserId ?? "")")
-    let joinResult = rtcEngine.joinChannel(singleToken, channelId: channelId, userId: userId, name: userId, onResultWithUserId: { [weak self] errCode, channel, joinedUserId, elapsed in
+    let authInfo = DingRtcAuthInfo()
+    authInfo.appId = appId
+    authInfo.channelId = channelId
+    authInfo.userId = userId
+    authInfo.token = token
+    authInfo.gslbServer = gslbServer
+    let joinResult = rtcEngine.joinChannel(authInfo, name: userId, onResultWithUserId: { [weak self] errCode, channel, joinedUserId, elapsed in
       self?.rtcLog("join result errCode=\(errCode) channel=\(channel) userId=\(joinedUserId) elapsed=\(elapsed)")
     })
     logResult("joinChannel", joinResult)
     guard joinResult == 0 else {
+      pendingJoinResult = nil
       throw RtcBridgeError.invalidArguments("加入频道失败：\(joinResult)")
     }
-    logResult("publishLocalAudioStream", rtcEngine.publishLocalAudioStream(microphoneEnabled))
-    logResult("publishLocalVideoStream", rtcEngine.publishLocalVideoStream(cameraEnabled))
-    logResult("subscribeAllRemoteAudioStreams", rtcEngine.subscribeAllRemoteAudioStreams(true))
-    logResult("subscribeAllRemoteVideoStreams", rtcEngine.subscribeAllRemoteVideoStreams(true))
-    if let remoteUserId = expectedRemoteUserId {
-      subscribeRemoteMedia(rtcEngine, uid: remoteUserId)
+    scheduleJoinTimeout()
+  }
+
+  private func handleJoinChannelResult(_ code: Int32, channel: String) {
+    guard pendingJoinResult != nil else {
+      return
     }
+    if code != 0 {
+      completeJoinWithError(code: code, message: "join rtc channel failed asynchronously: \(code) channel=\(channel)")
+      return
+    }
+    guard let engine else {
+      completeJoinWithError(code: 0, message: "join rtc channel succeeded after engine was released")
+      return
+    }
+    logResult("publishLocalAudioStream", engine.publishLocalAudioStream(microphoneEnabled))
+    logResult("publishLocalVideoStream", engine.publishLocalVideoStream(cameraEnabled))
+    logResult("subscribeAllRemoteAudioStreams", engine.subscribeAllRemoteAudioStreams(true))
+    logResult("subscribeAllRemoteVideoStreams", engine.subscribeAllRemoteVideoStreams(false))
+    if let remoteUserId = expectedRemoteUserId {
+      subscribeRemoteMedia(engine, uid: remoteUserId)
+    }
+    let result = pendingJoinResult
+    pendingJoinResult = nil
+    cancelJoinTimeout()
+    result?(nil)
+  }
+
+  private func completeJoinWithError(code: Int32, message: String) {
+    guard let result = pendingJoinResult else {
+      return
+    }
+    pendingJoinResult = nil
+    cancelJoinTimeout()
+    releaseEngine()
+    result(FlutterError(code: "rtc_join_failed", message: "\(message) (code=\(code))", details: nil))
+  }
+
+  private func cancelPendingJoin(message: String) {
+    guard let result = pendingJoinResult else {
+      return
+    }
+    pendingJoinResult = nil
+    cancelJoinTimeout()
+    result(FlutterError(code: "rtc_join_cancelled", message: message, details: nil))
+  }
+
+  private func scheduleJoinTimeout() {
+    cancelJoinTimeout()
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.completeJoinWithError(code: -1, message: "join rtc channel timed out")
+    }
+    joinTimeoutWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(15), execute: workItem)
+  }
+
+  private func cancelJoinTimeout() {
+    joinTimeoutWorkItem?.cancel()
+    joinTimeoutWorkItem = nil
   }
 
   private func requireString(_ arguments: [String: Any], key: String) throws -> String {
@@ -326,7 +396,16 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     throw RtcBridgeError.invalidArguments("缺少 RTC 参数 \(key)")
   }
 
-  private func configureVideoEncoder(_ rtcEngine: AliRtcEngine, arguments: [String: Any]) throws {
+  private func preferredGslbServer(_ arguments: [String: Any]) -> String {
+    if let gslb = arguments["gslb"] as? [String],
+       let first = gslb.first,
+       !first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return first
+    }
+    return "https://gslb.dingrtc.com"
+  }
+
+  private func configureVideoEncoder(_ rtcEngine: DingRtcEngine, arguments: [String: Any]) throws {
     let width = try requireInt(arguments, key: "videoWidth")
     let height = try requireInt(arguments, key: "videoHeight")
     guard
@@ -335,9 +414,10 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     else {
       throw RtcBridgeError.invalidArguments("RTC 画质必须为 720P")
     }
-    let config = AliRtcVideoEncoderConfiguration()
+    let config = DingRtcVideoEncoderConfiguration()
     config.dimensions = CGSize(width: CGFloat(width), height: CGFloat(height))
-    logResult("setVideoEncoderConfiguration", rtcEngine.setVideoEncoderConfiguration(config))
+    rtcEngine.setVideoEncoderConfiguration(config)
+    logResult("setVideoEncoderConfiguration", 0)
   }
 
   private func callEngine(_ selectorName: String, with value: Bool) {
@@ -371,15 +451,16 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
   }
 
   private func releaseEngine() {
+    cancelJoinTimeout()
     guard let engine else {
       expectedRemoteUserId = nil
       activeRemoteUserId = nil
       return
     }
     logResult("stopPreview", engine.stopPreview())
-    logResult("setLocalViewConfig(nil)", engine.setLocalViewConfig(nil, for: AliRtcVideoTrack.camera))
+    logResult("setLocalViewConfig(nil)", engine.setLocalViewConfig(nil, for: DingRtcVideoTrack.camera))
     if let remoteUserId = currentRemoteUserId {
-      logResult("setRemoteViewConfig(nil)", engine.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera))
+      logResult("setRemoteViewConfig(nil)", engine.setRemoteViewConfig(nil, uid: remoteUserId, for: DingRtcVideoTrack.camera))
     }
     logResult("leaveChannel", engine.leaveChannel())
     expectedRemoteUserId = nil
@@ -410,19 +491,19 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
 
   fileprivate func unbindVideoView(container: UIView) {
     if localContainer === container {
-      engine?.setLocalViewConfig(nil, for: AliRtcVideoTrack.camera)
+      engine?.setLocalViewConfig(nil, for: DingRtcVideoTrack.camera)
       localContainer = nil
     }
     if remoteContainer === container {
       if let remoteUserId = currentRemoteUserId {
-        engine?.setRemoteViewConfig(nil, uid: remoteUserId, for: AliRtcVideoTrack.camera)
+        engine?.setRemoteViewConfig(nil, uid: remoteUserId, for: DingRtcVideoTrack.camera)
       }
       remoteContainer = nil
     }
     container.subviews.forEach { $0.removeFromSuperview() }
   }
 
-  private func attachLocalView(_ rtcEngine: AliRtcEngine) {
+  private func attachLocalView(_ rtcEngine: DingRtcEngine) {
     guard let container = localContainer else {
       return
     }
@@ -430,14 +511,15 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     let renderView = UIView(frame: container.bounds)
     renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     container.addSubview(renderView)
-    let canvas = AliVideoCanvas()
+    let canvas = DingRtcVideoCanvas()
     canvas.view = renderView
-    canvas.renderMode = .auto
-    logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, for: AliRtcVideoTrack.camera))
+    canvas.renderMode = DingRtcRenderMode.fill
+    canvas.mirrorMode = DingRtcRenderMirrorMode.onlyFrontCameraPreviewEnabled
+    logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, for: DingRtcVideoTrack.camera))
     logResult("startPreview", rtcEngine.startPreview())
   }
 
-  private func attachRemoteView(_ rtcEngine: AliRtcEngine) {
+  private func attachRemoteView(_ rtcEngine: DingRtcEngine) {
     guard let container = remoteContainer, let remoteUserId = currentRemoteUserId else {
       return
     }
@@ -445,17 +527,17 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     let renderView = UIView(frame: container.bounds)
     renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     container.addSubview(renderView)
-    let canvas = AliVideoCanvas()
+    let canvas = DingRtcVideoCanvas()
     canvas.view = renderView
-    canvas.renderMode = .auto
-    logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, uid: remoteUserId, for: AliRtcVideoTrack.camera))
+    canvas.renderMode = DingRtcRenderMode.fill
+    logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, uid: remoteUserId, for: DingRtcVideoTrack.camera))
   }
 
-  private func subscribeRemoteMedia(_ rtcEngine: AliRtcEngine, uid: String) {
-    logResult("subscribeRemoteMediaStream", rtcEngine.subscribeRemoteMediaStream(uid, videoTrack: .camera, audioTrack: .mic))
+  private func subscribeRemoteMedia(_ rtcEngine: DingRtcEngine, uid: String) {
+    logResult("subscribeRemoteVideoStream", rtcEngine.subscribeRemoteVideoStream(uid, track: DingRtcVideoTrack.camera, sub: true))
   }
 
-  func onRemoteTrackAvailableNotify(_ uid: String, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) {
+  func onRemoteTrackAvailableNotify(_ uid: String, audioTrack: DingRtcAudioTrack, videoTrack: DingRtcVideoTrack) {
     rtcLog("onRemoteTrackAvailableNotify uid=\(uid) audio=\(audioTrack.rawValue) video=\(videoTrack.rawValue)")
     DispatchQueue.main.async { [weak self] in
       guard let self, let engine = self.engine else {
@@ -481,23 +563,31 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
 
   func onJoinChannelResult(_ result: Int32, channel: String, userId: String, elapsed: Int32) {
     rtcLog("onJoinChannelResult result=\(result) channel=\(channel) userId=\(userId) elapsed=\(elapsed)")
+    DispatchQueue.main.async { [weak self] in
+      self?.handleJoinChannelResult(result, channel: channel)
+    }
   }
 
   func onOccurError(_ error: Int32, message: String) {
     rtcLog("onOccurError error=\(error) message=\(message)")
+    DispatchQueue.main.async { [weak self] in
+      if self?.pendingJoinResult != nil {
+        self?.completeJoinWithError(code: error, message: message)
+      }
+    }
   }
 
-  func onFirstVideoPacketReceivedWithUid(_ uid: String, videoTrack: AliRtcVideoTrack, timeCost: Int32) {
+  func onFirstVideoPacketReceivedWithUid(_ uid: String, videoTrack: DingRtcVideoTrack, timeCost: Int32) {
     rtcLog("onFirstVideoPacketReceivedWithUid uid=\(uid) video=\(videoTrack.rawValue) timeCost=\(timeCost)")
   }
 
-  func onFirstAudioPacketReceivedWithUid(_ uid: String, track: AliRtcAudioTrack, timeCost: Int32) {
+  func onFirstAudioPacketReceivedWithUid(_ uid: String, track: DingRtcAudioTrack, timeCost: Int32) {
     rtcLog("onFirstAudioPacketReceivedWithUid uid=\(uid) audio=\(track.rawValue) timeCost=\(timeCost)")
   }
 
   func onFirstRemoteVideoFrameDrawn(
     _ uid: String,
-    videoTrack: AliRtcVideoTrack,
+    videoTrack: DingRtcVideoTrack,
     width: Int32,
     height: Int32,
     elapsed: Int32
@@ -528,7 +618,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     var errorDescription: String? {
       switch self {
       case .sdkUnavailable:
-        return "阿里云 RTC iOS SDK 不可用"
+        return "DingRTC iOS SDK 不可用"
       case .invalidArguments(let message):
         return message
       }
@@ -538,7 +628,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
 }
 
 #if !targetEnvironment(simulator)
-extension PetNoteRtcPlugin: AliRtcEngineDelegate {}
+extension PetNoteRtcPlugin: DingRtcEngineDelegate {}
 #endif
 
 final class PetNoteRtcVideoViewFactory: NSObject, FlutterPlatformViewFactory {

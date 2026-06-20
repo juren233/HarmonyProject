@@ -61,7 +61,7 @@ class RtcTokenService {
     required String? appId,
     required String? appKey,
     this.tokenTtl = const Duration(hours: 1),
-    this.gslb = const ['https://rgslb.rtc.aliyuncs.com'],
+    this.gslb = const ['https://gslb.dingrtc.com'],
     DateTime Function()? now,
     String Function()? nonceFactory,
     int Function()? saltFactory,
