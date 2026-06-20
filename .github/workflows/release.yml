@@ -131,7 +131,23 @@ jobs:
 
           version_full = version_line.split(":", 1)[1].strip()
           version_core, _, version_build = version_full.partition("+")
-          version_build = version_build or "1"
+
+          # Auto-increment build number using git commit count
+          # This ensures every push gets a unique, monotonically increasing build number
+          import subprocess
+          try:
+            result = subprocess.run(
+              ["git", "rev-list", "--count", "HEAD"],
+              capture_output=True, text=True, check=True
+            )
+            git_commit_count = result.stdout.strip()
+            version_build = git_commit_count
+            print(f"Using git commit count as build number: {version_build}")
+          except (subprocess.CalledProcessError, FileNotFoundError):
+            # Fallback to pubspec.yaml build number if git fails
+            version_build = version_build or "1"
+            print(f"Git commit count unavailable, using pubspec build number: {version_build}")
+
           if not version_core:
             raise SystemExit("pubspec.yaml version must not be empty.")
 
