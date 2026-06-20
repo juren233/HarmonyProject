@@ -31,8 +31,74 @@ jobs:
         with:
           fetch-depth: 0  # Fetch full history for accurate commit count
 
+      - name: Resolve Version From GitHub
+        id: resolve_version
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const pubspec = fs.readFileSync('pubspec.yaml', 'utf8');
+            const match = pubspec.match(/^\s*version:\s*(\d+\.\d+\.\d+)/m);
+            if (!match) {
+              core.setFailed('Could not find version in pubspec.yaml.');
+              return;
+            }
+            const baseVersion = match[1];
+            core.info(`Base version from pubspec.yaml: ${baseVersion}`);
+            const tagPrefix = `v${baseVersion}-beta.`;
+            let maxBeta = 0;
+
+            // Query tags to find max beta for this version
+            let page = 1;
+            while (true) {
+              const { data: refs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/v${baseVersion}-beta`,
+                per_page: 100,
+                page,
+              });
+              for (const ref of refs) {
+                const tagName = ref.ref.replace(/^refs\/tags\//, '');
+                if (!tagName.startsWith(tagPrefix)) continue;
+                const betaNum = parseInt(tagName.slice(tagPrefix.length), 10);
+                if (Number.isFinite(betaNum) && betaNum > maxBeta) {
+                  maxBeta = betaNum;
+                }
+              }
+              if (refs.length < 100) break;
+              page++;
+            }
+
+            const nextBeta = maxBeta + 1;
+            core.info(`Max existing beta tag: ${maxBeta}, next beta: ${nextBeta}`);
+
+            // Query release total count via GraphQL
+            let totalReleases = 1;
+            try {
+              const result = await github.graphql(`
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    releases { totalCount }
+                  }
+                }
+              `, { owner: context.repo.owner, repo: context.repo.repo });
+              totalReleases = result.repository.releases.totalCount + 1;
+              core.info(`Total releases: ${result.repository.releases.totalCount}, next build: ${totalReleases}`);
+            } catch (err) {
+              core.warning(`GraphQL query failed, falling back to build number 1: ${err.message}`);
+            }
+
+            core.setOutput('base_version', baseVersion);
+            core.setOutput('next_beta', String(nextBeta));
+            core.setOutput('total_releases', String(totalReleases));
+
       - name: Parse Release Config
         id: parse
+        env:
+          BASE_VERSION: ${{ steps.resolve_version.outputs.base_version }}
+          NEXT_BETA: ${{ steps.resolve_version.outputs.next_beta }}
+          TOTAL_RELEASES: ${{ steps.resolve_version.outputs.total_releases }}
         shell: bash
         run: |
           python <<'PY'
@@ -48,8 +114,6 @@ jobs:
           enabled = False
           build_if_not_enabled = False
           pre_release = False
-          auto_beta_enabled = False
-          auto_beta_run_offset = None
           tag = ""
           android_section_found = False
           android_enabled = None
@@ -85,10 +149,6 @@ jobs:
                 build_if_not_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
               elif stripped.startswith(("pre_release:", "prerelease:", "pre-release:")):
                 pre_release = stripped.split(":", 1)[1].strip().lower() == "true"
-              elif stripped.startswith("auto_beta_enabled:"):
-                auto_beta_enabled = stripped.split(":", 1)[1].strip().lower() == "true"
-              elif stripped.startswith("auto_beta_run_offset:"):
-                auto_beta_run_offset = int(stripped.split(":", 1)[1].strip())
               elif stripped.startswith("tag:"):
                 value = stripped.split(":", 1)[1].strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
@@ -141,45 +201,32 @@ jobs:
           version_full = version_line.split(":", 1)[1].strip()
           version_core, _, version_build = version_full.partition("+")
 
-          if auto_beta_enabled:
-            if auto_beta_run_offset is None:
-              raise SystemExit("release.yml must define auto_beta_run_offset when auto_beta_enabled=true.")
+          # Use base version and beta number resolved from GitHub tags
+          base_version = os.environ.get("BASE_VERSION", "")
+          next_beta = os.environ.get("NEXT_BETA", "")
+          total_releases = os.environ.get("TOTAL_RELEASES", "")
 
-            run_number_raw = os.environ.get("GITHUB_RUN_NUMBER", "")
-            if not run_number_raw.isdigit():
-              raise SystemExit("GITHUB_RUN_NUMBER must be available and numeric when auto_beta_enabled=true.")
+          if not base_version:
+            # Fallback: extract base version from pubspec
+            base_match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:-beta\.\d+)?", version_core)
+            if base_match:
+              base_version = base_match.group(1)
+            else:
+              raise SystemExit("Could not determine base version from pubspec.yaml.")
 
-            version_match = re.fullmatch(r"(?P<base>\d+\.\d+\.\d+)(?:-beta\.\d+)?", version_core)
-            if version_match is None:
-              raise SystemExit(
-                "auto_beta_enabled=true requires pubspec.yaml version core like 1.4.0-beta.18 or 1.4.0."
-              )
+          if pre_release and next_beta:
+            version_core = f"{base_version}-beta.{next_beta}"
+            print(f"Pre-release mode: using version {version_core} (next beta from GitHub tags)")
+          else:
+            version_core = base_version
+            print(f"Stable release mode: using version {version_core}")
 
-            beta_number = int(run_number_raw) + auto_beta_run_offset
-            if beta_number <= 0:
-              raise SystemExit(
-                f"auto beta number must be positive; got {beta_number} from run {run_number_raw} "
-                f"and offset {auto_beta_run_offset}."
-              )
-
-            version_core = f"{version_match.group('base')}-beta.{beta_number}"
-            print(f"Using auto beta version from GitHub run number: {version_core}")
-
-          # Auto-increment build number using git commit count
-          # This ensures every push gets a unique, monotonically increasing build number
-          import subprocess
-          try:
-            result = subprocess.run(
-              ["git", "rev-list", "--count", "HEAD"],
-              capture_output=True, text=True, check=True
-            )
-            git_commit_count = result.stdout.strip()
-            version_build = git_commit_count
-            print(f"Using git commit count as build number: {version_build}")
-          except (subprocess.CalledProcessError, FileNotFoundError):
-            # Fallback to pubspec.yaml build number if git fails
+          if total_releases and total_releases.isdigit():
+            version_build = total_releases
+            print(f"Using GitHub release count as build number: {version_build}")
+          else:
             version_build = version_build or "1"
-            print(f"Git commit count unavailable, using pubspec build number: {version_build}")
+            print(f"GitHub release count unavailable, using pubspec build number: {version_build}")
 
           if not version_core:
             raise SystemExit("pubspec.yaml version must not be empty.")

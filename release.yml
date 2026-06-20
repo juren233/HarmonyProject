@@ -1,8 +1,13 @@
 enabled: true
 build_if_not_enabled: true
 pre_release: true
-auto_beta_enabled: true
-auto_beta_run_offset: -111
+
+# 并发控制：同一分支的 release 工作流归为一组，串行执行（排队等待，不取消前一个）。
+# 防止两次 push 间隔很近时，两个 run 同时查询 GitHub tags 得到相同的 max beta 号，
+# 导致计算出相同版本号并冲突。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 android:
   enabled: true
@@ -20,10 +25,11 @@ ios:
 # 3. pre_release=false 时创建正式 Release；pre_release=true 时创建 pre-release。
 # 4. main / beta 分支 + enabled=true：按 pre_release 开关创建 Release 或 pre-release。
 # 5. 其他分支 + enabled=true：只上传 Actions artifacts，不创建 Release。
-# 6. auto_beta_enabled=true 时，Release 外显版本号由 pubspec.yaml 的基础版本号
-#    和 GitHub Actions run number 共同计算：
-#    resolved beta = GITHUB_RUN_NUMBER + auto_beta_run_offset。
-#    当前 offset=-111，因此 run 130 -> 1.4.0-beta.19，run 131 -> 1.4.0-beta.20。
+# 6. 当 pre_release=true 时，版本号自动查询 GitHub 仓库已有 tags 计算：
+#    以 pubspec.yaml 的基础版本号（如 1.4.0）为准，查找同版本最大 beta tag 号 +1。
+#    例如仓库已有 v1.4.0-beta.22，则生成 1.4.0-beta.23；无同版本 beta tag 则从 1 开始。
+#    pre_release=false 时版本号即为基础版本号（如 1.4.0），为正式版。
+#    构建号 = 仓库 release 总数（含 pre-release）+ 1。
 # 7. Release tag 由工作流自动取自解析后的外显版本号（加 v 前缀），
 #    本文件无需也不应再填写 tag 字段；常规 beta 递增不需要手动改 pubspec.yaml。
 #    例如：version: 1.0.0+1 自动生成 tag v1.0.0
