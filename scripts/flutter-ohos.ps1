@@ -768,6 +768,75 @@ function Get-CompatibleApiVersion {
   return [string]$packInfo.summary.modules[0].apiVersion.compatible
 }
 
+function Inject-FlutterOhosPluginDependencies {
+  param(
+    [string]$RepoRoot
+  )
+
+  $entryOhPackagePath = Join-Path $RepoRoot 'ohos\entry\oh-package.json5'
+  $pluginsDepsPath = Join-Path $RepoRoot '.flutter-plugins-dependencies'
+
+  if (-not (Test-Path $entryOhPackagePath) -or -not (Test-Path $pluginsDepsPath)) {
+    return $null
+  }
+
+  $pluginsDeps = Get-Content $pluginsDepsPath -Raw | ConvertFrom-Json
+  $ohosPlugins = $pluginsDeps.plugins.ohos
+  if (-not $ohosPlugins -or $ohosPlugins.Count -eq 0) {
+    return $null
+  }
+
+  $entryOhPackage = Get-Content $entryOhPackagePath -Raw
+  $backupContent = $entryOhPackage
+
+  $ohPackageJson = $entryOhPackage | ConvertFrom-Json
+  if (-not $ohPackageJson.dependencies) {
+    $ohPackageJson | Add-Member -NotePropertyName 'dependencies' -NotePropertyValue @{} -Force
+  }
+
+  $modified = $false
+  foreach ($plugin in $ohosPlugins) {
+    $pluginName = $plugin.name
+    if ($ohPackageJson.dependencies.PSObject.Properties.Name -contains $pluginName) {
+      continue
+    }
+
+    $pluginPath = $plugin.path
+    if (-not $pluginPath) {
+      continue
+    }
+
+    $pluginOhosDir = Join-Path $pluginPath 'ohos'
+    if (-not (Test-Path $pluginOhosDir)) {
+      continue
+    }
+
+    $ohPackageJson.dependencies | Add-Member -NotePropertyName $pluginName -NotePropertyValue "file:$pluginOhosDir" -Force
+    $modified = $true
+  }
+
+  if ($modified) {
+    $ohPackageJson | ConvertTo-Json -Depth 10 | Set-Content -Path $entryOhPackagePath -Encoding utf8
+    return $backupContent
+  }
+
+  return $null
+}
+
+function Restore-FlutterOhosPluginDependencies {
+  param(
+    [string]$RepoRoot,
+    [string]$BackupContent
+  )
+
+  if (-not $BackupContent) {
+    return
+  }
+
+  $entryOhPackagePath = Join-Path $RepoRoot 'ohos\entry\oh-package.json5'
+  Set-Content -Path $entryOhPackagePath -Value $BackupContent -Encoding utf8
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pubspecVersionInfo = Get-PubspecVersionInfo -RepoRoot $repoRoot
 $sdkRepoRoot = Join-Path $repoRoot '.flutter_ohos_sdk_gitcode'
@@ -925,10 +994,16 @@ try {
     }
   }
 
-  Invoke-AllowingUnsignedBuild `
-    -Executable $flutterSdk `
-    -Arguments @('build', 'hap', '--debug', '--target-platform', "ohos-$TargetPlatform", '--no-tree-shake-icons') `
-    -UnsignedHapPath $unsignedHap
+  $injectedOhPackageBackup = Inject-FlutterOhosPluginDependencies -RepoRoot $repoRoot
+  try {
+    Invoke-AllowingUnsignedBuild `
+      -Executable $flutterSdk `
+      -Arguments @('build', 'hap', '--debug', '--target-platform', "ohos-$TargetPlatform", '--no-tree-shake-icons') `
+      -UnsignedHapPath $unsignedHap
+  }
+  finally {
+    Restore-FlutterOhosPluginDependencies -RepoRoot $repoRoot -BackupContent $injectedOhPackageBackup
+  }
   Ensure-RepoOwnedHvigorPluginDependency -RepoRoot $repoRoot
 
   $resolvedSignedHap = @($builtSignedHap, $signedHap) |
