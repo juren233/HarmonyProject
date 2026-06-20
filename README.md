@@ -256,13 +256,13 @@ curl https://petnote.juren233.top/healthz
 
 ## CI 与发布
 
-当前版本来自 `pubspec.yaml`。
+当前基础版本来自 `pubspec.yaml`。
 
 Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 控制：
 
-- `main` 分支在 `enabled=true` 时创建正式 Release。
-- `beta` 分支在 `enabled=true` 时创建 pre-release。
+- `main` / `beta` 分支在 `enabled=true` 时按 `pre_release` 开关创建 Release 或 pre-release。
 - 其他分支只上传 Actions artifacts。
+- `pre_release=true` 时，工作流按已有 GitHub tags 计算同基础版本的下一个 `beta.N`；构建号按 GitHub Release 总数 + 1 计算。
 - Android 当前配置产出 `arm64-v8a` APK。
 - iOS 当前配置产出 unsigned IPA，仍需自行签名后才能安装到真机或分发。
 
