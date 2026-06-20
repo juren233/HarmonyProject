@@ -103,3 +103,10 @@
 - [x] 拉取 iOS 真机 crash report 并定位闪退根因 → 验证: `Runner-2026-06-20-131044.ips` 主线程卡在 `PetNoteRtcPlugin.releaseEngine()` → `AliRTCSdk::AliEngine::Destroy(...)`，并伴随 `A-Eng-3` 线程 `EXC_BAD_ACCESS`
 - [x] 修复 iOS RTC 释放路径 → 验证: dispose 只执行 `stopPreview`、解绑本地/远端 view、`leaveChannel`，不再同步调用 `AliRtcEngine.destroy()`
 - [x] 重新构建未签名 iOS release IPA → 验证: `flutter test test/ios_rtc_permission_structure_test.dart` 通过，`flutter build ios --release --no-codesign` 通过，`build/ios/Runner-unsigned.ipa` SHA256 `c410b44ef3709ea01eb0ae3c07c723163905a6ec0ddc09cb6859f79e557334f2`
+
+## 2026-06-20 Android CI Linux Runner 迁移
+
+- [x] 将 Release workflow 的 Android job 从 `windows-latest` 切到 `ubuntu-latest`，并用 bash 写入 `android/local.properties` → 验证: workflow 静态检查通过
+- [x] Android signing 改用现有 `scripts/prepare-android-signing.sh`，保持 GitHub Secrets 和 Gradle 签名协议不变 → 验证: Actions 中 `Prepare Android Signing` 成功
+- [x] Android APK 构建改为 Linux 上直接执行 `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` → 验证: Actions 生成 `apk-arm64-v8a`
+- [x] 推送后对比 Linux runner 实际耗时与上一轮 Windows runner `11m1s` → 验证: Linux runner Android job `7m50s`

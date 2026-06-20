@@ -266,10 +266,10 @@ jobs:
           echo "should_publish_release=${should_publish_release}" >> "${GITHUB_OUTPUT}"
 
   build-android:
-    name: Build Android APKs
+    name: Build Android APK
     needs: resolve-release-plan
     if: needs.resolve-release-plan.outputs.should_build == 'true' && needs.resolve-release-plan.outputs.android_enabled == 'true'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -283,6 +283,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
@@ -291,89 +292,77 @@ jobs:
           cache: true
 
       - name: Prepare Android Local Properties
-        shell: powershell
+        shell: bash
         run: |
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          $androidSdk = if ($env:ANDROID_SDK_ROOT) {
-            $env:ANDROID_SDK_ROOT
-          } elseif ($env:ANDROID_HOME) {
-            $env:ANDROID_HOME
-          } elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) {
-            Join-Path $env:LOCALAPPDATA 'Android\Sdk'
-          } else {
-            throw 'Android SDK environment variable was not found.'
-          }
+          set -euo pipefail
 
-          $flutterSdk = if ($env:FLUTTER_ROOT) {
-            $env:FLUTTER_ROOT
-          } elseif ($env:FLUTTER_HOME) {
-            $env:FLUTTER_HOME
-          } else {
-            $flutterCommand = Get-Command flutter -ErrorAction Stop
-            Split-Path (Split-Path $flutterCommand.Source -Parent) -Parent
-          }
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "${android_sdk}" ]]; then
+            echo "Android SDK environment variable was not found." >&2
+            exit 1
+          fi
 
-          $androidSdkEscaped = $androidSdk.Replace('\', '\\')
-          $flutterSdkEscaped = $flutterSdk.Replace('\', '\\')
-          $versionName = '${{ needs.resolve-release-plan.outputs.version_core }}'
-          $versionCode = '${{ needs.resolve-release-plan.outputs.version_build }}'
+          flutter_sdk="${FLUTTER_ROOT:-${FLUTTER_HOME:-}}"
+          if [[ -z "${flutter_sdk}" ]]; then
+            flutter_bin="$(command -v flutter)"
+            flutter_sdk="$(cd "$(dirname "${flutter_bin}")/.." && pwd)"
+          fi
 
-          $localPropertiesContent = @"
-          sdk.dir=$androidSdkEscaped
-          flutter.sdk=$flutterSdkEscaped
-          flutter.buildMode=release
-          flutter.versionName=$versionName
-          flutter.versionCode=$versionCode
-          "@
-
-          [System.IO.File]::WriteAllText(
-            (Join-Path $PWD 'android/local.properties'),
-            $localPropertiesContent,
-            $utf8NoBom
-          )
+          {
+            printf 'sdk.dir=%s\n' "${android_sdk}"
+            printf 'flutter.sdk=%s\n' "${flutter_sdk}"
+            printf 'flutter.buildMode=release\n'
+            printf 'flutter.versionName=%s\n' "${{ needs.resolve-release-plan.outputs.version_core }}"
+            printf 'flutter.versionCode=%s\n' "${{ needs.resolve-release-plan.outputs.version_build }}"
+          } > android/local.properties
 
       - name: Prepare Android Signing
-        shell: powershell
+        shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          & .\scripts\prepare-android-signing.ps1 -RepoRoot $PWD
+          bash ./scripts/prepare-android-signing.sh --repo-root "$PWD" --force
 
       - name: Build ABI APK
-        shell: powershell
+        shell: bash
         run: |
-          powershell -ExecutionPolicy Bypass -File .\scripts\flutter-android.ps1 -Mode build -BuildMode release -TargetPlatform '${{ matrix.scriptTarget }}'
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --release --target-platform "android-${{ matrix.scriptTarget }}" --no-tree-shake-icons
 
       - name: Rename Built APK
-        shell: powershell
+        shell: bash
         run: |
-          $sourcePath = 'build/app/outputs/flutter-apk/app-release.apk'
-          if (-not (Test-Path $sourcePath)) {
-            throw "Expected APK was not generated at $sourcePath"
-          }
+          set -euo pipefail
 
-          $publishMode = '${{ needs.resolve-release-plan.outputs.publish_mode }}'
-          $branchName = '${{ needs.resolve-release-plan.outputs.branch_name }}'
-          $versionCore = '${{ needs.resolve-release-plan.outputs.version_core }}'
-          $tagName = '${{ needs.resolve-release-plan.outputs.tag }}'
-          $abi = '${{ matrix.abi }}'
-          $shortSha = '${{ github.sha }}'.Substring(0, 7)
-          $safeBranch = ($branchName -replace '[^A-Za-z0-9._-]', '-').Trim('-')
-          if ([string]::IsNullOrWhiteSpace($safeBranch)) {
-            $safeBranch = 'branch'
-          }
+          source_path="build/app/outputs/flutter-apk/app-release.apk"
+          if [[ ! -f "${source_path}" ]]; then
+            echo "Expected APK was not generated at ${source_path}" >&2
+            exit 1
+          fi
 
-          if ($publishMode -eq 'artifacts-only') {
-            $fileName = "pet-android-$abi-$safeBranch-v$versionCore-$shortSha.apk"
-          } else {
-            $fileName = "pet-android-$abi-$tagName.apk"
-          }
+          publish_mode="${{ needs.resolve-release-plan.outputs.publish_mode }}"
+          branch_name="${{ needs.resolve-release-plan.outputs.branch_name }}"
+          version_core="${{ needs.resolve-release-plan.outputs.version_core }}"
+          tag_name="${{ needs.resolve-release-plan.outputs.tag }}"
+          abi="${{ matrix.abi }}"
+          short_sha="${GITHUB_SHA::7}"
+          safe_branch="$(echo "${branch_name}" | sed 's/[^A-Za-z0-9._-]/-/g' | sed 's/^-*//;s/-*$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
 
-          New-Item -ItemType Directory -Force -Path 'release-assets' | Out-Null
-          Copy-Item -Path $sourcePath -Destination (Join-Path 'release-assets' $fileName) -Force
+          if [[ "${publish_mode}" == "artifacts-only" ]]; then
+            file_name="pet-android-${abi}-${safe_branch}-v${version_core}-${short_sha}.apk"
+          else
+            file_name="pet-android-${abi}-${tag_name}.apk"
+          fi
+
+          mkdir -p release-assets
+          cp "${source_path}" "release-assets/${file_name}"
 
       - name: Upload Matrix APK Artifact
         uses: actions/upload-artifact@v6
