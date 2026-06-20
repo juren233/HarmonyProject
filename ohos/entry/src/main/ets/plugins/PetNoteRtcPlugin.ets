@@ -331,23 +331,25 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   }
 
   unbindVideoView(controller: AliRtcXComponentController): void {
-    const engine = this.engine;
-    if (this.localVideo?.controller === controller) {
+    const engine: AliRtcEngine | null = this.engine;
+    const localVideo = this.localVideo;
+    if (localVideo?.controller === controller) {
       if (engine != null) {
         engine.stopPreview();
         engine.setLocalViewConfig(
-          this.makeCanvas(this.localVideo.surfaceId),
+          this.makeCanvas(localVideo.surfaceId),
           null,
           AliRtcVideoTrack.AliEngineVideoTrackCamera,
         );
       }
       this.localVideo = null;
     }
-    if (this.remoteVideo?.controller === controller) {
-      const remoteUserId = this.currentRemoteUserId(this.remoteVideo.remoteUserId);
+    const remoteVideo = this.remoteVideo;
+    if (remoteVideo?.controller === controller) {
+      const remoteUserId = this.currentRemoteUserId(remoteVideo.remoteUserId);
       if (engine != null && remoteUserId != null) {
         engine.setRemoteViewConfig(
-          this.makeCanvas(this.remoteVideo.surfaceId),
+          this.makeCanvas(remoteVideo.surfaceId),
           null,
           remoteUserId,
           AliRtcVideoTrack.AliEngineVideoTrackCamera,
@@ -414,7 +416,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   }
 
   private handleRemoteMediaAvailable(uid: string): void {
-    const engine = this.engine;
+    const engine: AliRtcEngine | null = this.engine;
     if (engine == null) {
       return;
     }
@@ -457,7 +459,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   }
 
   private releaseEngine(): void {
-    const engine = this.engine;
+    const engine: AliRtcEngine | null = this.engine;
     if (engine != null) {
       if (this.localVideo != null) {
         engine.stopPreview();

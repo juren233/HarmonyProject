@@ -144,8 +144,8 @@ if (-not (Test-Path $localPropertiesPath)) {
 
 $localProperties = Get-PropertiesMap -Path $localPropertiesPath
 $flutterSdk = Resolve-ExistingPath -Candidates @(
-  'E:\flutter\bin\flutter.bat',
   $(if ($localProperties.ContainsKey('flutter.sdk')) { Join-Path $localProperties['flutter.sdk'] 'bin\flutter.bat' }),
+  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter.bat'),
   'flutter.bat',
   'flutter'
 ) -Label 'Flutter SDK'
@@ -173,9 +173,9 @@ $env:ANDROID_HOME = $androidSdk
 
 Push-Location $repoRoot
 try {
-  Restore-PlatformState -RepoRoot $repoRoot -StateName 'official' | Out-Null
+  Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos' | Out-Null
   Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
-  Save-PlatformState -RepoRoot $repoRoot -StateName 'official'
+  Save-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
 
   if ($BuildMode -eq 'release') {
     $prepareAndroidSigningScript = Join-Path $PSScriptRoot 'prepare-android-signing.ps1'
