@@ -76,7 +76,10 @@ function Resolve-CocoaPods {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $androidLocalPropertiesPath = Join-Path $repoRoot 'android\local.properties'
-$flutterSdkCandidates = @('E:\flutter\bin\flutter.bat', 'E:\flutter\bin\flutter')
+$flutterSdkCandidates = @(
+  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter.bat'),
+  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter')
+)
 
 if (Test-Path $androidLocalPropertiesPath) {
   $androidFlutterSdk = Select-String -Path $androidLocalPropertiesPath -Pattern '^flutter\.sdk=(.+)$' | Select-Object -First 1
@@ -95,9 +98,9 @@ $flutterSdk = Resolve-ExistingPath -Candidates $flutterSdkCandidates -Label 'Flu
 
 Push-Location $repoRoot
 try {
-  Restore-PlatformState -RepoRoot $repoRoot -StateName 'official' | Out-Null
+  Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos' | Out-Null
   Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
-  Save-PlatformState -RepoRoot $repoRoot -StateName 'official'
+  Save-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
 
   if ($Mode -eq 'prepare') {
     return

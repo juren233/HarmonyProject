@@ -1029,7 +1029,7 @@ try {
   }
 }
 finally {
-  $restoredOfficialState = Restore-PlatformState -RepoRoot $repoRoot -StateName 'official'
+  $restoredOfficialState = Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
   if (-not $restoredOfficialState) {
     Restore-ManagedStateFromBackup -RepoRoot $repoRoot -BackupRoot $stateBackup
   }
