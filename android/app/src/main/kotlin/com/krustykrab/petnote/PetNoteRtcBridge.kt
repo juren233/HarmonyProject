@@ -14,20 +14,17 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.alivc.rtc.AliRtcEngine
-import com.alivc.rtc.AliRtcEngine.AliRtcMuteLocalAudioMode
-import com.alivc.rtc.AliRtcEngine.AliRtcRenderMode
-import com.alivc.rtc.AliRtcEngine.AliRtcVideoDimensions
-import com.alivc.rtc.AliRtcEngine.AliRtcVideoEncoderBitrate
-import com.alivc.rtc.AliRtcEngine.AliRtcVideoCanvas
-import com.alivc.rtc.AliRtcEngine.AliRtcVideoEncoderConfiguration
-import com.alivc.rtc.AliRtcEngine.AliRtcVideoTrack
-import com.alivc.rtc.AliRtcEngine.AliRtcAudioTrack
-import com.alivc.rtc.AliRtcEngine.AliRTCSdkChannelProfile
-import com.alivc.rtc.AliRtcEngine.AliRTCSdkClientRole
-import com.alivc.rtc.AliRtcEngineImpl
-import com.alivc.rtc.AliRtcEngineEventListener
-import com.alivc.rtc.AliRtcEngineNotify
+import com.ding.rtc.DingRtcAuthInfo
+import com.ding.rtc.DingRtcEngine
+import com.ding.rtc.DingRtcEngine.DingRtcAudioTrack
+import com.ding.rtc.DingRtcEngine.DingRtcMuteLocalAudioMode
+import com.ding.rtc.DingRtcEngine.DingRtcRenderMode
+import com.ding.rtc.DingRtcEngine.DingRtcVideoCanvas
+import com.ding.rtc.DingRtcEngine.DingRtcVideoDimensions
+import com.ding.rtc.DingRtcEngine.DingRtcVideoEncoderConfiguration
+import com.ding.rtc.DingRtcEngine.DingRtcVideoStreamType
+import com.ding.rtc.DingRtcEngine.DingRtcVideoTrack
+import com.ding.rtc.DingRtcEngineEventListener
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -38,7 +35,7 @@ class PetNoteRtcBridge(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
-    private var engine: AliRtcEngine? = null
+    private var engine: DingRtcEngine? = null
     private var expectedRemoteUserId: String? = null
     private var activeRemoteUserId: String? = null
     private var localContainer: FrameLayout? = null
@@ -49,16 +46,9 @@ class PetNoteRtcBridge(
     private val joinTimeoutRunnable = Runnable {
         completeJoinWithError(-1, "join rtc channel timed out")
     }
-    private val rtcEventListener = object : AliRtcEngineEventListener() {
+    private val rtcEventListener = object : DingRtcEngineEventListener() {
         override fun onJoinChannelResult(result: Int, channel: String, userId: String, elapsed: Int) {
             Log.i(TAG, "onJoinChannelResult result=$result channel=$channel userId=$userId elapsed=$elapsed")
-            mainHandler.post {
-                handleJoinChannelResult(result, channel)
-            }
-        }
-
-        override fun onJoinChannelResult(result: Int, channel: String, elapsed: Int) {
-            Log.i(TAG, "onJoinChannelResult result=$result channel=$channel elapsed=$elapsed")
             mainHandler.post {
                 handleJoinChannelResult(result, channel)
             }
@@ -72,8 +62,6 @@ class PetNoteRtcBridge(
                 }
             }
         }
-    }
-    private val rtcNotify = object : AliRtcEngineNotify() {
         override fun onRemoteUserOnLineNotify(uid: String, elapsed: Int) {
             Log.i(TAG, "onRemoteUserOnLineNotify uid=$uid elapsed=$elapsed")
             handleRemoteMediaAvailable(uid)
@@ -81,24 +69,24 @@ class PetNoteRtcBridge(
 
         override fun onRemoteTrackAvailableNotify(
             uid: String,
-            audioTrack: AliRtcAudioTrack,
-            videoTrack: AliRtcVideoTrack,
+            audioTrack: DingRtcAudioTrack,
+            videoTrack: DingRtcVideoTrack,
         ) {
             Log.i(TAG, "onRemoteTrackAvailableNotify uid=$uid audio=$audioTrack video=$videoTrack")
             handleRemoteMediaAvailable(uid)
         }
 
-        override fun onFirstVideoPacketReceived(uid: String, videoTrack: AliRtcVideoTrack, timeCost: Int) {
+        override fun onFirstVideoPacketReceived(uid: String, videoTrack: DingRtcVideoTrack, timeCost: Int) {
             Log.i(TAG, "onFirstVideoPacketReceived uid=$uid video=$videoTrack timeCost=$timeCost")
         }
 
-        override fun onFirstAudioPacketReceived(uid: String, audioTrack: AliRtcAudioTrack, timeCost: Int) {
-            Log.i(TAG, "onFirstAudioPacketReceived uid=$uid audio=$audioTrack timeCost=$timeCost")
+        override fun onFirstAudioPacketReceived(uid: String, timeCost: Int) {
+            Log.i(TAG, "onFirstAudioPacketReceived uid=$uid timeCost=$timeCost")
         }
 
         override fun onFirstRemoteVideoFrameDrawn(
             uid: String,
-            videoTrack: AliRtcVideoTrack,
+            videoTrack: DingRtcVideoTrack,
             width: Int,
             height: Int,
             elapsed: Int,
@@ -109,15 +97,7 @@ class PetNoteRtcBridge(
             )
         }
 
-        override fun onFirstRemoteAudioDecoded(uid: String, audioTrack: AliRtcAudioTrack, elapsed: Int) {
-            Log.i(TAG, "onFirstRemoteAudioDecoded uid=$uid audio=$audioTrack elapsed=$elapsed")
-        }
-
-        override fun onAuthInfoExpired() {
-            Log.e(TAG, "onAuthInfoExpired")
-        }
-
-        override fun onCalledApiExecuted(error: Int, api: String, result: String) {
+        override fun onApiCalledExecuted(error: Int, api: String, result: String) {
             Log.i(TAG, "onCalledApiExecuted error=$error api=$api result=$result")
         }
     }
@@ -152,12 +132,12 @@ class PetNoteRtcBridge(
                 }
                 "toggleCamera" -> {
                     val enabled = (call.argument<Boolean>("enabled") ?: true)
-                    engine?.muteLocalCamera(!enabled, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+                    engine?.muteLocalCamera(!enabled, DingRtcVideoTrack.DingRtcVideoTrackCamera)
                     result.success(null)
                 }
                 "toggleMicrophone" -> {
                     val enabled = (call.argument<Boolean>("enabled") ?: true)
-                    engine?.muteLocalMic(!enabled, AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode)
+                    engine?.muteLocalMic(!enabled, DingRtcMuteLocalAudioMode.DingRtcMuteOnlyMicAudioMode)
                     result.success(null)
                 }
                 "toggleSpeaker" -> {
@@ -203,14 +183,19 @@ class PetNoteRtcBridge(
         return true
     }
 
-    private fun ensureEngine(): AliRtcEngine {
+    private fun ensureEngine(): DingRtcEngine {
         val existing = engine
         if (existing != null) {
             return existing
         }
-        val created = AliRtcEngineImpl.getInstance(context)
+        val created = DingRtcEngine.create(context, "")
         created.setRtcEngineEventListener(rtcEventListener)
-        created.setRtcEngineNotify(rtcNotify)
+        logResult("subscribeAllRemoteAudioStreams", created.subscribeAllRemoteAudioStreams(true))
+        logResult("subscribeAllRemoteVideoStreams", created.subscribeAllRemoteVideoStreams(true))
+        logResult(
+            "setRemoteDefaultVideoStreamType",
+            created.setRemoteDefaultVideoStreamType(DingRtcVideoStreamType.DingRtcVideoStreamTypeFHD),
+        )
         engine = created
         return created
     }
@@ -274,17 +259,20 @@ class PetNoteRtcBridge(
         configureVideoEncoder(rtcEngine, arguments)
         expectedRemoteUserId = requireString(arguments, "remoteUserId")
         activeRemoteUserId = null
-        logResult("setChannelProfile", rtcEngine.setChannelProfile(AliRTCSdkChannelProfile.AliRTCSdkInteractiveLive))
-        logResult("setClientRole", rtcEngine.setClientRole(AliRTCSdkClientRole.AliRTCSdkInteractive))
-        logResult("setDefaultSubscribeAllRemoteAudioStreams", rtcEngine.setDefaultSubscribeAllRemoteAudioStreams(true))
-        logResult("setDefaultSubscribeAllRemoteVideoStreams", rtcEngine.setDefaultSubscribeAllRemoteVideoStreams(true))
         attachLocalView(rtcEngine)
         attachRemoteView(rtcEngine)
         val channelId = requireString(arguments, "channelId")
         val userId = requireString(arguments, "userId")
+        val appId = requireString(arguments, "appId")
         val singleToken = requireString(arguments, "singleToken")
         Log.i(TAG, "join requested channelId=$channelId userId=$userId remoteUserId=$expectedRemoteUserId")
-        val joinResult = rtcEngine.joinChannel(singleToken, channelId, userId, "")
+        val authInfo = DingRtcAuthInfo()
+        authInfo.appId = appId
+        authInfo.channelId = channelId
+        authInfo.userId = userId
+        authInfo.token = singleToken
+        val userName = userId
+        val joinResult = rtcEngine.joinChannel(authInfo, userName)
         logResult("joinChannel", joinResult)
         if (joinResult != 0) {
             completeJoinWithError(joinResult, "join rtc channel failed: $joinResult")
@@ -330,14 +318,14 @@ class PetNoteRtcBridge(
         pendingResult.error("rtc_join_cancelled", message, null)
     }
 
-    private fun configureVideoEncoder(rtcEngine: AliRtcEngine, arguments: Map<*, *>) {
+    private fun configureVideoEncoder(rtcEngine: DingRtcEngine, arguments: Map<*, *>) {
         val width = requireInt(arguments, "videoWidth")
         val height = requireInt(arguments, "videoHeight")
         require(width == 1280 && height == 720) { "rtc video quality must be 720P" }
-        val config = AliRtcVideoEncoderConfiguration()
-        config.dimensions = AliRtcVideoDimensions(width, height)
-        config.bitrate = AliRtcVideoEncoderBitrate.AliRtcVideoEncoderStandardBitrate.getValue()
-        logResult("setVideoEncoderConfiguration", rtcEngine.setVideoEncoderConfiguration(config))
+        val config = DingRtcVideoEncoderConfiguration()
+        config.dimensions = DingRtcVideoDimensions(width, height)
+        rtcEngine.setVideoEncoderConfiguration(config)
+        Log.i(TAG, "setVideoEncoderConfiguration result=0")
     }
 
     private fun resetRtcSession() {
@@ -346,12 +334,12 @@ class PetNoteRtcBridge(
         logResult("stopPreview", rtcEngine.stopPreview())
         logResult(
             "clearLocalViewConfig",
-            rtcEngine.setLocalViewConfig(null as AliRtcVideoCanvas?, AliRtcVideoTrack.AliRtcVideoTrackCamera),
+            rtcEngine.setLocalViewConfig(null as DingRtcVideoCanvas?, DingRtcVideoTrack.DingRtcVideoTrackCamera),
         )
         currentRemoteUserId()?.let { userId ->
             logResult(
                 "clearRemoteViewConfig",
-                rtcEngine.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera),
+                rtcEngine.setRemoteViewConfig(null as DingRtcVideoCanvas?, userId, DingRtcVideoTrack.DingRtcVideoTrackCamera),
             )
         }
         logResult("leaveChannel", rtcEngine.leaveChannel())
@@ -389,50 +377,48 @@ class PetNoteRtcBridge(
     fun unbindVideoView(container: FrameLayout) {
         if (localContainer === container) {
             engine?.stopPreview()
-            engine?.setLocalViewConfig(null as AliRtcVideoCanvas?, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+            engine?.setLocalViewConfig(null as DingRtcVideoCanvas?, DingRtcVideoTrack.DingRtcVideoTrackCamera)
             localContainer = null
         }
         if (remoteContainer === container) {
             currentRemoteUserId()?.let { userId ->
-                engine?.setRemoteViewConfig(null as AliRtcVideoCanvas?, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera)
+                engine?.setRemoteViewConfig(null as DingRtcVideoCanvas?, userId, DingRtcVideoTrack.DingRtcVideoTrackCamera)
             }
             remoteContainer = null
         }
         container.removeAllViews()
     }
 
-    private fun attachLocalView(rtcEngine: AliRtcEngine) {
+    private fun attachLocalView(rtcEngine: DingRtcEngine) {
         val container = localContainer ?: return
         container.removeAllViews()
-        val renderView = rtcEngine.createRenderSurfaceView(context)
+        val renderView = DingRtcEngine.createRenderSurfaceView(context)
         container.addView(renderView, matchParentLayoutParams())
-        val canvas = AliRtcVideoCanvas()
+        val canvas = DingRtcVideoCanvas()
         canvas.view = renderView
-        canvas.renderMode = AliRtcRenderMode.AliRtcRenderModeAuto
-        logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, AliRtcVideoTrack.AliRtcVideoTrackCamera))
+        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeAuto
+        logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, DingRtcVideoTrack.DingRtcVideoTrackCamera))
         logResult("startPreview", rtcEngine.startPreview())
     }
 
-    private fun attachRemoteView(rtcEngine: AliRtcEngine) {
+    private fun attachRemoteView(rtcEngine: DingRtcEngine) {
         val container = remoteContainer ?: return
         val userId = currentRemoteUserId() ?: return
         container.removeAllViews()
-        val renderView = rtcEngine.createRenderSurfaceView(context)
+        val renderView = DingRtcEngine.createRenderSurfaceView(context)
         container.addView(renderView, matchParentLayoutParams())
-        val canvas = AliRtcVideoCanvas()
+        val canvas = DingRtcVideoCanvas()
         canvas.view = renderView
-        canvas.renderMode = AliRtcRenderMode.AliRtcRenderModeAuto
-        logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, userId, AliRtcVideoTrack.AliRtcVideoTrackCamera))
+        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeAuto
+        logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, userId, DingRtcVideoTrack.DingRtcVideoTrackCamera))
     }
 
-    private fun subscribeRemoteMedia(rtcEngine: AliRtcEngine, userId: String) {
+    private fun subscribeRemoteMedia(rtcEngine: DingRtcEngine, userId: String) {
         logResult(
-            "subscribeRemoteMediaStream",
-            rtcEngine.subscribeRemoteMediaStream(
+            "subscribeRemoteVideoStream",
+            rtcEngine.subscribeRemoteVideoStream(
                 userId,
-                AliRtcVideoTrack.AliRtcVideoTrackCamera,
-                true,
-                AliRtcAudioTrack.AliRtcAudioTrackMic,
+                DingRtcVideoTrack.DingRtcVideoTrackCamera,
                 true,
             ),
         )

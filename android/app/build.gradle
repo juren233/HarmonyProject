@@ -65,7 +65,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 33
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -75,6 +75,7 @@ android {
             if (releaseSigningReady) {
                 signingConfig = signingConfigs.release
             }
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
 }
@@ -103,6 +104,6 @@ dependencies {
     implementation "com.google.errorprone:error_prone_annotations:2.28.0"
     implementation "androidx.security:security-crypto:1.1.0-alpha06"
     implementation "com.google.android.material:material:1.12.0"
-    implementation "com.aliyun.aio:AliVCSDK_ARTC:7.11.0"
+    implementation "com.ding.rtc:dingrtc-basic:3.9.0"
     testImplementation "junit:junit:4.13.2"
 }

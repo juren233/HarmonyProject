@@ -33,6 +33,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  tearDown(() {
+    SyncService.instance = null;
+  });
+
   test('RTC Token 地址从同步服务器地址推导', () {
     expect(
       rtcTokenBaseUriFromSyncServerUrl('wss://petnote.example.com/ws')
@@ -96,6 +100,8 @@ void main() {
 
     final firstCallId = firstTransport.sent.single.payload['callId'] as String;
     expect(tokenRequests.single['channelId'], firstCallId);
+    expect(firstCallId.length, lessThanOrEqualTo(64));
+    expect(firstCallId, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -125,6 +131,8 @@ void main() {
     final secondCallId =
         secondTransport.sent.single.payload['callId'] as String;
     expect(tokenRequests.last['channelId'], secondCallId);
+    expect(secondCallId.length, lessThanOrEqualTo(64));
+    expect(secondCallId, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
     expect(secondCallId, isNot(firstCallId));
   });
 
@@ -348,8 +356,14 @@ void main() {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);
     final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = _fakeRtcTokenClient();
 
     Future<void> pumpCallPage(List<SyncedDeviceInfo> devices) async {
+      adapter.calls.clear();
       await tester.pumpWidget(
         MaterialApp(
           theme: buildPetNoteTheme(Brightness.light),
@@ -357,9 +371,14 @@ void main() {
             mode: RemoteVideoMode.watch,
             pet: pet,
             devicesOverride: devices,
+            userId: 'owner-device',
+            signalingController: signaling,
+            tokenClient: tokenClient,
+            rtcAdapter: adapter,
           ),
         ),
       );
+      await tester.pumpAndSettle();
     }
 
     // 指派给当前宠物的设备：可连。
@@ -475,8 +494,10 @@ void main() {
       platformCalls,
       contains(
         isA<MethodCall>()
-            .having((call) => call.method, 'method', 'SystemChrome.setEnabledSystemUIMode')
-            .having((call) => call.arguments, 'arguments', 'SystemUiMode.edgeToEdge'),
+            .having((call) => call.method, 'method',
+                'SystemChrome.setEnabledSystemUIMode')
+            .having((call) => call.arguments, 'arguments',
+                'SystemUiMode.edgeToEdge'),
       ),
     );
 
@@ -534,8 +555,10 @@ void main() {
       platformCalls,
       contains(
         isA<MethodCall>()
-            .having((call) => call.method, 'method', 'SystemChrome.setEnabledSystemUIMode')
-            .having((call) => call.arguments, 'arguments', 'SystemUiMode.edgeToEdge'),
+            .having((call) => call.method, 'method',
+                'SystemChrome.setEnabledSystemUIMode')
+            .having((call) => call.arguments, 'arguments',
+                'SystemUiMode.edgeToEdge'),
       ),
     );
   });
@@ -546,6 +569,8 @@ void main() {
     final transport = _FakeSyncTransport();
     final signaling = RtcSignalingController(transport: transport);
     addTearDown(signaling.dispose);
+    final adapter = _FakeRtcAdapter();
+    final tokenClient = _fakeRtcTokenClient();
     final pet = store.pets.first;
 
     await tester.pumpWidget(
@@ -556,10 +581,16 @@ void main() {
           pet: pet,
           callId: 'call-1',
           targetDeviceId: 'pet-device',
+          userId: 'owner-device',
           signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
         ),
       ),
     );
+    await tester.pumpAndSettle();
+    expect(transport.sent.single.type, SyncMessageTypes.callInvite);
+    transport.sent.clear();
 
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
     await tester.pumpAndSettle();
@@ -658,6 +689,108 @@ void main() {
     ]);
     expect(transport.sent, hasLength(2));
     expect(transport.sent.last.type, SyncMessageTypes.callEnd);
+  });
+
+  testWidgets('远程视频设备目录为空时会先请求设备列表再入会', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token');
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await settings.setSharedKeyBase64(await crypto.exportKeyBase64());
+    final serviceTransport = _FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => serviceTransport,
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await service.stop();
+      service.dispose();
+      SyncService.instance = null;
+      settings.dispose();
+    });
+    SyncService.instance = service;
+    await service.ensureStartedForOwner(
+      store: store,
+      pushStartupSnapshot: false,
+    );
+    serviceTransport.sent.clear();
+
+    final pet = store.pets.first;
+    final tokenRequests = <Map<String, dynamic>>[];
+    final adapter = _FakeRtcAdapter();
+    final signaling = RtcSignalingController(transport: serviceTransport);
+    addTearDown(signaling.dispose);
+    final tokenClient = RtcTokenClient(
+      baseUri: Uri.parse('https://sync.example.com'),
+      postJson: (uri, body) async {
+        tokenRequests.add(body);
+        return '''
+{
+  "appId": "nml2ycrp",
+  "channelId": "call-1",
+  "userId": "${body['userId']}",
+  "role": "${body['role']}",
+  "token": "signed-token",
+  "singleToken": "single-token",
+  "nonce": "AK-test-nonce",
+  "timestamp": 1710003600,
+  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "expiresAtMs": 1710003600000
+}
+''';
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(serviceTransport.sent.map((message) => message.type),
+        contains(SyncMessageTypes.devicesRequest));
+    expect(tokenRequests, isEmpty);
+
+    serviceTransport.incoming.add(
+      SyncMessage(SyncMessageTypes.devices, {
+        'devices': [
+          SyncedDeviceInfo(
+            deviceId: 'pet-device',
+            name: '客厅平板',
+            role: 'pet',
+            servedPetId: pet.id,
+            online: true,
+          ).toJson(),
+        ],
+      }),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tokenRequests, hasLength(1));
+    expect(adapter.joinedConfig?.remoteUserId, 'pet-device');
+    expect(serviceTransport.sent.last.type, SyncMessageTypes.callInvite);
+    expect(serviceTransport.sent.last.payload['targetDeviceId'], 'pet-device');
   });
 
   testWidgets('远程视频请求 Token 时携带恢复后的家庭认证', (tester) async {
@@ -1162,6 +1295,28 @@ class _FakeSyncTransport implements SyncTransport {
 
   @override
   Future<void> disconnect() async {}
+}
+
+RtcTokenClient _fakeRtcTokenClient() {
+  return RtcTokenClient(
+    baseUri: Uri.parse('https://sync.example.com'),
+    postJson: (uri, body) async {
+      return '''
+{
+  "appId": "nml2ycrp",
+  "channelId": "${body['channelId']}",
+  "userId": "${body['userId']}",
+  "role": "${body['role']}",
+  "token": "signed-token",
+  "singleToken": "single-token",
+  "nonce": "AK-test-nonce",
+  "timestamp": 1710003600,
+  "gslb": ["https://rgslb.rtc.aliyuncs.com"],
+  "expiresAtMs": 1710003600000
+}
+''';
+    },
+  );
 }
 
 class _UnavailableSyncSecretStore implements SyncSecretStore {

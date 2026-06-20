@@ -25,7 +25,6 @@ void main() {
     expect(appDelegate, contains('petnote/rtc_video_view'));
     expect(appDelegate, contains('PetNoteRtcVideoViewFactory'));
     expect(appDelegate, contains('AliRtcEngine.sharedInstance'));
-    expect(appDelegate, contains('AliRtcChannelParam'));
     expect(appDelegate, contains('singleToken'));
     expect(appDelegate, contains('remoteUserId'));
     expect(appDelegate, contains('AliVideoCanvas()'));
@@ -60,10 +59,22 @@ void main() {
     expect(appDelegate, contains('setVideoEncoderConfiguration(config)'));
     expect(appDelegate, isNot(contains('frameRate')));
     expect(appDelegate, isNot(contains('fps')));
-    expect(appDelegate,
-        contains('joinChannel(singleToken, channelParam: channelParam)'));
+    expect(appDelegate, contains('joinChannel(singleToken'));
+    expect(appDelegate, contains('channelId: channelId'));
+    expect(appDelegate, contains('userId: userId'));
+    expect(appDelegate, contains('onResultWithUserId'));
+    expect(appDelegate, contains('rtcLog("join result'));
+    expect(appDelegate, contains('onOccurError'));
+    expect(appDelegate, contains('onRemoteUserOnLineNotify'));
+    expect(appDelegate, contains('onFirstVideoPacketReceivedWithUid'));
+    expect(appDelegate, contains('onFirstAudioPacketReceivedWithUid'));
+    expect(appDelegate, contains('onFirstRemoteVideoFrameDrawn'));
+    expect(appDelegate, contains('logResult("setRemoteViewConfig"'));
+    expect(appDelegate, contains('logResult("subscribeRemoteMediaStream"'));
+    expect(appDelegate, contains('logResult("stopPreview"'));
+    expect(appDelegate, contains('logResult("leaveChannel"'));
     expect(appDelegate, contains('publishLocalVideoStream:'));
     expect(appDelegate, contains('publishLocalAudioStream:'));
-    expect(appDelegate, contains('AliRtcEngine.destroy()'));
+    expect(appDelegate, isNot(contains('AliRtcEngine.destroy()')));
   });
 }

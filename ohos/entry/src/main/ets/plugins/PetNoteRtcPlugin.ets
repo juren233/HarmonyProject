@@ -254,13 +254,30 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
       return this.rtcEventListener;
     }
     this.rtcEventListener = new AliRtcEngineEventListener()
+      .onJoinChannel((result: number, channel: string, userId: string, elapsed: number) => {
+        this.log(`onJoinChannel result=${result} channel=${channel} userId=${userId} elapsed=${elapsed}`);
+      })
+      .onOccurError((error: number, msg: string) => {
+        this.log(`onOccurError error=${error} message=${msg}`);
+      })
       .onRemoteUserOnline((uid: string, online: boolean) => {
+        this.log(`onRemoteUserOnline uid=${uid} online=${online}`);
         if (online) {
           this.deferRemoteMediaAvailable(uid);
         }
       })
       .onRemoteTrackAvailableNotify((uid: string, audioTrack: AliRtcAudioTrack, videoTrack: AliRtcVideoTrack) => {
+        this.log(`onRemoteTrackAvailableNotify uid=${uid} audio=${audioTrack} video=${videoTrack}`);
         this.deferRemoteMediaAvailable(uid);
+      })
+      .onFirstVideoPacketReceived((uid: string, videoTrack: AliRtcVideoTrack, timeCost: number) => {
+        this.log(`onFirstVideoPacketReceived uid=${uid} video=${videoTrack} timeCost=${timeCost}`);
+      })
+      .onFirstAudioPacketReceived((uid: string, audioTrack: AliRtcAudioTrack, timeCost: number) => {
+        this.log(`onFirstAudioPacketReceived uid=${uid} audio=${audioTrack} timeCost=${timeCost}`);
+      })
+      .onFirstRemoteVideoFrameDrawn((uid: string, videoTrack: AliRtcVideoTrack, width: number, height: number, elapsed: number) => {
+        this.log(`onFirstRemoteVideoFrameDrawn uid=${uid} video=${videoTrack} size=${width}x${height} elapsed=${elapsed}`);
       });
     return this.rtcEventListener;
   }
@@ -273,17 +290,18 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     const userId = this.requireString(call, 'userId');
     this.expectedRemoteUserId = this.requireString(call, 'remoteUserId');
     this.activeRemoteUserId = null;
-    engine.setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive);
-    engine.setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive);
-    engine.setDefaultSubscribeAllRemoteAudioStreams(true);
-    engine.setDefaultSubscribeAllRemoteVideoStreams(true);
+    this.logResult('setChannelProfile', engine.setChannelProfile(AliRtcChannelProfile.AliEngineInteractiveLive));
+    this.logResult('setClientRole', engine.setClientRole(AliRtcClientRole.AliEngineClientRoleInteractive));
+    this.logResult('setDefaultSubscribeAllRemoteAudioStreams', engine.setDefaultSubscribeAllRemoteAudioStreams(true));
+    this.logResult('setDefaultSubscribeAllRemoteVideoStreams', engine.setDefaultSubscribeAllRemoteVideoStreams(true));
     this.attachLocalView(engine);
     this.attachRemoteView(engine);
-    engine.joinChannelWithToken(singleToken, channelId, userId, '');
-    engine.publishLocalAudioStream(this.microphoneEnabled);
-    engine.publishLocalVideoStream(this.cameraEnabled);
-    engine.subscribeAllRemoteAudioStreams(true);
-    engine.subscribeAllRemoteVideoStreams(true);
+    this.log(`join requested channelId=${channelId} userId=${userId} remoteUserId=${this.expectedRemoteUserId}`);
+    this.logResult('joinChannelWithToken', engine.joinChannelWithToken(singleToken, '', '', userId));
+    this.logResult('publishLocalAudioStream', engine.publishLocalAudioStream(this.microphoneEnabled));
+    this.logResult('publishLocalVideoStream', engine.publishLocalVideoStream(this.cameraEnabled));
+    this.logResult('subscribeAllRemoteAudioStreams', engine.subscribeAllRemoteAudioStreams(true));
+    this.logResult('subscribeAllRemoteVideoStreams', engine.subscribeAllRemoteVideoStreams(true));
     this.subscribeRemoteMedia(engine, this.expectedRemoteUserId);
     this.attachRemoteView(engine);
     result.success(null);
@@ -359,6 +377,7 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     dimensions.height = height;
     config.dimensions = dimensions;
     engine.setVideoEncoderConfiguration(config);
+    this.logResult('setVideoEncoderConfiguration', 0);
   }
 
   private attachLocalView(engine: AliRtcEngine): void {
@@ -366,12 +385,15 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     if (video == null) {
       return;
     }
-    engine.setLocalViewConfig(
-      this.makeCanvas(video.surfaceId),
-      video.controller,
-      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+    this.logResult(
+      'setLocalViewConfig',
+      engine.setLocalViewConfig(
+        this.makeCanvas(video.surfaceId),
+        video.controller,
+        AliRtcVideoTrack.AliEngineVideoTrackCamera,
+      ),
     );
-    engine.startPreview();
+    this.logResult('startPreview', engine.startPreview());
   }
 
   private attachRemoteView(engine: AliRtcEngine): void {
@@ -380,11 +402,14 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
     if (video == null || remoteUserId == null) {
       return;
     }
-    engine.setRemoteViewConfig(
-      this.makeCanvas(video.surfaceId),
-      video.controller,
-      remoteUserId,
-      AliRtcVideoTrack.AliEngineVideoTrackCamera,
+    this.logResult(
+      'setRemoteViewConfig',
+      engine.setRemoteViewConfig(
+        this.makeCanvas(video.surfaceId),
+        video.controller,
+        remoteUserId,
+        AliRtcVideoTrack.AliEngineVideoTrackCamera,
+      ),
     );
   }
 
@@ -405,12 +430,23 @@ export default class PetNoteRtcPlugin implements FlutterPlugin, MethodCallHandle
   }
 
   private subscribeRemoteMedia(engine: AliRtcEngine, uid: string): void {
-    engine.subscribeRemoteMediaStream(
-      uid,
-      AliRtcVideoTrack.AliEngineVideoTrackCamera,
-      true,
-      true,
+    this.logResult(
+      'subscribeRemoteMediaStream',
+      engine.subscribeRemoteMediaStream(
+        uid,
+        AliRtcVideoTrack.AliEngineVideoTrackCamera,
+        true,
+        true,
+      ),
     );
+  }
+
+  private logResult(operation: string, code: number): void {
+    this.log(`${operation} result=${code}`);
+  }
+
+  private log(message: string): void {
+    console.info(`[${TAG}] ${message}`);
   }
 
   private makeCanvas(surfaceId: string): AliRtcVideoCanvas {

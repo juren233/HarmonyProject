@@ -198,4 +198,28 @@ void main() {
     expect(source.contains('registerViewFactory('), isTrue);
     expect(source.contains('"petnote/android_liquid_glass_dock"'), isTrue);
   });
+
+  test('MainActivity keeps Android system bars immersive and transparent', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/krustykrab/petnote/MainActivity.kt',
+    ).readAsStringSync();
+
+    expect(source.contains('WindowCompat.setDecorFitsSystemWindows(window, false)'),
+        isTrue);
+    expect(source.contains('window.statusBarColor = Color.TRANSPARENT'), isTrue);
+    expect(source.contains('window.navigationBarColor = Color.TRANSPARENT'),
+        isTrue);
+    expect(source.contains('window.navigationBarDividerColor = Color.TRANSPARENT'),
+        isTrue);
+    expect(source.contains('window.isStatusBarContrastEnforced = false'),
+        isTrue);
+    expect(source.contains('window.isNavigationBarContrastEnforced = false'),
+        isTrue);
+    expect(source.contains('WindowInsetsControllerCompat(window, window.decorView)'),
+        isTrue);
+    expect(source.contains('override fun onResume()'), isTrue);
+    expect(source.contains('override fun onWindowFocusChanged(hasFocus: Boolean)'),
+        isTrue);
+    expect(source.contains('applyImmersiveSystemBars()'), isTrue);
+  });
 }

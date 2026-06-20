@@ -8,18 +8,21 @@ class HouseholdDevice {
   HouseholdDevice({
     required this.deviceId,
     required this.name,
+    this.role,
     this.servedPetId,
     this.lastSeenMs,
   });
 
   final String deviceId;
   String name;
+  String? role;
   String? servedPetId;
   int? lastSeenMs;
 
   Map<String, dynamic> toJson() => {
         'deviceId': deviceId,
         'name': name,
+        'role': role,
         'servedPetId': servedPetId,
         'lastSeenMs': lastSeenMs,
       };
@@ -28,6 +31,7 @@ class HouseholdDevice {
       HouseholdDevice(
         deviceId: json['deviceId'] as String,
         name: json['name'] as String,
+        role: json['role'] as String?,
         servedPetId: json['servedPetId'] as String?,
         lastSeenMs: json['lastSeenMs'] as int?,
       );

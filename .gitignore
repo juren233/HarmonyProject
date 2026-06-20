@@ -60,6 +60,7 @@ ohos/local-signing.json
 *.keystore
 *.p12
 *.pfx
+*.pem
 *.p7b
 *.cer
 ohos/sign/*

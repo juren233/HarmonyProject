@@ -42,8 +42,13 @@ void main() {
     expect(bridge, contains('AliRtcEngineEventListener'));
     expect(bridge,
         contains('setRtcEngineEventListener(this.ensureRtcEventListener())'));
+    expect(bridge, contains('onJoinChannel'));
+    expect(bridge, contains('onOccurError'));
     expect(bridge, contains('onRemoteUserOnline'));
     expect(bridge, contains('onRemoteTrackAvailableNotify'));
+    expect(bridge, contains('onFirstVideoPacketReceived'));
+    expect(bridge, contains('onFirstAudioPacketReceived'));
+    expect(bridge, contains('onFirstRemoteVideoFrameDrawn'));
     expect(bridge, contains('deferRemoteMediaAvailable(uid)'));
     expect(bridge, contains('handleRemoteMediaAvailable(uid)'));
     expect(bridge, contains('this.activeRemoteUserId = uid'));
@@ -84,7 +89,12 @@ void main() {
     expect(
         bridge,
         contains(
-            "engine.joinChannelWithToken(singleToken, channelId, userId, '')"));
+            "engine.joinChannelWithToken(singleToken, '', '', userId)"));
+    expect(bridge, contains("this.logResult('joinChannelWithToken'"));
+    expect(bridge, contains("this.logResult('publishLocalVideoStream'"));
+    expect(bridge, contains("this.logResult('publishLocalAudioStream'"));
+    expect(bridge, contains("'subscribeRemoteMediaStream'"));
+    expect(bridge, contains("'setRemoteViewConfig'"));
     expect(bridge, contains('publishLocalVideoStream'));
     expect(bridge, contains('publishLocalAudioStream'));
     expect(bridge, contains('subscribeAllRemoteAudioStreams(true)'));

@@ -89,7 +89,7 @@ void main() {
       isTrue,
     );
     final persisted = await file.readAsString();
-    expect(persisted, isNot(contains('"role"')));
+    expect(persisted, contains('"role":"owner"'));
     expect(persisted, isNot(contains('snapshotCiphertext')));
     expect(persisted, isNot(contains('pendingActions')));
     expect(persisted, contains('legacy-cipher'));

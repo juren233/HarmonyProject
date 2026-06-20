@@ -577,7 +577,7 @@ void main() {
         .cast<Map<String, dynamic>>()
         .firstWhere((device) => device['deviceId'] == 'pet-1');
     expect(offlinePet['online'], isFalse);
-    expect(offlinePet['role'], 'unknown');
+    expect(offlinePet['role'], 'pet');
   });
 
   test('hello 必须携带正确家庭认证 token', () async {

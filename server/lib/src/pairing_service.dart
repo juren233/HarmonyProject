@@ -71,13 +71,16 @@ class PairingService {
                 _newToken(),
               ));
 
-    household.devices.putIfAbsent(
+    final issuerDevice = household.devices.putIfAbsent(
       issuerDeviceId,
       () => HouseholdDevice(
         deviceId: issuerDeviceId,
         name: issuerDeviceName,
       ),
     );
+    issuerDevice
+      ..name = issuerDeviceName
+      ..role = issuerRole;
 
     final ticket = PairingCodeTicket(
       code: _newUniqueCode(),
@@ -113,13 +116,16 @@ class PairingService {
       return null;
     }
 
-    household.devices.putIfAbsent(
+    final joiningDevice = household.devices.putIfAbsent(
       joiningDeviceId,
       () => HouseholdDevice(
         deviceId: joiningDeviceId,
         name: joiningDeviceName,
       ),
     );
+    joiningDevice
+      ..name = joiningDeviceName
+      ..role = joiningRole;
 
     return PairingJoinResult(
       householdId: household.id,

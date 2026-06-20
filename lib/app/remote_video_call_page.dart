@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:petnote/app/remote_video_entry.dart';
@@ -17,6 +18,7 @@ import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 const Size _previewSize = Size(104, 154);
 const double _previewMargin = 18;
 const double _previewControlClearance = 110;
+const Duration _deviceDirectoryWaitTimeout = Duration(seconds: 2);
 
 const SystemUiOverlayStyle _remoteVideoSystemUiOverlayStyle =
     SystemUiOverlayStyle(
@@ -106,9 +108,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   void initState() {
     super.initState();
     unawaited(_enterImmersiveSystemUi());
-    _resolvedCallId = widget.callId ??
-        'rtc-${widget.pet.id}-${widget.mode.name}-'
-            '${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(this)}';
+    _resolvedCallId = widget.callId ?? _newRtcCallId(widget.mode);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_startRtc());
@@ -377,12 +377,18 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
     }
     final tokenClient = _resolveTokenClient();
     final userId = await _resolveUserId();
-    final targetDeviceId = _targetDeviceId;
+    final targetDeviceId = await _resolveTargetDeviceId();
     final signalingController = _resolveSignalingController();
     if (tokenClient == null ||
         userId == null ||
         targetDeviceId == null ||
         signalingController == null) {
+      _logUnavailablePreconditions(
+        tokenClient: tokenClient,
+        userId: userId,
+        targetDeviceId: targetDeviceId,
+        signalingController: signalingController,
+      );
       if (mounted) {
         setState(() {
           _statusOverride = '通话不可用';
@@ -449,7 +455,9 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
           _statusOverride = '阿里云视频通话已连接';
         });
       }
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('[PetNoteRemoteVideo] start failed: $error');
+      debugPrint('$stackTrace');
       if (mounted) {
         setState(() {
           _statusOverride = '连接失败';
@@ -468,6 +476,81 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
         setState(() {});
       }
     }
+  }
+
+  void _logUnavailablePreconditions({
+    required RtcTokenClient? tokenClient,
+    required String? userId,
+    required String? targetDeviceId,
+    required RtcSignalingController? signalingController,
+  }) {
+    final service = SyncService.instance;
+    final devices = widget.devicesOverride ??
+        service?.ownerEngine?.devices.value ??
+        const [];
+    final deviceSummary = devices
+        .map(
+          (device) => '${device.deviceId}'
+              '(role=${device.role},pet=${device.servedPetId ?? '-'},'
+              'online=${device.online})',
+        )
+        .join(',');
+    debugPrint(
+      '[PetNoteRemoteVideo] unavailable '
+      'tokenClient=${tokenClient != null} '
+      'userId=${userId ?? '-'} '
+      'targetDeviceId=${targetDeviceId ?? '-'} '
+      'signaling=${signalingController != null} '
+      'syncActive=${service?.isActive ?? false} '
+      'serverUrl=${service?.settings.syncServerUrl ?? '-'} '
+      'household=${service?.settings.householdId ?? '-'} '
+      'role=${service?.settings.deviceRole.name ?? '-'} '
+      'devices=${devices.length} '
+      'deviceSummary=[$deviceSummary]',
+    );
+  }
+
+  Future<String?> _resolveTargetDeviceId() async {
+    final explicit = widget.targetDeviceId?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+    final current = _targetDeviceId;
+    if (current != null && current.isNotEmpty) {
+      return current;
+    }
+    if (widget.devicesOverride != null) {
+      return current;
+    }
+    final engine = SyncService.instance?.ownerEngine;
+    if (engine == null) {
+      return current;
+    }
+    engine.requestDevices();
+    final completer = Completer<String?>();
+    VoidCallback? listener;
+    Timer? timer;
+    void complete(String? value) {
+      if (completer.isCompleted) {
+        return;
+      }
+      timer?.cancel();
+      if (listener != null) {
+        engine.devices.removeListener(listener!);
+      }
+      completer.complete(value);
+    }
+
+    listener = () {
+      final selected = _targetDeviceId;
+      if (selected != null && selected.isNotEmpty) {
+        complete(selected);
+      }
+    };
+    engine.devices.addListener(listener);
+    timer = Timer(_deviceDirectoryWaitTimeout, () => complete(_targetDeviceId));
+    listener();
+    return completer.future;
   }
 
   Future<void> _hangup() async {
@@ -619,6 +702,13 @@ Uri? rtcTokenBaseUriFromSyncServerUrl(String? syncServerUrl) {
     return null;
   }
   return uri.replace(scheme: scheme, path: '/', query: null, fragment: null);
+}
+
+String _newRtcCallId(RemoteVideoMode mode) {
+  final timestamp = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+  final entropy = identityHashCode(Object()).toUnsigned(20).toRadixString(36);
+  final modeSegment = mode == RemoteVideoMode.call ? 'c' : 'w';
+  return 'rtc-$modeSegment-$timestamp-$entropy';
 }
 
 SyncedDeviceInfo? selectedRemoteVideoDevice({

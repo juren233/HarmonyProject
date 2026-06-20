@@ -8,6 +8,8 @@ void main() {
     final manifest =
         File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
     final appBuildGradle = File('android/app/build.gradle').readAsStringSync();
+    final proguardRules =
+        File('android/app/proguard-rules.pro').readAsStringSync();
     final rootBuildGradle = File('android/build.gradle').readAsStringSync();
     final settingsGradle = File('android/settings.gradle').readAsStringSync();
     final mainActivity = File(
@@ -19,11 +21,17 @@ void main() {
 
     expect(manifest, contains('android.permission.CAMERA'));
     expect(manifest, contains('android.permission.RECORD_AUDIO'));
+    expect(manifest, contains('android:extractNativeLibs="true"'));
     expect(rootBuildGradle,
         contains('https://maven.aliyun.com/repository/public'));
     expect(
         settingsGradle, contains('https://maven.aliyun.com/repository/public'));
-    expect(appBuildGradle, contains('com.aliyun.aio:AliVCSDK_ARTC:7.11.0'));
+    expect(appBuildGradle, contains('com.ding.rtc:dingrtc-basic:3.9.0'));
+    expect(appBuildGradle, contains('proguard-rules.pro'));
+    expect(proguardRules, contains('-keep class com.ding.rtc.** { *; }'));
+    expect(proguardRules, contains('-keep class org.webrtc.mozi.** { *; }'));
+    expect(appBuildGradle, isNot(contains('com.aliyun.aio:AliVCSDK_ARTC')));
+    expect(appBuildGradle, contains('targetSdk = 33'));
     expect(mainActivity, contains('rtcBridge'));
     expect(mainActivity, contains('activity = this'));
     expect(
@@ -41,13 +49,15 @@ void main() {
     expect(bridge, contains('ActivityCompat.requestPermissions'));
     expect(bridge, contains('requireString(arguments, "channelId")'));
     expect(bridge, contains('requireString(arguments, "singleToken")'));
-    expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
+    expect(bridge, isNot(contains('com.alivc.rtc')));
+    expect(bridge, contains('DingRtcEngine.create(context, "")'));
+    expect(bridge, contains('DingRtcAuthInfo'));
+    expect(bridge, contains('DingRtcVideoTrack.DingRtcVideoTrackCamera'));
     expect(bridge,
-        contains('AliRtcMuteLocalAudioMode.AliRtcMuteOnlyMicAudioMode'));
+        contains('DingRtcMuteLocalAudioMode.DingRtcMuteOnlyMicAudioMode'));
     expect(bridge, contains('createRenderSurfaceView'));
     expect(bridge, contains('setLocalViewConfig'));
     expect(bridge, contains('setRemoteViewConfig'));
-    expect(bridge, contains('setRtcEngineNotify(rtcNotify)'));
     expect(bridge, contains('setRtcEngineEventListener(rtcEventListener)'));
     expect(bridge, contains('onJoinChannelResult'));
     expect(bridge, contains('onOccurError'));
@@ -61,29 +71,27 @@ void main() {
     expect(
         bridge, contains('return activeRemoteUserId ?: expectedRemoteUserId'));
     expect(bridge, isNot(contains('if (uid != remoteUserId)')));
-    expect(bridge, contains('subscribeRemoteMediaStream'));
-    expect(bridge, contains('AliRTCSdkInteractiveLive'));
-    expect(bridge, contains('AliRTCSdkInteractive'));
-    expect(bridge, contains('AliRtcAudioTrack.AliRtcAudioTrackMic'));
-    expect(bridge, contains('setDefaultSubscribeAllRemoteAudioStreams'));
-    expect(bridge, contains('setDefaultSubscribeAllRemoteVideoStreams'));
+    expect(bridge, contains('subscribeRemoteVideoStream'));
+    expect(bridge, contains('audioTrack: DingRtcAudioTrack'));
+    expect(bridge, contains('subscribeAllRemoteAudioStreams'));
+    expect(bridge, contains('subscribeAllRemoteVideoStreams'));
     expect(bridge, contains('publishLocalAudioStream(true)'));
     expect(bridge, contains('publishLocalVideoStream(true)'));
-    expect(bridge, contains('AliRtcVideoTrack.AliRtcVideoTrackCamera'));
-    expect(bridge, contains('AliRtcAudioTrack.AliRtcAudioTrackMic'));
+    expect(bridge, contains('DingRtcVideoTrack.DingRtcVideoTrackCamera'));
+    expect(bridge, contains('audioTrack: DingRtcAudioTrack'));
     expect(
         bridge,
         contains(
             'join(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>(), result)'));
-    expect(bridge, contains('AliRtcVideoEncoderConfiguration'));
-    expect(bridge, contains('AliRtcVideoDimensions(width, height)'));
+    expect(bridge, contains('DingRtcVideoEncoderConfiguration'));
+    expect(bridge, contains('DingRtcVideoDimensions(width, height)'));
     expect(bridge, contains('width == 1280 && height == 720'));
     expect(bridge, contains('setVideoEncoderConfiguration(config)'));
     expect(bridge, isNot(contains('frameRate')));
     expect(bridge, isNot(contains('fps')));
     expect(
       bridge,
-      contains('rtcEngine.joinChannel(singleToken, channelId, userId, "")'),
+      contains('rtcEngine.joinChannel(authInfo, userName)'),
     );
     expect(bridge, isNot(contains('require(joinResult == 0)')));
     expect(bridge, contains('pendingJoinResult'));
@@ -102,7 +110,7 @@ void main() {
     expect(bridge, contains('Log.i(TAG, "join requested'));
     expect(bridge, contains('logResult("publishLocalAudioStream"'));
     expect(bridge, contains('logResult("publishLocalVideoStream"'));
-    expect(bridge, contains('"subscribeRemoteMediaStream"'));
+    expect(bridge, contains('"subscribeRemoteVideoStream"'));
     expect(bridge, contains('"setRemoteViewConfig"'));
   });
 }

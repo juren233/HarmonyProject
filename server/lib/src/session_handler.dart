@@ -147,6 +147,7 @@ class SessionHandler {
     if (device != null) {
       device
         ..name = requestedDeviceName
+        ..role = requestedRole
         ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     }
     _sessionRole = requestedRole;
@@ -183,15 +184,16 @@ class SessionHandler {
     }
     householdId = result.householdId;
     deviceId = requestedDeviceId;
+    _sessionRole =
+        _normalizedRole(_optionalString(message.payload['role'])) ?? 'pet';
     final household = _household;
     final device = household?.devices[requestedDeviceId];
     if (device != null) {
       device
         ..name = _optionalString(message.payload['deviceName']) ?? device.name
+        ..role = _sessionRole
         ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     }
-    _sessionRole =
-        _normalizedRole(_optionalString(message.payload['role'])) ?? 'pet';
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.pairJoined, {
       'householdId': result.householdId,
@@ -266,6 +268,7 @@ class SessionHandler {
         _sessionRole = requestedRole;
         restoredDevice
           ..name = requestedDeviceName
+          ..role = requestedRole
           ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
         app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
         _send(SyncMessage(SyncMessageTypes.helloAck, {
@@ -311,6 +314,7 @@ class SessionHandler {
     _sessionRole = requestedRole;
     device
       ..name = _optionalString(message.payload['deviceName']) ?? device.name
+      ..role = requestedRole
       ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.helloAck, {
@@ -785,7 +789,9 @@ class SessionHandler {
         .map((device) => SyncedDeviceInfo(
               deviceId: device.deviceId,
               name: device.name,
-              role: app.hub.roleFor(householdId!, device.deviceId) ?? 'unknown',
+              role: app.hub.roleFor(householdId!, device.deviceId) ??
+                  device.role ??
+                  'unknown',
               servedPetId: device.servedPetId,
               online: app.hub.isOnline(householdId!, device.deviceId),
               lastSeenMs: device.lastSeenMs,
