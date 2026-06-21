@@ -208,6 +208,12 @@ void main() {
 
     expect(source, contains('ON CONFLICT (client_op_id) DO NOTHING'));
     expect(source, contains('excluded.role_priority >='));
+    expect(
+      source,
+      contains(
+        'owner_device_id = CASE WHEN \$shouldApplyCondition THEN excluded.owner_device_id ELSE \$table.owner_device_id END',
+      ),
+    );
     expect(source, contains("'owner' => 20"));
     expect(source, contains("'pet' => 10"));
     expect(source, contains('unsupported powersync table'));

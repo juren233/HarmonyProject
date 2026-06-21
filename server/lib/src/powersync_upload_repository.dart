@@ -182,20 +182,21 @@ class PostgresPowerSyncUploadRepository implements PowerSyncUploadRepository {
   ) async {
     final payloadJson = _payloadJson(operation.data);
     final updatedAtMs = _updatedAtMs(operation.data);
+    final shouldApplyCondition =
+        'excluded.updated_at_ms > $table.updated_at_ms OR '
+        '(excluded.updated_at_ms = $table.updated_at_ms AND '
+        'excluded.role_priority >= $table.role_priority)';
     await session.execute(
       Sql.named(
         'INSERT INTO $table '
         '(id, household_id, payload_json, updated_at_ms, deleted_at_ms, owner_device_id, role_priority) '
         'VALUES (@id, @householdId, CAST(@payloadJson AS jsonb), @updatedAtMs, NULL, @deviceId, @rolePriority) '
         'ON CONFLICT (id) DO UPDATE SET '
-        'payload_json = CASE WHEN '
-        'excluded.updated_at_ms > $table.updated_at_ms OR '
-        '(excluded.updated_at_ms = $table.updated_at_ms AND excluded.role_priority >= $table.role_priority) '
-        'THEN excluded.payload_json ELSE $table.payload_json END, '
-        'household_id = CASE WHEN excluded.updated_at_ms >= $table.updated_at_ms THEN excluded.household_id ELSE $table.household_id END, '
+        'payload_json = CASE WHEN $shouldApplyCondition THEN excluded.payload_json ELSE $table.payload_json END, '
+        'household_id = CASE WHEN $shouldApplyCondition THEN excluded.household_id ELSE $table.household_id END, '
         'updated_at_ms = GREATEST($table.updated_at_ms, excluded.updated_at_ms), '
-        'deleted_at_ms = CASE WHEN excluded.updated_at_ms >= $table.updated_at_ms THEN NULL ELSE $table.deleted_at_ms END, '
-        'owner_device_id = CASE WHEN excluded.updated_at_ms >= $table.updated_at_ms THEN excluded.owner_device_id ELSE $table.owner_device_id END, '
+        'deleted_at_ms = CASE WHEN $shouldApplyCondition THEN NULL ELSE $table.deleted_at_ms END, '
+        'owner_device_id = CASE WHEN $shouldApplyCondition THEN excluded.owner_device_id ELSE $table.owner_device_id END, '
         'role_priority = GREATEST($table.role_priority, excluded.role_priority)',
       ),
       parameters: {
