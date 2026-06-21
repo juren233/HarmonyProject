@@ -15,7 +15,7 @@ services:
       - -c
       - max_wal_senders=10
     ports:
-      - "15432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - petnote-powersync-postgres:/var/lib/postgresql/data
       - ./sql/powersync_spike_001.sql:/docker-entrypoint-initdb.d/001-powersync-spike.sql:ro
@@ -44,7 +44,7 @@ services:
       POWERSYNC_ENDPOINT: ${POWERSYNC_ENDPOINT:-http://127.0.0.1:18080}
       POWERSYNC_JWT_SECRET: ${POWERSYNC_JWT_SECRET:-petnote-local-powersync-spike-secret}
     ports:
-      - "18787:8787"
+      - "127.0.0.1:18787:8787"
     volumes:
       - petnote-powersync-data:/data
 
@@ -59,7 +59,7 @@ services:
       PS_STORAGE_URI: postgres://petnote:petnote@postgres:5432/powersync_storage
       POWERSYNC_JWT_SECRET_BASE64URL: ${POWERSYNC_JWT_SECRET_BASE64URL:-cGV0bm90ZS1sb2NhbC1wb3dlcnN5bmMtc3Bpa2Utc2VjcmV0}
     ports:
-      - "18080:8080"
+      - "127.0.0.1:18080:8080"
     volumes:
       - ./powersync/service.yaml:/config/service.yaml:ro
       - ./powersync/sync-config.yaml:/config/sync-config.yaml:ro

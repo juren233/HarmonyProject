@@ -74,12 +74,13 @@ Services:
 
 This does not modify `server/docker-compose.yml`.
 
-Host ports are intentionally separated from production:
+Host ports are intentionally separated from production and bound to loopback
+only:
 
 - PetNote production sync keeps `8787`.
-- PowerSync spike `petnote-sync` publishes `18787`.
-- PowerSync service publishes `18080`.
-- Spike Postgres publishes `15432`.
+- PowerSync spike `petnote-sync` publishes `127.0.0.1:18787`.
+- PowerSync service publishes `127.0.0.1:18080`.
+- Spike Postgres publishes `127.0.0.1:15432`.
 
 The spike compose uses separate Docker volumes and must be started with
 `server/docker-compose.powersync.yml`, never with the production compose file.
