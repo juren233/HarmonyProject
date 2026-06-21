@@ -65,7 +65,7 @@ services:
     volumes:
       - ./powersync/service.yaml:/config/service.yaml:ro
       - ./powersync/sync-config.yaml:/config/sync-config.yaml:ro
-    command: ["start", "-r", "unified", "--config", "/config/service.yaml"]
+    command: ["start", "-r", "unified", "--config-path", "/config/service.yaml"]
 
 volumes:
   petnote-powersync-data:
