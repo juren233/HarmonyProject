@@ -59,7 +59,7 @@ services:
     environment:
       PS_SOURCE_URI: postgres://petnote:petnote@postgres:5432/petnote
       PS_STORAGE_URI: postgres://petnote:petnote@postgres:5432/powersync_storage
-      POWERSYNC_JWT_SECRET_BASE64URL: ${POWERSYNC_JWT_SECRET_BASE64URL:-cGV0bm90ZS1sb2NhbC1wb3dlcnN5bmMtc3Bpa2Utc2VjcmV0}
+      PS_JWT_SECRET_BASE64URL: ${PS_JWT_SECRET_BASE64URL:-cGV0bm90ZS1sb2NhbC1wb3dlcnN5bmMtc3Bpa2Utc2VjcmV0}
     ports:
       - "127.0.0.1:18080:8080"
     volumes:

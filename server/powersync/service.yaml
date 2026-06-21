@@ -15,7 +15,7 @@ client_auth:
       - kty: oct
         kid: petnote-local-hs256
         alg: HS256
-        k: !env POWERSYNC_JWT_SECRET_BASE64URL
+        k: !env PS_JWT_SECRET_BASE64URL
   audience:
     - powersync
 
