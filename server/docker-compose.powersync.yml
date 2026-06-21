@@ -42,7 +42,7 @@ services:
     environment:
       PORT: "8787"
       DATA_DIR: /data
-      POWERSYNC_DATABASE_URL: postgres://petnote:petnote@postgres:5432/petnote
+      POWERSYNC_DATABASE_URL: postgres://petnote:petnote@postgres:5432/petnote?sslmode=disable
       POWERSYNC_ENDPOINT: ${POWERSYNC_ENDPOINT:-http://127.0.0.1:18080}
       POWERSYNC_JWT_SECRET: ${POWERSYNC_JWT_SECRET:-petnote-local-powersync-spike-secret}
     ports:

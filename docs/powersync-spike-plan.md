@@ -88,6 +88,8 @@ For networks where Docker Hub is slow, the compose file accepts
 `POSTGRES_IMAGE` and `POWERSYNC_IMAGE` overrides.
 It also pins the Compose project name to `petnote-powersync-spike` so container
 names and volumes cannot collide with the existing production `server` project.
+The app-server Postgres URL includes `sslmode=disable` because the spike
+Postgres service is an internal Docker-network database without TLS.
 
 ## Data Tables
 
