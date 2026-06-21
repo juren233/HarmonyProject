@@ -71,6 +71,8 @@ class SyncMessageTypes {
   static const callAnswer = 'call_answer'; // {callId, sdp, targetDeviceId}
   static const callReject = 'call_reject'; // {callId, reason, targetDeviceId}
   static const callEnd = 'call_end'; // {callId, targetDeviceId}
+  static const callMediaState =
+      'call_media_state'; // {callId, targetDeviceId, cameraEnabled}
   static const iceCandidate =
       'ice_candidate'; // {callId, candidate, targetDeviceId}
 }

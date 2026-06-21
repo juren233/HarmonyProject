@@ -73,6 +73,7 @@ class SessionHandler {
       case SyncMessageTypes.callAnswer:
       case SyncMessageTypes.callReject:
       case SyncMessageTypes.callEnd:
+      case SyncMessageTypes.callMediaState:
       case SyncMessageTypes.iceCandidate:
         _relayToTarget(message);
       default:

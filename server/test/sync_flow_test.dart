@@ -195,6 +195,13 @@ void main() {
         (await owner.expectType(SyncMessageTypes.iceCandidate))
             .payload['candidate'],
         'candidate-1');
+    pet.send(SyncMessageTypes.callMediaState, {
+      'callId': 'call-1',
+      'targetDeviceId': 'owner-1',
+      'cameraEnabled': false,
+    });
+    final mediaState = await owner.expectType(SyncMessageTypes.callMediaState);
+    expect(mediaState.payload['cameraEnabled'], isFalse);
 
     await owner.close();
     clients.remove(owner);
