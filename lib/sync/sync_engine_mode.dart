@@ -1,0 +1,4 @@
+enum SyncEngineMode {
+  legacy,
+  powersyncSpike,
+}

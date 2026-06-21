@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: petnote
+      POSTGRES_PASSWORD: petnote
+      POSTGRES_DB: petnote
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+    ports:
+      - "15432:5432"
+    volumes:
+      - petnote-powersync-postgres:/var/lib/postgresql/data
+      - ./sql/powersync_spike_001.sql:/docker-entrypoint-initdb.d/001-powersync-spike.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petnote -d petnote"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  petnote-sync:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        DART_IMAGE: ${DART_IMAGE:-dart:3.6}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "8787"
+      DATA_DIR: /data
+      POWERSYNC_DATABASE_URL: postgres://petnote:petnote@postgres:5432/petnote
+      POWERSYNC_ENDPOINT: ${POWERSYNC_ENDPOINT:-http://127.0.0.1:18080}
+      POWERSYNC_JWT_SECRET: ${POWERSYNC_JWT_SECRET:-petnote-local-powersync-spike-secret}
+    ports:
+      - "18787:8787"
+    volumes:
+      - petnote-powersync-data:/data
+
+  powersync-service:
+    image: journeyapps/powersync-service:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PS_SOURCE_URI: postgres://petnote:petnote@postgres:5432/petnote
+      PS_STORAGE_URI: postgres://petnote:petnote@postgres:5432/powersync_storage
+      POWERSYNC_JWT_SECRET_BASE64URL: ${POWERSYNC_JWT_SECRET_BASE64URL:-cGV0bm90ZS1sb2NhbC1wb3dlcnN5bmMtc3Bpa2Utc2VjcmV0}
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./powersync/service.yaml:/config/service.yaml:ro
+      - ./powersync/sync-config.yaml:/config/sync-config.yaml:ro
+    command: ["start", "-r", "unified", "--config", "/config/service.yaml"]
+
+volumes:
+  petnote-powersync-data:
+  petnote-powersync-postgres:

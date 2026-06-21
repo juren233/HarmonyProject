@@ -1,0 +1,31 @@
+config:
+  edition: 3
+
+streams:
+  household_core:
+    auto_subscribe: true
+    queries:
+      - SELECT id, household_id, payload_json::text AS payload_json,
+          updated_at_ms, deleted_at_ms, owner_device_id, role_priority
+        FROM pets
+        WHERE household_id = auth.parameter('household_id')
+      - SELECT id, household_id, payload_json::text AS payload_json,
+          updated_at_ms, deleted_at_ms, owner_device_id, role_priority
+        FROM todos
+        WHERE household_id = auth.parameter('household_id')
+      - SELECT id, household_id, payload_json::text AS payload_json,
+          updated_at_ms, deleted_at_ms, owner_device_id, role_priority
+        FROM reminders
+        WHERE household_id = auth.parameter('household_id')
+      - SELECT id, household_id, payload_json::text AS payload_json,
+          updated_at_ms, deleted_at_ms, owner_device_id, role_priority
+        FROM records
+        WHERE household_id = auth.parameter('household_id')
+      - SELECT id, household_id, payload_json::text AS payload_json,
+          role, served_pet_id, updated_at_ms, deleted_at_ms
+        FROM devices
+        WHERE household_id = auth.parameter('household_id')
+      - SELECT id, household_id, pet_id, payload_json::text AS payload_json,
+          updated_at_ms, deleted_at_ms, owner_device_id, role_priority
+        FROM pet_photo_assets
+        WHERE household_id = auth.parameter('household_id')

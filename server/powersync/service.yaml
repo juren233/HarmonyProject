@@ -1,0 +1,23 @@
+port: 8080
+
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_SOURCE_URI
+
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_URI
+
+client_auth:
+  jwks:
+    keys:
+      - kty: oct
+        kid: petnote-local-hs256
+        alg: HS256
+        k: !env POWERSYNC_JWT_SECRET_BASE64URL
+  audience:
+    - powersync
+
+sync_config:
+  path: /config/sync-config.yaml

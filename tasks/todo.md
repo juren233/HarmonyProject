@@ -1,3 +1,25 @@
+# PowerSync 试验分支
+
+- [x] 创建隔离 worktree，不带入 main 工作区未提交改动 → 验证: `git status --short --branch` 显示 `codex/powersync-spike...origin/main`，main 工作区状态保持原样
+- [x] 接入 Flutter / server 依赖探针 → 验证: `flutter pub add powersync path_provider`、`cd server && dart pub add postgres`
+- [x] 建立 PowerSync spike 文档和任务边界 → 验证: `docs/powersync-spike-plan.md` 记录架构、Docker、本地/远端边界、三端风险
+- [x] 新增本地 Docker 试验栈和 Postgres schema → 验证: 新增 `server/docker-compose.powersync.yml`、`server/powersync/*`、`server/sql/powersync_spike_001.sql`，未修改现有 `server/docker-compose.yml`
+- [x] 扩展 server `/powersync/credentials` 和 `/powersync/upload` → 验证: `cd server && dart test test/powersync_server_test.dart` 通过，7/7 pass
+- [x] 新增 Flutter PowerSync schema / connector / mapper / feature flag → 验证: `flutter test test/sync/powersync/powersync_spike_test.dart` 通过，8/8 pass
+- [x] 运行 spike 聚焦验证与隔离检查 → 验证: targeted analyze 通过，`git diff --check` 通过，main 工作区状态对比未变化
+- [x] 尝试 Android / iOS / Harmony 构建硬门槛 → 验证: iOS no-codesign 通过；Android debug 通过；Android release 被本机缺正式签名材料阻断；Harmony 被本机缺 `powershell`/`pwsh` 阻断，未形成 PowerSync OHOS 兼容结论
+
+## Review
+
+- 试验从 `origin/main` 新建 worktree `/Volumes/Data/Projects/PetNote-powersync-spike`，不在当前 main 工作区切分支、stash、提交或格式化。
+- 第一轮只做本地 Docker 可行性，不部署 `8.138.24.105`，也不改现有生产 `server/docker-compose.yml` 默认入口。
+- PowerSync 侧必须保留 legacy sync 为默认路径；只有显式选择 `SyncEngineMode.powersyncSpike` 才进入试验路径。
+- 三端兼容是硬门槛。若 PowerSync Flutter SDK 的 native sqlite/jni/objective_c 依赖无法被 OHOS Flutter 编译，这是 spike 的有效阻断结论。
+- 本轮新增 server HMAC JWT credentials、Postgres upload repository、PowerSync schema、Flutter BackendConnector、数据映射 adapter 和独立 Docker/SQL 配置。`/ws`、配对、RTC Token 与生产 compose 默认入口保持不变。
+- 验证通过：`cd server && dart test test/powersync_server_test.dart` 7/7 pass；`flutter test test/sync/powersync/powersync_spike_test.dart` 8/8 pass；`flutter analyze lib/sync/sync_engine_mode.dart lib/sync/powersync test/sync/powersync` 无问题；`cd server && dart analyze lib/src/powersync_jwt.dart lib/src/powersync_upload_repository.dart lib/src/server_app.dart test/powersync_server_test.dart` 无问题；`git diff --check` 无问题。
+- 平台探针：`flutter build ios --release --no-codesign` 通过，产出 `build/ios/iphoneos/Runner.app` 约 66M；`flutter build apk --debug --target-platform android-arm64 --no-tree-shake-icons` 通过，debug APK SHA256 `71827d5c25cf0e236f6af5ebcb6b879b539fbac864818a3f9f96615994359587`。
+- 未完成的硬门槛：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` 停在缺 `android/key.properties`，未进入 PowerSync 编译阶段；`powershell` 与 `pwsh` 均不存在，无法执行 README 约定的 Harmony 脚本；本机也没有 `docker`，无法运行 `docker compose -f server/docker-compose.powersync.yml config/up`。
+
 # 数据同步与远程视频故障审查
 
 - [x] 复核 README 中同步服务、RTC Token、三端 SDK 和验证边界

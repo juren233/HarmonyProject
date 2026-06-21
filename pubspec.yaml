@@ -45,6 +45,8 @@ dependencies:
   shared_preferences: 2.5.3
   url_launcher: ^6.3.1
   url_launcher_harmonyos: 0.0.1
+  powersync: ^2.3.0
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
