@@ -1,3 +1,5 @@
+name: petnote-powersync-spike
+
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
