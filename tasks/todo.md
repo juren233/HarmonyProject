@@ -380,3 +380,20 @@
 - 横屏选择页左右区域改为 `35:65`，左侧卡片统一 12px 内边距；时间和“选择服务宠物”使用单行缩放，状态胶囊支持收缩和省略，避免在窄横屏中越界。
 - 宠物选择卡片不再显示 `>` / chevron，整张卡片仍作为点击区域；删除箭头后的空间用于宠物名称和品种/年龄文案。
 - HTML 原型已同步删除旧文案和箭头，并更新横屏比例与排版参数。
+
+
+## 2026-06-22 PowerSync spike 服务端闭环
+
+- [x] 隔离 main 工作区，继续在 `/Volumes/Data/Projects/PetNote-powersync-spike` 分支执行 → 验证: `git status --short --branch` 显示 `codex/powersync-spike...origin/codex/powersync-spike`
+- [x] 修复 PowerSync service 启动失败 → 验证: `server/powersync/service.yaml` 显式设置 source/storage `sslmode: disable`，服务器容器 `petnote-powersync-spike-powersync-service-1` 稳定 `Up`
+- [x] 固定 PowerSync spike 服务镜像版本 → 验证: `server/docker-compose.powersync.yml` 默认使用 `journeyapps/powersync-service:1.20.0`
+- [x] 修复头像 metadata 上传写入 `pet_photo_assets.pet_id` → 验证: 服务器闭环写入 `pet_photos/photo-1.jpg`，并新增 server 单元测试覆盖 operation 透传
+- [x] 验证生产服务不受 spike 影响 → 验证: 生产 `server-petnote-sync-1` 仍监听 `0.0.0.0:8787`，`curl http://127.0.0.1:8787/healthz` 返回 `ok`
+- [x] 完成服务器端幂等和冲突策略闭环 → 验证: owner 上传 `applied:3`、重复上传 `skipped:3`、pet 同时间冲突后最终 `pets` 行保持 `Luna owner|20|owner-device`
+
+### Review
+
+- PowerSync service 重启根因不是服务器资源，也不是 Postgres 不可写，而是 PowerSync 的 Postgres 配置不会从 URI query 读取 `sslmode`；只写 `?sslmode=disable` 会被忽略，默认 `verify-full` 触发 TLS 探测，并在 metrics 初始化前报 `PSYNC_S0001`。已在 YAML source/storage 连接上显式写入 `sslmode: disable`。
+- 服务器隔离栈已跑通：Postgres `127.0.0.1:15432`、PetNote spike server `127.0.0.1:18787`、PowerSync service `127.0.0.1:18080`；生产同步服务仍独立运行在 `0.0.0.0:8787`。
+- 后端闭环验证通过：credentials JWT 签发、PowerSync upload 写入核心表、重复 op 幂等跳过、owner/pet 同时间冲突按角色优先级收敛、头像 metadata 写入 `pet_photo_assets` 并被 PowerSync 复制日志捕获。
+- 本地验证通过：`cd server && dart test test/powersync_server_test.dart`；`cd server && dart analyze lib/src/powersync_jwt.dart lib/src/powersync_upload_repository.dart lib/src/server_app.dart test/powersync_server_test.dart`。`dart format` 已格式化改动文件，但在缺少根依赖解析时提示 `flutter_lints` include warning，不影响格式化结果。

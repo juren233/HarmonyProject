@@ -90,6 +90,13 @@ It also pins the Compose project name to `petnote-powersync-spike` so container
 names and volumes cannot collide with the existing production `server` project.
 The app-server and PowerSync Postgres URLs include `sslmode=disable` because
 the spike Postgres service is an internal Docker-network database without TLS.
+PowerSync does not read `sslmode` from the Postgres URI query string for this
+configuration path, so `server/powersync/service.yaml` also sets
+`sslmode: disable` on both the source and storage connections. Without that
+explicit YAML field the service attempts TLS verification and can fail during
+startup with `PSYNC_S0001` before metrics counters are fully registered.
+The spike compose pins `journeyapps/powersync-service:1.20.0`, which has been
+verified on the current server.
 
 ## Data Tables
 
@@ -197,6 +204,10 @@ The first table pass tracks avatar metadata, not binary file blobs:
 - `pets.payload_json.photoPath`
 - `pet_photo_assets.payload_json`
 
+`pet_photo_assets` also stores `pet_id` as a first-class column so synced avatar
+metadata remains queryable by pet after upload. The upload endpoint accepts
+`pet_id` / `petId` either beside `payload_json` or inside the payload JSON.
+
 Actual image bytes still require an attachment channel or object storage. The
 spike keeps metadata synchronized so the UI can resolve already available local
 files and identify missing assets deterministically.
@@ -229,7 +240,21 @@ stack:
 - `POST /powersync/upload` can insert/update/delete rows in Postgres.
 - Repeating the same `client_op_id` is skipped and does not apply twice.
 - Owner writes win over pet writes at the same timestamp.
-- PowerSync service starts or records a concrete config/runtime blocker.
+- PowerSync service starts and logs table replication for all core tables.
+
+Current server verification on `8.138.24.105` uses only the isolated spike
+ports and keeps production `0.0.0.0:8787` running. Verified results:
+
+- `curl http://127.0.0.1:8787/healthz` returns `ok` for production.
+- `curl http://127.0.0.1:18787/healthz` returns `ok` for spike server.
+- `POST /powersync/credentials` returns a JWT and PowerSync endpoint.
+- Owner upload applies `pets`, `todos`, and `pet_photo_assets` rows.
+- Repeating the same upload returns `applied:0, skipped:3`.
+- A pet-device same-timestamp conflict is accepted as an operation but final
+  `pets` row remains `Luna owner|20|owner-device`.
+- `pet_photo_assets` persists `pet_photos/photo-1.jpg` metadata.
+- PowerSync service logs `Service started`, `Loaded sync rules`, and flushes
+  replicated updates from the source tables.
 
 ## Open Questions
 

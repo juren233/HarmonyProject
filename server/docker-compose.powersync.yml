@@ -51,7 +51,7 @@ services:
       - petnote-powersync-data:/data
 
   powersync-service:
-    image: ${POWERSYNC_IMAGE:-journeyapps/powersync-service:latest}
+    image: ${POWERSYNC_IMAGE:-journeyapps/powersync-service:1.20.0}
     restart: unless-stopped
     depends_on:
       postgres:

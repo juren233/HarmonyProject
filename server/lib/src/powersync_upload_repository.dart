@@ -171,6 +171,10 @@ class PostgresPowerSyncUploadRepository implements PowerSyncUploadRepository {
       await _upsertDevice(session, request, operation);
       return;
     }
+    if (table == 'pet_photo_assets') {
+      await _upsertPetPhotoAsset(session, request, operation);
+      return;
+    }
     await _upsertContent(session, table, request, operation);
   }
 
@@ -241,6 +245,44 @@ class PostgresPowerSyncUploadRepository implements PowerSyncUploadRepository {
     );
   }
 
+  Future<void> _upsertPetPhotoAsset(
+    TxSession session,
+    PowerSyncUploadRequest request,
+    PowerSyncUploadOperation operation,
+  ) async {
+    final payloadJson = _payloadJson(operation.data);
+    final updatedAtMs = _updatedAtMs(operation.data);
+    final petId = _petId(operation.data, payloadJson);
+    final shouldApplyCondition =
+        'excluded.updated_at_ms > pet_photo_assets.updated_at_ms OR '
+        '(excluded.updated_at_ms = pet_photo_assets.updated_at_ms AND '
+        'excluded.role_priority >= pet_photo_assets.role_priority)';
+    await session.execute(
+      Sql.named(
+        'INSERT INTO pet_photo_assets '
+        '(id, household_id, pet_id, payload_json, updated_at_ms, deleted_at_ms, owner_device_id, role_priority) '
+        'VALUES (@id, @householdId, @petId, CAST(@payloadJson AS jsonb), @updatedAtMs, NULL, @deviceId, @rolePriority) '
+        'ON CONFLICT (id) DO UPDATE SET '
+        'payload_json = CASE WHEN $shouldApplyCondition THEN excluded.payload_json ELSE pet_photo_assets.payload_json END, '
+        'household_id = CASE WHEN $shouldApplyCondition THEN excluded.household_id ELSE pet_photo_assets.household_id END, '
+        'pet_id = CASE WHEN $shouldApplyCondition THEN excluded.pet_id ELSE pet_photo_assets.pet_id END, '
+        'updated_at_ms = GREATEST(pet_photo_assets.updated_at_ms, excluded.updated_at_ms), '
+        'deleted_at_ms = CASE WHEN $shouldApplyCondition THEN NULL ELSE pet_photo_assets.deleted_at_ms END, '
+        'owner_device_id = CASE WHEN $shouldApplyCondition THEN excluded.owner_device_id ELSE pet_photo_assets.owner_device_id END, '
+        'role_priority = GREATEST(pet_photo_assets.role_priority, excluded.role_priority)',
+      ),
+      parameters: {
+        'id': operation.id,
+        'householdId': request.householdId,
+        'petId': petId,
+        'payloadJson': payloadJson,
+        'updatedAtMs': updatedAtMs,
+        'deviceId': request.deviceId,
+        'rolePriority': request.rolePriority,
+      },
+    );
+  }
+
   Future<void> _softDelete(
     TxSession session,
     String table,
@@ -293,4 +335,19 @@ int _updatedAtMs(Map<String, dynamic> data) {
     return int.tryParse(value) ?? DateTime.now().millisecondsSinceEpoch;
   }
   return DateTime.now().millisecondsSinceEpoch;
+}
+
+String _petId(Map<String, dynamic> data, String payloadJson) {
+  final direct = data['pet_id'] ?? data['petId'];
+  if (direct is String && direct.isNotEmpty) {
+    return direct;
+  }
+  final decoded = jsonDecode(payloadJson);
+  if (decoded is Map) {
+    final value = decoded['pet_id'] ?? decoded['petId'];
+    if (value is String && value.isNotEmpty) {
+      return value;
+    }
+  }
+  throw const FormatException('pet_photo_assets requires pet_id');
 }

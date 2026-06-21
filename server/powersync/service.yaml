@@ -4,10 +4,12 @@ replication:
   connections:
     - type: postgresql
       uri: !env PS_SOURCE_URI
+      sslmode: disable
 
 storage:
   type: postgresql
   uri: !env PS_STORAGE_URI
+  sslmode: disable
 
 client_auth:
   jwks:

@@ -158,6 +158,43 @@ void main() {
     expect(repository.requests.single.operations.single.table, 'todos');
   });
 
+  test('upload 保留宠物头像附件 metadata operation', () async {
+    final repository = _RecordingPowerSyncRepository();
+    await startApp(signer: _fixedSigner(), repository: repository);
+    app.store
+        .create('household-1', 'salt', 'auth-token')
+        .devices['owner-device'] = HouseholdDevice(
+      deviceId: 'owner-device',
+      name: '主人手机',
+      role: 'owner',
+    );
+
+    final response = await _postJson(server, '/powersync/upload', {
+      'householdId': 'household-1',
+      'authToken': 'auth-token',
+      'deviceId': 'owner-device',
+      'operations': [
+        {
+          'op_id': 'photo-op-1',
+          'op': 'PUT',
+          'type': 'pet_photo_assets',
+          'id': 'photo-1',
+          'data': {
+            'pet_id': 'pet-1',
+            'payload_json': '{"relativePath":"pet_photos/photo-1.jpg"}',
+            'updated_at_ms': 1780000000000,
+          },
+        }
+      ],
+    });
+
+    expect(response.statusCode, 200);
+    expect(
+        repository.requests.single.operations.single.table, 'pet_photo_assets');
+    expect(
+        repository.requests.single.operations.single.data['pet_id'], 'pet-1');
+  });
+
   test('upload 拒绝非对象 operation', () async {
     final repository = _RecordingPowerSyncRepository();
     await startApp(signer: _fixedSigner(), repository: repository);
@@ -208,6 +245,9 @@ void main() {
 
     expect(source, contains('ON CONFLICT (client_op_id) DO NOTHING'));
     expect(source, contains('excluded.role_priority >='));
+    expect(source, contains("if (table == 'pet_photo_assets')"));
+    expect(source, contains('pet_photo_assets requires pet_id'));
+    expect(source, contains("'petId': petId"));
     expect(
       source,
       contains(
