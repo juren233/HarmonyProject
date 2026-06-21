@@ -343,3 +343,18 @@
 - 选择卡片复用 `PetPhotoAvatar(photoPath: pet.photoPath, ...)`，会走现有同步附件和 iOS 头像路径迁移/解析链路；测试用 `debugPetPhotoImageBuilder` 验证同步后的真实头像会被使用。
 - 宠物端设置页新增“服务宠物”区块和“返回选择列表”按钮；点击后清空 `servedPetId`，同时清理运行期 `servedPetIdOverride`，避免返回列表后又被旧 override 顶回宠物看板。
 - 验证通过：`flutter test test/pet_device_dashboard_test.dart test/pet_device_settings_page_test.dart`；`flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_device_home.dart lib/app/pet_device_settings_page.dart test/pet_device_dashboard_test.dart test/pet_device_settings_page_test.dart`；`git diff --check`。
+
+## 2026-06-21 宠物端选择页文案清理与横屏修正
+
+- [x] 清理竖屏和横屏选择页说明性/引导性文案 → 验证: widget 测试和 `rg` 确认目标文案无残留
+- [x] 将横屏左右比例调整为 3.5:6.5，并修复左侧时间/标题/状态胶囊排版 → 验证: 多尺寸横屏 widget 测试覆盖比例与胶囊边界
+- [x] 移除宠物卡片内的箭头符号，释放文案显示空间 → 验证: widget 测试确认无 `chevron_right_rounded` 且卡片仍可点击
+- [x] 同步更新 HTML 原型并记录经验 → 验证: 原型静态搜索和 `tasks/lessons.md` 更新
+- [x] 跑聚焦测试、format/analyze 和 diff 检查 → 验证: Flutter tests、`dart format --output=none`、`flutter analyze`、`git diff --check`
+
+### Review
+
+- 已删除截图中指定的五处说明性文案：竖屏顶部说明、竖屏底部提示、横屏左侧说明、横屏左侧底部提示、横屏右侧卡片引导。
+- 横屏选择页左右区域改为 `35:65`，左侧卡片统一 12px 内边距；时间和“选择服务宠物”使用单行缩放，状态胶囊支持收缩和省略，避免在窄横屏中越界。
+- 宠物选择卡片不再显示 `>` / chevron，整张卡片仍作为点击区域；删除箭头后的空间用于宠物名称和品种/年龄文案。
+- HTML 原型已同步删除旧文案和箭头，并更新横屏比例与排版参数。

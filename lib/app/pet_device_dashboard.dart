@@ -97,7 +97,7 @@ class _PetSelector extends StatelessWidget {
           return Row(
             children: [
               Expanded(
-                flex: 3,
+                flex: 35,
                 child: _PetSelectorSidePanel(
                   syncStatusLabel: syncStatusLabel,
                   onOpenSettings: onOpenSettings,
@@ -105,7 +105,7 @@ class _PetSelector extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               Expanded(
-                flex: 7,
+                flex: 65,
                 child: _PetSelectorListPanel(
                   pets: pets,
                   onSelectServedPet: onSelectServedPet,
@@ -130,8 +130,6 @@ class _PetSelector extends StatelessWidget {
                 onSelectServedPet: onSelectServedPet,
               ),
             ),
-            const SizedBox(height: 10),
-            const _SelectorQuietLine(text: '稍后可在设置中重新选择'),
           ],
         );
       },
@@ -223,18 +221,9 @@ class _PetSelectorHero extends StatelessWidget {
             style: TextStyle(
               color: tokens.primaryText,
               fontSize: 32,
-              height: 1.05,
+              height: 1.4,
+              letterSpacing: 0,
               fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '选择后会进入常亮中枢屏，只展示它的状态和待办。',
-            style: TextStyle(
-              color: tokens.secondaryText,
-              fontSize: 14,
-              height: 1.55,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -258,23 +247,30 @@ class _PetSelectorSidePanel extends StatelessWidget {
     final now = DateTime.now();
     return _SelectorSurface(
       key: const ValueKey('pet_selector_side_panel'),
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _formatClock(now),
-                      style: TextStyle(
-                        color: tokens.primaryText,
-                        fontSize: 48,
-                        height: 0.95,
-                        fontWeight: FontWeight.w900,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _formatClock(now),
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: tokens.primaryText,
+                          fontSize: 48,
+                          height: 1.0,
+                          letterSpacing: 0,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -283,6 +279,8 @@ class _PetSelectorSidePanel extends StatelessWidget {
                       style: TextStyle(
                         color: tokens.secondaryText,
                         fontSize: 13,
+                        height: 1.45,
+                        letterSpacing: 0,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -303,33 +301,33 @@ class _PetSelectorSidePanel extends StatelessWidget {
             style: TextStyle(
               color: tokens.navAddGradientEnd,
               fontSize: 13,
+              height: 1.45,
+              letterSpacing: 0,
               fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            '选择服务宠物',
-            style: TextStyle(
-              color: tokens.primaryText,
-              fontSize: 32,
-              height: 1.06,
-              fontWeight: FontWeight.w900,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '选择服务宠物',
+              maxLines: 1,
+              style: TextStyle(
+                color: tokens.primaryText,
+                fontSize: 32,
+                height: 1.4,
+                letterSpacing: 0,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          Text(
-            '横放设备时，左侧保留状态和设置，右侧留给宠物选择。',
-            style: TextStyle(
-              color: tokens.secondaryText,
-              fontSize: 14,
-              height: 1.5,
-              fontWeight: FontWeight.w600,
-            ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: double.infinity),
+            child: _ConnectionPill(label: syncStatusLabel),
           ),
-          const SizedBox(height: 18),
-          _ConnectionPill(label: syncStatusLabel),
           const Spacer(),
-          const _SelectorQuietLine(text: '选择后进入常亮中枢屏'),
         ],
       ),
     );
@@ -370,17 +368,9 @@ class _PetSelectorListPanel extends StatelessWidget {
                         style: TextStyle(
                           color: tokens.primaryText,
                           fontSize: 30,
-                          height: 1.06,
+                          height: 1.4,
+                          letterSpacing: 0,
                           fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        '点击一张宠物卡片即可接管对应待办和观察状态。',
-                        style: TextStyle(
-                          color: tokens.secondaryText,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -417,7 +407,7 @@ class _PetSelectorListPanel extends StatelessWidget {
                       crossAxisCount: landscape ? 2 : 1,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 16,
-                      mainAxisExtent: landscape ? 126 : 86,
+                      mainAxisExtent: landscape ? 112 : 86,
                     ),
                     itemCount: pets.length,
                     itemBuilder: (context, index) {
@@ -460,7 +450,7 @@ class _PetSelectionCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(landscape ? 28 : 24),
         child: Ink(
-          padding: EdgeInsets.all(landscape ? 18 : 14),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: tokens.panelBackground,
             borderRadius: BorderRadius.circular(landscape ? 28 : 24),
@@ -483,7 +473,7 @@ class _PetSelectionCard extends StatelessWidget {
               PetPhotoAvatar(
                 photoPath: pet.photoPath,
                 fallbackText: petAvatarFallbackForPet(pet),
-                radius: landscape ? 33 : 27,
+                radius: landscape ? 31 : 27,
                 backgroundColor: tokens.segmentedSelectedBackground,
                 foregroundColor: Colors.white,
                 fallbackTextStyle: TextStyle(
@@ -505,11 +495,12 @@ class _PetSelectionCard extends StatelessWidget {
                       style: TextStyle(
                         color: tokens.primaryText,
                         fontSize: landscape ? 25 : 21,
-                        height: 1.05,
+                        height: 1.4,
+                        letterSpacing: 0,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 3),
                     Text(
                       '${pet.breed} · ${pet.ageLabel}',
                       maxLines: landscape ? 2 : 1,
@@ -517,44 +508,17 @@ class _PetSelectionCard extends StatelessWidget {
                       style: TextStyle(
                         color: tokens.secondaryText,
                         fontSize: 14,
-                        height: 1.3,
+                        height: 1.45,
+                        letterSpacing: 0,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              _SelectorArrow(prominent: prominent),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SelectorArrow extends StatelessWidget {
-  const _SelectorArrow({required this.prominent});
-
-  final bool prominent;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.petNoteTokens;
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: prominent
-            ? tokens.badgeGoldBackground
-            : tokens.secondarySurface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Icon(
-        Icons.chevron_right_rounded,
-        color: prominent ? tokens.badgeGoldForeground : tokens.secondaryText,
-        size: 28,
       ),
     );
   }
@@ -663,26 +627,6 @@ class _SelectorSurface extends StatelessWidget {
         ],
       ),
       child: child,
-    );
-  }
-}
-
-class _SelectorQuietLine extends StatelessWidget {
-  const _SelectorQuietLine({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.petNoteTokens;
-    return Text(
-      text,
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        color: tokens.secondaryText,
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-      ),
     );
   }
 }
@@ -1131,14 +1075,20 @@ class _ConnectionPill extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 9),
-          Text(
-            label,
-            style: TextStyle(
-              color: connected
-                  ? tokens.emptyStateForeground
-                  : tokens.badgeGoldForeground,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: connected
+                    ? tokens.emptyStateForeground
+                    : tokens.badgeGoldForeground,
+                fontSize: 13,
+                height: 1.4,
+                letterSpacing: 0,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],

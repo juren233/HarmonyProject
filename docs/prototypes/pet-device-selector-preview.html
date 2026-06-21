@@ -176,7 +176,7 @@
 
     .portrait {
       display: grid;
-      grid-template-rows: auto auto 1fr auto;
+      grid-template-rows: auto auto 1fr;
       gap: 16px;
       padding: 24px 22px;
     }
@@ -199,7 +199,7 @@
 
     .time {
       font-size: 48px;
-      line-height: 0.95;
+      line-height: 1;
       font-weight: 950;
       letter-spacing: 0;
     }
@@ -208,6 +208,8 @@
       margin-top: 8px;
       color: var(--muted);
       font-size: 14px;
+      line-height: 1.45;
+      letter-spacing: 0;
       font-weight: 700;
     }
 
@@ -248,29 +250,25 @@
     .hero-title {
       margin-top: 7px;
       font-size: 33px;
-      line-height: 1.05;
+      line-height: 1.4;
       font-weight: 950;
       letter-spacing: 0;
-    }
-
-    .hero-copy {
-      margin-top: 12px;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.55;
-      font-weight: 650;
     }
 
     .status-pill {
       gap: 9px;
       width: fit-content;
       margin-top: 18px;
-      padding: 9px 13px;
+      max-width: calc(100% - 16px);
+      padding: 8px 12px;
       color: #28684d;
       background: var(--green-soft);
       border-radius: 999px;
       font-size: 13px;
+      line-height: 1.4;
+      letter-spacing: 0;
       font-weight: 900;
+      white-space: nowrap;
     }
 
     .dot {
@@ -319,9 +317,9 @@
 
     .pet-card {
       justify-content: space-between;
-      gap: 14px;
+      gap: 12px;
       min-height: 86px;
-      padding: 14px;
+      padding: 12px;
       border-radius: 24px;
     }
 
@@ -370,7 +368,8 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 21px;
-      line-height: 1.05;
+      line-height: 1.4;
+      letter-spacing: 0;
       font-weight: 950;
     }
 
@@ -381,46 +380,29 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 14px;
-      font-weight: 700;
-    }
-
-    .pick-chip {
-      flex: 0 0 auto;
-      display: grid;
-      place-items: center;
-      min-width: 42px;
-      height: 42px;
-      color: var(--accent-deep);
-      background: var(--accent-soft);
-      border-radius: 16px;
-      font-size: 22px;
-      font-weight: 950;
-    }
-
-    .quiet-line {
-      color: var(--quiet);
-      text-align: center;
-      font-size: 13px;
+      line-height: 1.45;
+      letter-spacing: 0;
       font-weight: 700;
     }
 
     .landscape {
       display: grid;
-      grid-template-columns: minmax(210px, 3fr) minmax(520px, 7fr);
+      grid-template-columns: minmax(0, 3.5fr) minmax(0, 6.5fr);
       gap: 22px;
       padding: 24px;
     }
 
     .side-panel {
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto 1fr;
       min-width: 0;
-      padding: 22px;
+      padding: 12px;
       border-radius: 30px;
     }
 
     .landscape .time {
       font-size: 54px;
+      white-space: nowrap;
     }
 
     .side-title {
@@ -433,10 +415,7 @@
 
     .side-title .hero-title {
       font-size: 34px;
-    }
-
-    .side-title .hero-copy {
-      font-size: 14px;
+      white-space: nowrap;
     }
 
     .main-panel {
@@ -462,16 +441,9 @@
     .main-title h2 {
       margin: 0;
       font-size: 31px;
-      line-height: 1.06;
+      line-height: 1.4;
       font-weight: 950;
       letter-spacing: 0;
-    }
-
-    .main-title p {
-      margin: 7px 0 0;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 700;
     }
 
     .mini-row {
@@ -499,9 +471,9 @@
     }
 
     .landscape .pet-card {
-      min-height: 126px;
+      min-height: 112px;
       align-items: stretch;
-      padding: 18px;
+      padding: 12px;
       border-radius: 28px;
     }
 
@@ -518,11 +490,7 @@
 
     .landscape .pet-meta {
       white-space: normal;
-      line-height: 1.35;
-    }
-
-    .landscape .pick-chip {
-      align-self: center;
+      line-height: 1.45;
     }
 
     @media (max-width: 1120px) {
@@ -596,7 +564,6 @@
               <section class="hero-panel" aria-label="选择提示">
                 <div class="hero-kicker">已连接主人端</div>
                 <div class="hero-title">这台设备照顾谁？</div>
-                <div class="hero-copy">选择后会进入常亮中枢屏，只展示它的状态和待办。</div>
                 <div class="status-pill"><span class="dot"></span>宠物资料已同步</div>
               </section>
 
@@ -614,7 +581,6 @@
                         <div class="pet-meta">法斗 · 新加入</div>
                       </div>
                     </div>
-                    <div class="pick-chip">›</div>
                   </article>
 
                   <article class="pet-card">
@@ -625,7 +591,6 @@
                         <div class="pet-meta">英短 · 2 岁</div>
                       </div>
                     </div>
-                    <div class="pick-chip">›</div>
                   </article>
 
                   <article class="pet-card">
@@ -636,12 +601,9 @@
                         <div class="pet-meta">安哥拉兔 · 客厅</div>
                       </div>
                     </div>
-                    <div class="pick-chip">›</div>
                   </article>
                 </div>
               </section>
-
-              <div class="quiet-line">稍后可在设置中重新选择</div>
             </div>
           </div>
         </div>
@@ -668,18 +630,14 @@
                   <div class="side-title">
                     <div class="hero-kicker">已连接主人端</div>
                     <div class="hero-title">选择服务宠物</div>
-                    <div class="hero-copy">横放设备时，左侧只保留状态和设置，右侧留给宠物选择。</div>
                     <div class="status-pill"><span class="dot"></span>资料同步完成</div>
                   </div>
-
-                  <div class="quiet-line">选择后进入常亮中枢屏</div>
                 </aside>
 
                 <section class="main-panel" aria-label="横屏宠物列表">
                   <div class="main-title">
                     <div>
                       <h2>这台设备照顾谁？</h2>
-                      <p>点击一张宠物卡片即可接管对应待办和观察状态。</p>
                     </div>
                     <div class="mini-row">
                       <div class="mini-chip">主人端已连接</div>
@@ -696,7 +654,6 @@
                           <div class="pet-meta">法斗 · 新加入</div>
                         </div>
                       </div>
-                      <div class="pick-chip">›</div>
                     </article>
 
                     <article class="pet-card">
@@ -707,7 +664,6 @@
                           <div class="pet-meta">英短 · 2 岁 · 客厅</div>
                         </div>
                       </div>
-                      <div class="pick-chip">›</div>
                     </article>
 
                     <article class="pet-card">
@@ -718,7 +674,6 @@
                           <div class="pet-meta">安哥拉兔 · 阳台</div>
                         </div>
                       </div>
-                      <div class="pick-chip">›</div>
                     </article>
 
                     <article class="pet-card">
@@ -729,7 +684,6 @@
                           <div class="pet-meta">柴犬 · 4 岁 · 卧室</div>
                         </div>
                       </div>
-                      <div class="pick-chip">›</div>
                     </article>
                   </div>
                 </section>

@@ -59,6 +59,8 @@ void main() {
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
     expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('选择后会进入常亮中枢屏，只展示它的状态和待办。'), findsNothing);
+    expect(find.text('稍后可在设置中重新选择'), findsNothing);
 
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -97,11 +99,151 @@ void main() {
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
     expect(find.text('选择服务宠物'), findsOneWidget);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
+    expect(find.text('横放设备时，左侧保留状态和设置，右侧留给宠物选择。'), findsNothing);
+    expect(find.text('选择后进入常亮中枢屏'), findsNothing);
+    expect(find.text('点击一张宠物卡片即可接管对应待办和观察状态。'), findsNothing);
+    expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+
+    final sidePanelSize = tester.getSize(
+      find.byKey(const ValueKey('pet_selector_side_panel')),
+    );
+    final listPanelSize = tester.getSize(
+      find.byKey(const ValueKey('pet_selector_list_panel')),
+    );
+    expect(sidePanelSize.width / listPanelSize.width, closeTo(35 / 65, 0.02));
 
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
     await tester.pump();
     expect(selectedPetId, pet.id);
+  });
+
+  testWidgets('横屏选择页在多尺寸下保持布局完整', (tester) async {
+    final sizes = <Size>[
+      const Size(720, 390),
+      const Size(900, 520),
+      const Size(1180, 620),
+    ];
+
+    for (final size in sizes) {
+      await tester.binding.setSurfaceSize(size);
+      final store = PetNoteStore.seeded();
+      String? selectedPetId;
+
+      await tester.pumpWidget(
+        _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: null,
+            syncStatusLabel: '同步中...',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (value) => selectedPetId = value,
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('pet_selector_side_panel')),
+          findsOneWidget);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      final sidePanelRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_side_panel')),
+      );
+      final listPanelRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_list_panel')),
+      );
+      expect(sidePanelRect.left, greaterThanOrEqualTo(0));
+      expect(listPanelRect.right, lessThanOrEqualTo(size.width));
+      expect(sidePanelRect.right, lessThan(listPanelRect.left));
+      final syncPillRect = tester.getRect(find.text('同步中...'));
+      expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
+      expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      final titleRect = tester.getRect(find.text('选择服务宠物'));
+      expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
+      expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+
+      final pet = store.pets.first;
+      await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
+      await tester.pump();
+      expect(selectedPetId, pet.id);
+    }
+
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  });
+
+  testWidgets('横屏选择页长文案不破坏布局', (tester) async {
+    final sizes = <Size>[
+      const Size(720, 390),
+      const Size(900, 520),
+      const Size(1180, 620),
+    ];
+
+    for (final size in sizes) {
+      await tester.binding.setSurfaceSize(size);
+      final store = await PetNoteStore.load(
+        storage: PetNoteLocalStorage.memory(),
+      );
+      await store.addPet(
+        name: '名字特别特别长的强强同学',
+        type: PetType.dog,
+        breed: '非常长的法国斗牛犬混合品种名称',
+        sex: '弟弟',
+        birthday: '2025-01-01',
+        weightKg: 8,
+        neuterStatus: PetNeuterStatus.unknown,
+        feedingPreferences: '少食多餐',
+        allergies: '无',
+        note: '横屏长文案压测',
+      );
+      String? selectedPetId;
+
+      await tester.pumpWidget(
+        _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: null,
+            syncStatusLabel: '同步中，请保持设备在线',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (value) => selectedPetId = value,
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      final sidePanelRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_side_panel')),
+      );
+      final listPanelRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_list_panel')),
+      );
+      expect(sidePanelRect.left, greaterThanOrEqualTo(0));
+      expect(listPanelRect.right, lessThanOrEqualTo(size.width));
+      expect(sidePanelRect.right, lessThan(listPanelRect.left));
+      final syncPillRect = tester.getRect(find.text('同步中，请保持设备在线'));
+      expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
+      expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      final titleRect = tester.getRect(find.text('选择服务宠物'));
+      expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
+      expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      final petCardRect = tester.getRect(
+        find.byKey(ValueKey('dashboard_select_pet_${store.pets.first.id}')),
+      );
+      expect(petCardRect.left, greaterThanOrEqualTo(listPanelRect.left + 8));
+      expect(petCardRect.right, lessThanOrEqualTo(listPanelRect.right - 8));
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+
+      final pet = store.pets.first;
+      await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
+      await tester.pump();
+      expect(selectedPetId, pet.id);
+    }
+
+    addTearDown(() => tester.binding.setSurfaceSize(null));
   });
 
   testWidgets('服务宠物选择页显示同步后的真实头像', (tester) async {
