@@ -327,3 +327,19 @@
 - iOS 头像消失根因是历史 `Pet.photoPath` 存的是沙盒绝对路径；App 更新后如果容器基路径变化，数据库里旧绝对路径不可读，但文件仍在当前 Application Support 的 `pet_photos` 目录。新增 `PetPhotoPathResolver`，加载 store 时仅对不可读且属于 `pet_photos` 的旧路径按当前沙盒目录重定位，并写回本地存储。
 - 验证通过：`flutter test test/remote_video_entry_test.dart test/rtc_call_models_test.dart test/rtc_signaling_controller_test.dart test/pet_care_store_test.dart test/native_pet_photo_picker_test.dart`；`flutter test test/android_rtc_bridge_structure_test.dart test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart test/pet_device_dashboard_test.dart`；`flutter analyze lib/app/remote_video_call_page.dart lib/rtc/rtc_call_models.dart lib/rtc/rtc_signaling_controller.dart lib/platform/pet_photo_path_resolver.dart lib/app/pet_photo_widgets.dart lib/state/petnote_store.dart test/remote_video_entry_test.dart test/pet_care_store_test.dart test/native_pet_photo_picker_test.dart`。
 - 构建通过：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`；未签名 IPA 已重新打包。
+
+## 2026-06-21 宠物端服务对象选择页同化
+
+- [x] 新增宠物选择列表 HTML 预览，先确认横竖屏视觉方向 → 验证: `docs/prototypes/pet-device-selector-preview.html` 可直接打开
+- [x] 将配对成功后的宠物选择列表改为 PetNote 家庭中枢风格 → 验证: widget 测试覆盖标题、连接状态、设置入口和宠物卡片
+- [x] 选择页支持横竖屏自适应，并保持宠物卡片可点击 → 验证: portrait / landscape surface 测试覆盖对应布局 key
+- [x] 选择页显示同步后的真实头像，不回落到文字头像 → 验证: 使用 `debugPetPhotoImageBuilder` 的 widget 测试
+- [x] 宠物端设置页加入“返回选择列表”选项 → 验证: 设置页测试确认点击后清空 `servedPetId`
+- [x] 跑聚焦测试、format/analyze，确认无无关构建噪音 → 验证: Flutter tests、`dart format`、`flutter analyze`、`git diff --check`
+
+### Review
+
+- 宠物端未选择服务对象时不再使用普通列表页，改为横竖屏自适应的家庭中枢选择界面：竖屏保留顶部状态、柔和提示和宠物卡片列表；横屏使用左侧状态栏与右侧选择区，适合家中常驻设备横放。
+- 选择卡片复用 `PetPhotoAvatar(photoPath: pet.photoPath, ...)`，会走现有同步附件和 iOS 头像路径迁移/解析链路；测试用 `debugPetPhotoImageBuilder` 验证同步后的真实头像会被使用。
+- 宠物端设置页新增“服务宠物”区块和“返回选择列表”按钮；点击后清空 `servedPetId`，同时清理运行期 `servedPetIdOverride`，避免返回列表后又被旧 override 顶回宠物看板。
+- 验证通过：`flutter test test/pet_device_dashboard_test.dart test/pet_device_settings_page_test.dart`；`flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_device_home.dart lib/app/pet_device_settings_page.dart test/pet_device_dashboard_test.dart test/pet_device_settings_page_test.dart`；`git diff --check`。

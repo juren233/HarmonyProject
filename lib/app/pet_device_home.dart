@@ -149,10 +149,12 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
         if (controller?.removedByOwner.value == true) {
           unawaited(widget.settingsController.clearSyncPairing());
         }
+        final effectiveServedPetId = controller?.servedPetIdOverride.value ??
+            widget.settingsController.servedPetId;
+        final servedPetName = store.petById(effectiveServedPetId ?? '')?.name;
         return PetDeviceDashboard(
           store: store,
-          servedPetId: controller?.servedPetIdOverride.value ??
-              widget.settingsController.servedPetId,
+          servedPetId: effectiveServedPetId,
           syncStatusLabel: _syncStatusLabel(_syncService),
           pendingItemKeys:
               controller?.pendingItemKeys.value ?? const <String>{},
@@ -162,10 +164,15 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
             MaterialPageRoute<void>(
               builder: (context) => PetDeviceSettingsPage(
                 settingsController: widget.settingsController,
+                servedPetName: servedPetName,
                 keepScreenOn: widget.settingsController.petKeepScreenOn,
                 onKeepScreenOnChanged: (value) async {
                   await widget.settingsController.setPetKeepScreenOn(value);
                   await _syncKeepAlive();
+                },
+                onReturnToPetSelection: () async {
+                  controller?.servedPetIdOverride.value = null;
+                  await widget.settingsController.setServedPetId(null);
                 },
                 onRepair: () => setState(() {}),
               ),

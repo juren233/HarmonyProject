@@ -70,4 +70,43 @@ void main() {
     expect(await secretStore.loadSharedKey(), isNull);
     expect(repairCalled, isTrue);
   });
+
+  testWidgets('设置页可返回宠物选择列表', (tester) async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.saveSyncPairing(
+      serverUrl: 'ws://127.0.0.1:8080/ws',
+      householdId: 'house-1',
+      sharedKeyBase64: 'shared-key',
+      householdAuthToken: 'auth-token-1',
+      servedPetId: 'pet-1',
+    );
+    var returned = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetDeviceSettingsPage(
+          settingsController: settings,
+          servedPetName: '强',
+          keepScreenOn: true,
+          onKeepScreenOnChanged: (_) {},
+          onReturnToPetSelection: () async {
+            returned = true;
+            await settings.setServedPetId(null);
+          },
+          onRepair: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('当前服务对象'), findsOneWidget);
+    expect(find.text('强'), findsOneWidget);
+    await tester
+        .tap(find.byKey(const ValueKey('settings_return_pet_selection')));
+    await tester.pumpAndSettle();
+
+    expect(returned, isTrue);
+    expect(settings.servedPetId, isNull);
+  });
 }

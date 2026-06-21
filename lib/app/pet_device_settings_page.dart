@@ -12,12 +12,16 @@ class PetDeviceSettingsPage extends StatelessWidget {
     required this.keepScreenOn,
     required this.onKeepScreenOnChanged,
     required this.onRepair,
+    this.servedPetName,
+    this.onReturnToPetSelection,
     SyncSecretStore? secretStore,
   }) : _secretStore = secretStore;
 
   final AppSettingsController settingsController;
+  final String? servedPetName;
   final bool keepScreenOn;
   final ValueChanged<bool> onKeepScreenOnChanged;
+  final Future<void> Function()? onReturnToPetSelection;
   final VoidCallback onRepair;
   final SyncSecretStore? _secretStore;
 
@@ -50,21 +54,47 @@ class PetDeviceSettingsPage extends StatelessWidget {
                     },
                     child: const Column(
                       children: [
-                        RadioListTile<DeviceRole>(
-                          key: ValueKey('settings_mode_pet'),
-                          value: DeviceRole.pet,
-                          title: Text('宠物端'),
+                        Material(
+                          type: MaterialType.transparency,
+                          child: RadioListTile<DeviceRole>(
+                            key: ValueKey('settings_mode_pet'),
+                            value: DeviceRole.pet,
+                            title: Text('宠物端'),
+                          ),
                         ),
-                        RadioListTile<DeviceRole>(
-                          key: ValueKey('settings_mode_owner'),
-                          value: DeviceRole.owner,
-                          title: Text('主人端'),
+                        Material(
+                          type: MaterialType.transparency,
+                          child: RadioListTile<DeviceRole>(
+                            key: ValueKey('settings_mode_owner'),
+                            value: DeviceRole.owner,
+                            title: Text('主人端'),
+                          ),
                         ),
                       ],
                     ),
                   ),
                 ],
               ),
+              if (settingsController.servedPetId != null)
+                SectionCard(
+                  title: '服务宠物',
+                  children: [
+                    ListRow(
+                      title: '当前服务对象',
+                      subtitle: servedPetName ?? '已选择宠物',
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('settings_return_pet_selection'),
+                        onPressed: () => _returnToPetSelection(context),
+                        icon: const Icon(Icons.swap_horiz_rounded),
+                        label: const Text('返回选择列表'),
+                      ),
+                    ),
+                  ],
+                ),
               SectionCard(
                 title: '配对',
                 children: [
@@ -90,11 +120,14 @@ class PetDeviceSettingsPage extends StatelessWidget {
               SectionCard(
                 title: '屏幕',
                 children: [
-                  SwitchListTile(
-                    key: const ValueKey('settings_keep_screen_on'),
-                    value: keepScreenOn,
-                    onChanged: onKeepScreenOnChanged,
-                    title: const Text('屏幕常亮'),
+                  Material(
+                    type: MaterialType.transparency,
+                    child: SwitchListTile(
+                      key: const ValueKey('settings_keep_screen_on'),
+                      value: keepScreenOn,
+                      onChanged: onKeepScreenOnChanged,
+                      title: const Text('屏幕常亮'),
+                    ),
                   ),
                 ],
               ),
@@ -154,5 +187,17 @@ class PetDeviceSettingsPage extends StatelessWidget {
     await settingsController.clearSyncPairing();
     await (_secretStore ?? MethodChannelSyncSecretStore()).deleteSharedKey();
     onRepair();
+  }
+
+  Future<void> _returnToPetSelection(BuildContext context) async {
+    final handler = onReturnToPetSelection;
+    if (handler == null) {
+      await settingsController.setServedPetId(null);
+    } else {
+      await handler();
+    }
+    if (context.mounted) {
+      await Navigator.of(context).maybePop();
+    }
   }
 }

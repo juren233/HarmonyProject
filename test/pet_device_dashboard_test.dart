@@ -33,6 +33,9 @@ void main() {
   });
 
   testWidgets('未选择服务宠物时展示宠物选择列表', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final store = PetNoteStore.seeded();
     String? selectedPetId;
     var openedSettings = false;
@@ -51,6 +54,12 @@ void main() {
       ),
     );
 
+    expect(find.byKey(const ValueKey('pet_selector_hero')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
+    expect(find.text('这台设备照顾谁？'), findsOneWidget);
+    expect(find.text('已连接'), findsOneWidget);
+
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
     await tester.pump();
@@ -59,6 +68,96 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_rounded).first);
     await tester.pump();
     expect(openedSettings, isTrue);
+  });
+
+  testWidgets('横屏下服务宠物选择页使用中枢式分栏', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = PetNoteStore.seeded();
+    String? selectedPetId;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: null,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (value) => selectedPetId = value,
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+        ),
+      ),
+    );
+
+    expect(
+        find.byKey(const ValueKey('pet_selector_side_panel')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
+    expect(find.text('选择服务宠物'), findsOneWidget);
+    expect(find.text('这台设备照顾谁？'), findsOneWidget);
+
+    final pet = store.pets.first;
+    await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
+    await tester.pump();
+    expect(selectedPetId, pet.id);
+  });
+
+  testWidgets('服务宠物选择页显示同步后的真实头像', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final photoFile = File(
+      '${Directory.systemTemp.path}/petnote-selector-photo-${DateTime.now().microsecondsSinceEpoch}.jpg',
+    )..writeAsBytesSync([1, 2, 3]);
+    addTearDown(() {
+      if (photoFile.existsSync()) {
+        photoFile.deleteSync();
+      }
+    });
+    debugHasPetPhotoOverride = (path) => path == photoFile.path;
+    debugPetPhotoImageBuilder = ({
+      required String photoPath,
+      required BoxFit fit,
+      required Widget fallback,
+    }) {
+      return SizedBox(
+        key: ValueKey('selector-real-photo-$photoPath'),
+      );
+    };
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await store.addPet(
+      name: '强',
+      type: PetType.dog,
+      photoPath: photoFile.path,
+      breed: '法斗',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      weightKg: 8,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '同步头像',
+    );
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: null,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(ValueKey('selector-real-photo-${photoFile.path}')),
+        findsOneWidget);
   });
 
   testWidgets('看板展示同步状态并把待办完成动作回调给上层', (tester) async {
