@@ -396,7 +396,7 @@ class PetNoteRtcBridge(
         container.addView(renderView, matchParentLayoutParams())
         val canvas = DingRtcVideoCanvas()
         canvas.view = renderView
-        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeAuto
+        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeCrop
         logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, DingRtcVideoTrack.DingRtcVideoTrackCamera))
         logResult("startPreview", rtcEngine.startPreview())
     }
@@ -409,7 +409,7 @@ class PetNoteRtcBridge(
         container.addView(renderView, matchParentLayoutParams())
         val canvas = DingRtcVideoCanvas()
         canvas.view = renderView
-        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeAuto
+        canvas.renderMode = DingRtcRenderMode.DingRtcRenderModeCrop
         logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, userId, DingRtcVideoTrack.DingRtcVideoTrackCamera))
     }
 

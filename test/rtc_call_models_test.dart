@@ -26,6 +26,24 @@ void main() {
     expect(parsed.callerDeviceId, 'owner-device');
   });
 
+  test('RtcCallMediaState round trips through sync message payload', () {
+    const state = RtcCallMediaState(
+      callId: 'call-1',
+      targetDeviceId: 'owner-device',
+      cameraEnabled: false,
+    );
+
+    final message = state.toSyncMessage();
+    final parsed = RtcCallSignal.fromSyncMessage(message);
+
+    expect(message.type, SyncMessageTypes.callMediaState);
+    expect(message.payload['callId'], 'call-1');
+    expect(message.payload['targetDeviceId'], 'owner-device');
+    expect(message.payload['cameraEnabled'], isFalse);
+    expect(parsed, isA<RtcCallMediaState>());
+    expect((parsed as RtcCallMediaState).cameraEnabled, isFalse);
+  });
+
   test('RtcCallSignal rejects malformed call payloads', () {
     expect(
       () => RtcCallSignal.fromSyncMessage(

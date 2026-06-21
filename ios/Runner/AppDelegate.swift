@@ -516,7 +516,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     container.addSubview(renderView)
     let canvas = DingRtcVideoCanvas()
     canvas.view = renderView
-    canvas.renderMode = DingRtcRenderMode.fill
+    canvas.renderMode = DingRtcRenderMode.crop
     canvas.mirrorMode = DingRtcRenderMirrorMode.onlyFrontCameraPreviewEnabled
     logResult("setLocalViewConfig", rtcEngine.setLocalViewConfig(canvas, for: DingRtcVideoTrack.camera))
     logResult("startPreview", rtcEngine.startPreview())
@@ -532,7 +532,7 @@ final class PetNoteRtcPlugin: NSObject, FlutterPlugin {
     container.addSubview(renderView)
     let canvas = DingRtcVideoCanvas()
     canvas.view = renderView
-    canvas.renderMode = DingRtcRenderMode.fill
+    canvas.renderMode = DingRtcRenderMode.crop
     logResult("setRemoteViewConfig", rtcEngine.setRemoteViewConfig(canvas, uid: remoteUserId, for: DingRtcVideoTrack.camera))
   }
 
@@ -668,6 +668,8 @@ final class PetNoteRtcVideoPlatformView: NSObject, FlutterPlatformView {
     self.rtcPlugin = rtcPlugin
     super.init()
     containerView.backgroundColor = .black
+    containerView.clipsToBounds = true
+    containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     let role = (args?["role"] as? String) ?? "remote"
     let remoteUserId = args?["remoteUserId"] as? String
     rtcPlugin.bindVideoView(role: role, remoteUserId: remoteUserId, container: containerView)

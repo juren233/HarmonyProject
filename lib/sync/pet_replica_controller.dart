@@ -9,6 +9,7 @@ class PetReplicaController extends MultiDeviceSyncController {
     super.settings,
     super.onRemoved,
     super.throttle,
+    super.photoAttachmentCodec,
     super.initialVersion,
   });
 

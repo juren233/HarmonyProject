@@ -49,6 +49,11 @@ sealed class RtcCallSignal {
           callId: callId,
           targetDeviceId: targetDeviceId,
         ),
+      SyncMessageTypes.callMediaState => RtcCallMediaState(
+          callId: callId,
+          targetDeviceId: targetDeviceId,
+          cameraEnabled: _readRequiredBool(payload, 'cameraEnabled'),
+        ),
       SyncMessageTypes.iceCandidate => RtcIceCandidate(
           callId: callId,
           targetDeviceId: targetDeviceId,
@@ -146,12 +151,30 @@ class RtcIceCandidate extends RtcCallSignal {
       });
 }
 
+class RtcCallMediaState extends RtcCallSignal {
+  const RtcCallMediaState({
+    required super.callId,
+    required super.targetDeviceId,
+    required this.cameraEnabled,
+  });
+
+  final bool cameraEnabled;
+
+  @override
+  SyncMessage toSyncMessage() => SyncMessage(SyncMessageTypes.callMediaState, {
+        'callId': callId,
+        'targetDeviceId': targetDeviceId,
+        'cameraEnabled': cameraEnabled,
+      });
+}
+
 bool isRtcCallMessage(SyncMessage message) {
   return switch (message.type) {
     SyncMessageTypes.callInvite ||
     SyncMessageTypes.callAnswer ||
     SyncMessageTypes.callReject ||
     SyncMessageTypes.callEnd ||
+    SyncMessageTypes.callMediaState ||
     SyncMessageTypes.iceCandidate =>
       true,
     _ => false,
@@ -171,6 +194,14 @@ Map<String, dynamic> _readRequiredMap(
   final value = payload[key];
   if (value is Map) {
     return Map<String, dynamic>.from(value);
+  }
+  throw const FormatException('invalid rtc call payload');
+}
+
+bool _readRequiredBool(Map<String, dynamic> payload, String key) {
+  final value = payload[key];
+  if (value is bool) {
+    return value;
   }
   throw const FormatException('invalid rtc call payload');
 }

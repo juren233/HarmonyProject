@@ -33,26 +33,36 @@ void main() {
     expect(appDelegate, contains('authInfo.gslbServer = gslbServer'));
     expect(appDelegate, contains('remoteUserId'));
     expect(appDelegate, contains('DingRtcVideoCanvas()'));
+    expect(appDelegate, contains('DingRtcRenderMode.crop'));
+    expect(appDelegate, isNot(contains('DingRtcRenderMode.fill')));
     expect(appDelegate, contains('setLocalViewConfig'));
     expect(appDelegate, contains('setRemoteViewConfig'));
     expect(appDelegate, contains('startPreview()'));
+    expect(appDelegate, contains('containerView.clipsToBounds = true'));
+    expect(
+        appDelegate,
+        contains(
+            'containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]'));
     expect(appDelegate, contains('subscribeAllRemoteAudioStreams(true)'));
     expect(appDelegate, contains('subscribeAllRemoteVideoStreams(false)'));
     expect(appDelegate, contains('subscribeRemoteVideoStream'));
-    expect(appDelegate, contains('private var pendingJoinResult: FlutterResult?'));
-    expect(appDelegate, contains('private var joinTimeoutWorkItem: DispatchWorkItem?'));
-    expect(appDelegate, contains('try join(arguments: arguments, result: result)'));
+    expect(
+        appDelegate, contains('private var pendingJoinResult: FlutterResult?'));
+    expect(appDelegate,
+        contains('private var joinTimeoutWorkItem: DispatchWorkItem?'));
+    expect(appDelegate,
+        contains('try join(arguments: arguments, result: result)'));
     expect(appDelegate, contains('scheduleJoinTimeout()'));
     expect(appDelegate, contains('handleJoinChannelResult'));
     expect(appDelegate, contains('completeJoinWithError'));
     expect(appDelegate, contains('rtc_join_failed'));
     expect(appDelegate, contains('join rtc channel timed out'));
-    expect(appDelegate, contains('subscribeRemoteMedia(engine, uid: remoteUserId)'));
+    expect(appDelegate,
+        contains('subscribeRemoteMedia(engine, uid: remoteUserId)'));
     expect(appDelegate, contains('subscribeRemoteMedia(engine, uid: uid)'));
     expect(appDelegate, contains('onRemoteTrackAvailableNotify'));
     expect(appDelegate, contains('activeRemoteUserId = uid'));
-    expect(appDelegate,
-        contains('activeRemoteUserId ?? expectedRemoteUserId'));
+    expect(appDelegate, contains('activeRemoteUserId ?? expectedRemoteUserId'));
     expect(appDelegate, isNot(contains('if uid == remoteUserId')));
     expect(appDelegate, contains('DispatchQueue.main.async'));
     expect(appDelegate,

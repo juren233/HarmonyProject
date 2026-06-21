@@ -68,6 +68,18 @@ class RtcSignalingController {
     ));
   }
 
+  void sendMediaState({
+    required String callId,
+    required String targetDeviceId,
+    required bool cameraEnabled,
+  }) {
+    _send(RtcCallMediaState(
+      callId: callId,
+      targetDeviceId: targetDeviceId,
+      cameraEnabled: cameraEnabled,
+    ));
+  }
+
   void sendIceCandidate({
     required String callId,
     required String targetDeviceId,

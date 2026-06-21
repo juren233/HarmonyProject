@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote/platform/pet_photo_path_resolver.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -811,6 +812,7 @@ class PetNoteStore extends ChangeNotifier {
     Future<SharedPreferences> Function()? preferencesLoader,
     PetNoteLocalStorage? storage,
     DateTime Function()? nowProvider,
+    Future<String?> Function()? appSupportDirectoryLoader,
   }) async {
     final localStorage = storage ??
         await PetNoteLocalStorage.load(
@@ -834,12 +836,22 @@ class PetNoteStore extends ChangeNotifier {
       ),
       pendingMutations: _decodePendingMutationsFromStorage(localStorage),
     );
-    final migrated = store._migrateLegacySemanticData();
-    if (migrated) {
+    final migratedSemanticData = store._migrateLegacySemanticData();
+    String? petPhotoDirectoryPath;
+    if (store._needsLegacyPetPhotoPathMigration()) {
+      petPhotoDirectoryPath =
+          await PetPhotoPathResolver.loadAndCachePetPhotoDirectoryPath(
+        appSupportDirectoryLoader: appSupportDirectoryLoader,
+      );
+    }
+    final migratedPetPhotoPaths =
+        store._migrateLegacyPetPhotoPaths(petPhotoDirectoryPath);
+    if (migratedSemanticData || migratedPetPhotoPaths) {
       await store._saveState(
-        todos: true,
-        reminders: true,
-        records: true,
+        pets: migratedPetPhotoPaths,
+        todos: migratedSemanticData,
+        reminders: migratedSemanticData,
+        records: migratedSemanticData,
         overviewAiReport: true,
       );
     }
@@ -3765,10 +3777,7 @@ class PetNoteStore extends ChangeNotifier {
     if (_hasEntityId(entityType, remoteStableId)) {
       return remoteStableId;
     }
-    if (!_hasEntityId(entityType, sourceId)) {
-      return sourceId;
-    }
-    return remoteStableId;
+    return sourceId;
   }
 
   PetNoteMutation _mappedRemoteMutation(
@@ -4117,6 +4126,51 @@ class PetNoteStore extends ChangeNotifier {
       _invalidateAllDerivedData();
     }
     return changed;
+  }
+
+  bool _migrateLegacyPetPhotoPaths(String? petPhotoDirectoryPath) {
+    var changed = false;
+    for (var index = 0; index < _pets.length; index += 1) {
+      final pet = _pets[index];
+      final relocatedPath = PetPhotoPathResolver.relocateLegacyPath(
+        pet.photoPath,
+        petPhotoDirectoryPath: petPhotoDirectoryPath,
+      );
+      if (relocatedPath == null || relocatedPath == pet.photoPath) {
+        continue;
+      }
+      final migratedPet = Pet(
+        id: pet.id,
+        name: pet.name,
+        avatarText: pet.avatarText,
+        photoPath: relocatedPath,
+        type: pet.type,
+        breed: pet.breed,
+        sex: pet.sex,
+        birthday: pet.birthday,
+        ageLabel: pet.ageLabel,
+        weightKg: pet.weightKg,
+        neuterStatus: pet.neuterStatus,
+        feedingPreferences: pet.feedingPreferences,
+        allergies: pet.allergies,
+        note: pet.note,
+      );
+      _pets[index] = migratedPet;
+      _petsById[migratedPet.id] = migratedPet;
+      changed = true;
+    }
+    if (changed) {
+      _invalidateAllDerivedData();
+    }
+    return changed;
+  }
+
+  bool _needsLegacyPetPhotoPathMigration() {
+    return _pets.any(
+      (pet) => PetPhotoPathResolver.shouldAttemptLegacyRelocation(
+        pet.photoPath,
+      ),
+    );
   }
 
   PetNoteDataState _normalizedDataState(PetNoteDataState state) {

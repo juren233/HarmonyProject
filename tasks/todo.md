@@ -190,6 +190,140 @@
 - 验证通过：`flutter test test/interaction_haptics_test.dart test/interaction_haptics_structure_test.dart test/pets_page_subtitle_test.dart`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`。
 - `flutter build ios --simulator --debug` 未通过，失败点是既有 `DingRTC_iOS` pod 缺 simulator xcframework slice 路径，未进入本次 Swift 触觉插件编译；改用 README 认可的 no-codesign 真机 release 构建验证 Swift 语法。
 - Harmony 使用 DevEco hvigor 链路通过 `CompileArkTS` 与 `PackageHap`，最终 `SignHap` 因本机缺 `./sign/OpenHarmony.p12` 失败；这是 README 已记录的签名材料边界，不是本次插件编译失败。
+
 - 二次蓝军审查修正：完成长按时 Dart 侧改为顺序执行 `stopDeleteHoldRamp()` 后再 `playDeleteConfirmImpact()`，避免 stop/confirm fire-and-forget 竞态吞掉确认震动；新增 widget 测试锁定该顺序。
 - 二次蓝军审查修正：Android 优先使用覆盖完整长按时长的 amplitude waveform，primitive composition 只作为无 amplitude control 的降级；Harmony 确认震动前只清理待执行 ramp 定时器，不再先调用异步 stopVibration 造成确认震动竞态。
 - 二次验证通过：`flutter test test/interaction_haptics_test.dart test/interaction_haptics_structure_test.dart test/pets_page_subtitle_test.dart`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`；Harmony 仍通过 `CompileArkTS` / `PackageHap` 后停在缺 `./sign/OpenHarmony.p12`。
+
+## 2026-06-21 宠物端家庭中枢 HTML 原型
+
+- [x] 新增独立原型文件 `docs/prototypes/pet-device-hub-preview.html` → 验证: `test -s` 与 `wc -l` 确认文件存在
+- [x] 同屏呈现竖屏与横屏两个 mock frame → 验证: `rg` 确认包含 `portrait-frame` / `landscape-frame`
+- [x] 延续 PetNote 柔和浅底、白色面板、橙色强调，同时替换黄色便签感 → 验证: 原型使用 `#f8f4ef`、`#f3f4f8`、白色面板与 `#f2a65a` 强调
+- [x] 检查小屏响应式不会明显溢出或重叠 → 验证: 原型包含 1120px / 720px 断点，横屏 frame 由 `device-scroll` 承载
+
+### Review
+
+- 已新增纯 HTML/CSS 静态原型，不引入脚本、外链样式或 App 运行依赖；原型同屏展示竖屏与横屏两套宠物端家庭中枢布局。
+- 竖屏突出大时间、宠物状态、下一件事和今日待办；横屏使用左侧中枢栏与右侧主观察区，适合平板或家中常驻设备横放。
+- 验证通过：`git diff --check -- docs/prototypes/pet-device-hub-preview.html tasks/todo.md`；Node 静态检查确认 doctype、双方向 frame、media query、无外链脚本/样式；标签数量检查确认主要容器闭合匹配。
+
+## 2026-06-21 宠物端监控屏 HTML 原型简化
+
+- [x] 将原型从信息中枢收敛为监控常亮屏 → 验证: 静态检查确认不再展示完整今日待办列表和多项指标
+- [x] 保留竖屏/横屏两种方向 → 验证: 原型仍包含 `portrait-device` / `landscape-device` 两个 mock frame
+- [x] 只保留必要信息：宠物身份、连接状态、当前观察状态、下一条关键提醒、设置入口 → 验证: 静态检查确认包含 `正在观察中` 与 `下一次喂食`
+- [x] 补充项目经验，避免后续宠物端复用主人端信息密度 → 验证: `tasks/lessons.md` 已增加对应规则
+
+### Review
+
+- 已将原型重做为宠物端监控常亮屏：取消今日待办列表、指标卡、横屏中枢栏和多面板信息堆叠。
+- 竖屏保留顶部时间/设置、中间宠物监控状态、底部下一次喂食提醒；横屏保留大面积宠物状态占位、少量同步状态和同一条关键提醒。
+- 验证通过：`git diff --check -- docs/prototypes/pet-device-hub-preview.html tasks/todo.md tasks/lessons.md`；Node 静态检查确认双方向、关键监控文案、无待办列表残留、无外链脚本/样式；标签数量检查确认主要容器闭合匹配。
+
+## 2026-06-21 宠物端监控屏比例调整
+
+- [x] 竖屏改为头像状态区约 3、提醒区域约 7 的主体比例 → 验证: CSS 使用 `3fr 7fr` 主体分配
+- [x] 横屏头像缩小，并将连接状态放到头像下方 → 验证: 横屏状态 pill 位于头像容器内
+- [x] 记录宠物端头像不应占主体空间的经验 → 验证: `tasks/lessons.md` 增加对应规则
+
+### Review
+
+- 竖屏主体增加 `portrait-body`，使用 `3fr / 7fr` 将头像状态区压缩为识别区，把下一次喂食提醒作为主要区域。
+- 横屏头像从原先的大占位缩小，并把 `正在观察中` 连接状态移动到头像下方，右侧只保留宠物名称、说明和同步小标签。
+- 验证通过：`git diff --check -- docs/prototypes/pet-device-hub-preview.html tasks/todo.md tasks/lessons.md`；Node 静态检查确认 3:7 主体比例、横屏状态位于头像容器、无待办列表残留、无外链脚本/样式；标签数量检查确认主要容器闭合匹配。
+
+## 2026-06-21 横屏待办区域比例修正
+
+- [x] 横屏改为头像+状态区约 3、待办区约 7 → 验证: `wide-monitor` 使用 `3fr 7fr`
+- [x] 连接状态保持在头像区域下方，不占用底部 → 验证: 横屏 footer 不再承载状态/待办主体
+- [x] 右侧大区域用于待办/下一件事 → 验证: HTML 包含 `wide-todos` 待办主体
+- [x] 记录横屏比例经验 → 验证: `tasks/lessons.md` 增加对应规则
+
+### Review
+
+- 横屏已改成左侧头像+连接状态、右侧待办主体的 `3fr / 7fr` 分栏；连接状态保留在头像区域下方，不再占用底部。
+- 右侧 `wide-todos` 现在承载下一件事卡片，底部 footer 已移除，设置入口移到横屏顶栏右侧。
+- 验证通过：`git diff --check -- docs/prototypes/pet-device-hub-preview.html tasks/todo.md tasks/lessons.md`；Node 静态检查确认横屏 3:7、状态位于头像区域、存在 `wide-todos`、无 `landscape-bottom` / footer 残留、无旧待办列表残留。
+
+## 2026-06-21 宠物端监控屏 Flutter 实现
+
+- [x] 将 `PetDeviceDashboard` 从便签样式改为监控常亮屏样式 → 验证: widget 测试覆盖宠物身份、连接状态、下一件事和完成动作
+- [x] 实现竖屏/横屏自适应 3:7 布局 → 验证: widget 测试分别用 portrait / landscape surface 检查关键 key
+- [x] 宠物端允许横竖屏、主人端继续锁竖屏 → 验证: 更新系统方向策略和平台结构测试
+- [x] 保持同步失败入口与设置入口可用 → 验证: 既有同步失败 widget 测试通过
+- [x] 跑聚焦测试和静态检查，确认无 lockfile/平台噪音 → 验证: `flutter test` 相关用例、`flutter analyze`、Android/iOS 构建与 `git status --short`
+
+### Review
+
+- `PetDeviceDashboard` 已按确认后的原型改为宠物端监控常亮屏：竖屏压缩头像身份区、突出下一件事；横屏采用左侧头像+状态、右侧待办主体的约 3:7 分栏。
+- 方向策略改为角色驱动：主人端继续调用 `lockAppToPortrait()` 锁竖屏，宠物端调用 `allowPetDeviceOrientations()` 允许竖屏和左右横屏；Android/iOS/Harmony 原生入口改为允许旋转，由 Flutter 按角色收口。
+- 验证通过：`flutter test test/pet_device_dashboard_test.dart`；`flutter test test/system_ui_policy_test.dart test/platform_orientation_structure_test.dart test/main_startup_test.dart`；`flutter analyze lib/app/pet_device_dashboard.dart lib/app/petnote_app.dart lib/app/system_ui_policy.dart test/pet_device_dashboard_test.dart test/platform_orientation_structure_test.dart test/system_ui_policy_test.dart test/main_startup_test.dart`。
+- 平台构建通过：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`。
+- Harmony 本机验证通过 DevEco hvigor 进入 FlutterTask，但 `ohpm` 不在 PATH，导致 `@ohos/flutter_ohos`、`@dingrtc/dingrtc` 等依赖未安装，最终停在 `:entry:default@CompileArkTS`；`pubspec.lock` 的 OHOS SDK 版本翻转噪音已确认没有留下 diff。
+
+## 2026-06-21 宠物端头像同步与横屏修正
+
+- [x] 确认主人端头像图片是否进入同步数据包 → 验证: 检查 `Pet` 模型、图片存储、同步导入导出链路和对应测试
+- [x] 宠物端优先显示同步过来的真实头像 → 验证: widget 测试覆盖有头像路径时不再回落到默认图标
+- [x] 将“已连接”状态移动到设置按钮左侧 → 验证: 横竖屏 widget 测试确认头像区域不再包含连接 pill
+- [x] 修复 Android 横屏左侧黑边，并判断 Harmony 是否同类风险 → 验证: Android native 结构测试覆盖 cutout short edges；Harmony 不套用 Android cutout API
+- [x] 跑聚焦测试和构建检查 → 验证: Flutter 测试、analyze、Android release 构建与 `git status --short`
+
+### Review
+
+- 根因确认：同步快照原本只同步 `Pet.photoPath` 字符串，该值是主人端本机绝对路径；宠物端拿到后本机没有对应图片文件，因此 `PetPhotoAvatar` 会回落到默认宠物图标。
+- 新增加密头像附件链路：快照密文内携带 `petPhotoAttachments`，宠物 upsert mutation 密文内携带 `petPhotoAttachment`；接收端写入本机 `petnote_synced_pet_photos` 目录，并把 `photoPath` 替换为本机可读路径。旧纯数据快照仍兼容。
+- `已连接` 已从头像卡片移到顶部设置按钮左侧，头像/身份卡不再占用空间显示连接 pill；同步失败胶囊仍保留在设置入口旁。
+- Android 横屏左侧黑边按 cutout 根因修复：`MainActivity` 在 immersive 系统栏策略里设置 `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`。Harmony 没有 Android display cutout manifest/window 同构机制，本轮不做盲改；它仍依赖现有 `auto_rotation` 与 Flutter edge-to-edge 策略。
+- 验证通过：`flutter test test/pet_replica_controller_test.dart`；`flutter test test/pet_device_dashboard_test.dart test/android_native_dock_structure_test.dart`；`flutter analyze lib/sync/sync_photo_attachment.dart lib/sync/multi_device_sync_controller.dart lib/sync/sync_mutation_outbox.dart lib/sync/pet_replica_controller.dart lib/state/petnote_store.dart lib/app/pet_device_dashboard.dart test/pet_replica_controller_test.dart test/pet_device_dashboard_test.dart test/android_native_dock_structure_test.dart`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`。
+
+## 2026-06-21 三端视频通话全屏与关摄像头遮罩
+
+- [x] 定位 iOS 视频通话顶部/底部黑区来源 → 验证: 截图现象与 Flutter/iOS RTC 容器代码互证
+- [x] 让视频画面铺满整屏，控件仍按安全区避让 → 验证: widget 测试覆盖沉浸系统 UI 与全屏视频容器
+- [x] 本地关闭摄像头时显示半透明遮罩和“摄像头已关闭”提示 → 验证: widget 测试覆盖关闭/开启状态
+- [x] 主副画面切换时遮罩跟随本地画面，不显示在远端画面 → 验证: widget 测试覆盖点击小窗切换后的遮罩位置
+- [x] 补齐 Android 原生 RTC 裁剪填满模式，评估 Harmony 是否需要同类字段 → 验证: Android SDK 枚举反查、Android/Harmony 结构测试
+- [x] 跑聚焦测试、Android 构建与 iOS 无签名构建 → 验证: Flutter 测试、结构测试、`flutter build apk`、`flutter build ios --release --no-codesign`
+
+### Review
+
+- 截图里的顶部/底部黑区对应 iOS 系统 overlay 区域和视频渲染没有真正全屏覆盖的问题；通话页进入时改用 `SystemUiMode.immersiveSticky`，控件定位改用 `MediaQuery.viewPaddingOf` 保留刘海/手势区避让。
+- iOS DingRTC 本地/远端画布从 `DingRtcRenderMode.fill` 调整为 `DingRtcRenderMode.crop`，并让平台视图容器裁剪且跟随父尺寸，避免视频内容按比例留黑边；Android DingRTC 本地/远端画布也从 `DingRtcRenderModeAuto` 调整为 `DingRtcRenderModeCrop`。
+- Harmony 端本轮没有盲写未知 canvas 字段：本地 `@dingrtc/dingrtc` 包未暴露可读类型源码，现有 `DingRtcVideoView` 已设置 `.width('100%').height('100%')`；共享 Flutter 页面层的全屏模式和关摄像头遮罩已覆盖 Harmony。
+- 本地视频统一包了一层 `_RtcVideoTile`，只有 `feed == local && cameraEnabled == false` 时显示 50% 黑色遮罩与“摄像头已关闭”；主副画面切换时遮罩自然跟随本地画面，不会显示在远端小窗，Android/iOS/Harmony 共用该逻辑。
+- 验证通过：`flutter test test/remote_video_entry_test.dart test/android_rtc_bridge_structure_test.dart test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart`；`flutter analyze lib/app/remote_video_call_page.dart test/remote_video_entry_test.dart test/android_rtc_bridge_structure_test.dart test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart`；`flutter build ios --release --no-codesign`；`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`。
+- 构建产物：`build/ios/iphoneos/Runner.app`，Runner SHA256 `5889a4c42fb2dde574a95a442085eb2d5136f7025103e7765bd7e11836a8938e`；`build/app/outputs/flutter-apk/app-release.apk` SHA256 `0fe404c59a2931370e838ed5a357e3ad95132d18deb10d16d321c6dea8cfa0ee`。
+- 构建后检查：`pubspec.lock`、`ios/Podfile.lock`、`android/gradle.properties` 和 `android/app/build.gradle` 无本次构建噪音；无 Flutter/Xcode/Gradle 构建任务残留，只有 Gradle/Kotlin daemon 与常驻 `xcodebuildmcp` 工具服务。
+
+## 2026-06-21 对端关闭摄像头黑屏修复
+
+- [x] 补充 RTC 媒体状态信令，传递摄像头开关状态 → 验证: call model / signaling controller 单元测试
+- [x] 本地点击摄像头按钮时发送媒体状态给对端 → 验证: widget 测试检查 `call_media_state` payload
+- [x] 远端关闭摄像头时在对应远端画面显示遮罩，不露出黑屏 → 验证: widget 测试覆盖主画面和小窗切换
+- [x] 服务端透传新媒体状态信令 → 验证: server sync flow 测试覆盖 `call_media_state`
+- [x] 跑聚焦测试、analyze 和平台构建 → 验证: Flutter tests、server tests、Android APK、iOS unsigned IPA
+
+### Review
+
+- 根因是“关闭摄像头”之前只存在本地 UI 状态：本地按钮关闭时能叠遮罩，但对端关闭摄像头后，本机只收到 RTC 黑帧，没有业务状态可判断应该显示“摄像头已关闭”。
+- 新增 `call_media_state` 信令，双方入会后和本地摄像头开关变化时发送当前 `cameraEnabled`；服务端按 `targetDeviceId` 透传，客户端收到后更新远端摄像头状态。
+- `_RtcVideoTile` 现在按画面来源决定遮罩：本地画面看 `_cameraEnabled`，远端画面看 `_remoteCameraEnabled`。点击小窗切换主副画面时，遮罩跟随对应画面移动，不再把对端关摄像头暴露成黑屏。
+- 验证通过：`flutter test test/rtc_call_models_test.dart test/rtc_signaling_controller_test.dart test/remote_video_entry_test.dart test/android_rtc_bridge_structure_test.dart test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart`；`cd server && dart test test/sync_flow_test.dart`；`flutter analyze lib/app/remote_video_call_page.dart lib/rtc/rtc_call_models.dart lib/rtc/rtc_signaling_controller.dart test/remote_video_entry_test.dart test/rtc_call_models_test.dart test/rtc_signaling_controller_test.dart`。
+
+## 2026-06-21 远端关摄像头遮罩稳定与 iOS 头像路径迁移
+
+- [x] 重构视频 tile：摄像头关闭时不挂载 RTC 原生 PlatformView，直接渲染统一关闭占位层 → 验证: widget 测试确认主画面/小窗都不存在对应 RTC view 且遮罩仍在
+- [x] 强化远端摄像头状态管理：入会后、切换摄像头、应用恢复时同步本端媒体状态，远端状态不因窗口切换丢失 → 验证: widget 测试覆盖切换和恢复
+- [x] 补充三端结构测试，防止回退为只依赖平台黑帧或只做本地遮罩 → 验证: Android/iOS/Harmony 结构测试
+- [x] 修复 iOS 更新后头像绝对路径失效：引入沙盒照片路径解析和迁移逻辑 → 验证: store/photo widget 单元测试模拟旧绝对路径迁移
+- [x] 跑聚焦测试、analyze 和必要构建，记录产物/限制 → 验证: Flutter tests、Android APK、iOS no-codesign
+
+### Review
+
+- 视频黑屏根因不是单纯缺一层 Flutter 遮罩，而是 RTC 画面是三端原生 PlatformView：在 iOS/Android 主副窗口切换后，原生视图层级可能把 Flutter 遮罩压掉。现在 `_RtcVideoTile` 在摄像头关闭时直接不构建 `RtcVideoView`，改为纯 Flutter 的 `摄像头已关闭` 占位层，黑帧没有机会露出。
+- 状态管理继续以 `call_media_state` 为准：入会后、本端摄像头开关变化、应用恢复前台时都会同步当前 `cameraEnabled`。远端状态保存在页面 state 中，主画面/小窗切换只移动 feed，不会重置远端关闭状态。
+- iOS 头像消失根因是历史 `Pet.photoPath` 存的是沙盒绝对路径；App 更新后如果容器基路径变化，数据库里旧绝对路径不可读，但文件仍在当前 Application Support 的 `pet_photos` 目录。新增 `PetPhotoPathResolver`，加载 store 时仅对不可读且属于 `pet_photos` 的旧路径按当前沙盒目录重定位，并写回本地存储。
+- 验证通过：`flutter test test/remote_video_entry_test.dart test/rtc_call_models_test.dart test/rtc_signaling_controller_test.dart test/pet_care_store_test.dart test/native_pet_photo_picker_test.dart`；`flutter test test/android_rtc_bridge_structure_test.dart test/ios_rtc_permission_structure_test.dart test/harmony_rtc_bridge_structure_test.dart test/pet_device_dashboard_test.dart`；`flutter analyze lib/app/remote_video_call_page.dart lib/rtc/rtc_call_models.dart lib/rtc/rtc_signaling_controller.dart lib/platform/pet_photo_path_resolver.dart lib/app/pet_photo_widgets.dart lib/state/petnote_store.dart test/remote_video_entry_test.dart test/pet_care_store_test.dart test/native_pet_photo_picker_test.dart`。
+- 构建通过：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`；`flutter build ios --release --no-codesign`；未签名 IPA 已重新打包。

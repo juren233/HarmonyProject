@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:petnote/ai/ai_client_factory.dart';
@@ -10,6 +12,7 @@ import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
 import 'package:petnote/app/pet_device_home.dart';
 import 'package:petnote/app/petnote_root.dart';
+import 'package:petnote/app/system_ui_policy.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 
@@ -45,13 +48,14 @@ class _PetNoteAppState extends State<PetNoteApp> {
   PetNoteStore? _preloadedStore;
   final _ownerNavigatorKey = GlobalKey<NavigatorState>();
   final _petNavigatorKey = GlobalKey<NavigatorState>();
+  DeviceRole? _lastAppliedOrientationRole;
 
   @override
   void initState() {
     super.initState();
     _appVersionInfo = widget.appVersionInfo;
     if (widget.settingsController != null) {
-      _settingsController = widget.settingsController;
+      _attachSettingsController(widget.settingsController!);
       if (_appVersionInfo == AppVersionInfo.empty) {
         _loadAppVersionInfo();
       }
@@ -75,9 +79,55 @@ class _PetNoteAppState extends State<PetNoteApp> {
     }
     setState(() {
       _preloadedStore = store;
-      _settingsController = controller;
+      _attachSettingsController(controller);
       _appVersionInfo = appVersionInfo;
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant PetNoteApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final settingsController = widget.settingsController;
+    if (!identical(settingsController, oldWidget.settingsController) &&
+        settingsController != null) {
+      _attachSettingsController(settingsController);
+    }
+  }
+
+  @override
+  void dispose() {
+    _settingsController?.removeListener(_handleSettingsControllerChanged);
+    super.dispose();
+  }
+
+  void _attachSettingsController(AppSettingsController controller) {
+    if (identical(_settingsController, controller)) {
+      return;
+    }
+    _settingsController?.removeListener(_handleSettingsControllerChanged);
+    _settingsController = controller;
+    controller.addListener(_handleSettingsControllerChanged);
+    _applyOrientationForRole(controller.deviceRole);
+  }
+
+  void _handleSettingsControllerChanged() {
+    final settingsController = _settingsController;
+    if (settingsController == null) {
+      return;
+    }
+    _applyOrientationForRole(settingsController.deviceRole);
+  }
+
+  void _applyOrientationForRole(DeviceRole role) {
+    if (_lastAppliedOrientationRole == role) {
+      return;
+    }
+    _lastAppliedOrientationRole = role;
+    if (role == DeviceRole.pet) {
+      unawaited(allowPetDeviceOrientations());
+    } else {
+      unawaited(lockAppToPortrait());
+    }
   }
 
   Future<void> _loadAppVersionInfo() async {
@@ -98,10 +148,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
         title: _appTaskTitle,
         debugShowCheckedModeBanner: false,
         locale: const Locale('zh', 'CN'),
-        supportedLocales: const [
-          Locale('zh', 'CN'),
-          Locale('en', 'US'),
-        ],
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
@@ -136,10 +183,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
           title: _appTaskTitle,
           debugShowCheckedModeBanner: false,
           locale: const Locale('zh', 'CN'),
-          supportedLocales: const [
-            Locale('zh', 'CN'),
-            Locale('en', 'US'),
-          ],
+          supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,

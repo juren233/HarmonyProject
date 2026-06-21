@@ -13,8 +13,9 @@ void main() {
     expect(source.contains('AppVersionInfo.load().then('), isTrue);
     expect(source.contains('(appVersionInfo) {'), isTrue);
     expect(
-      source.contains('runApp(PetNoteApp(appVersionInfo: appVersionInfo));'),
+      source.contains('runApp(_OhosRecoveryGuard('),
       isTrue,
     );
+    expect(source.contains('appVersionInfo: appVersionInfo'), isTrue);
   });
 }

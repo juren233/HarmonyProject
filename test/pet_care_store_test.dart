@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/ai/ai_insights_models.dart';
 import 'package:petnote/data/data_storage_models.dart';
@@ -655,6 +658,59 @@ void main() {
 
       expect(pet.photoPath, isNull);
       expect(pet.name, 'Luna');
+    });
+
+    test('iOS update relocates legacy pet avatar paths into current sandbox',
+        () async {
+      final currentSupportDirectory =
+          Directory.systemTemp.createTempSync('petnote-current-support-');
+      addTearDown(() {
+        if (currentSupportDirectory.existsSync()) {
+          currentSupportDirectory.deleteSync(recursive: true);
+        }
+      });
+      final currentPhotoDirectory =
+          Directory('${currentSupportDirectory.path}/pet_photos')
+            ..createSync(recursive: true);
+      final migratedPhoto =
+          File('${currentPhotoDirectory.path}/pet_avatar_mochi.png')
+            ..writeAsBytesSync(<int>[1, 2, 3, 4]);
+      const oldPhotoPath =
+          '/var/mobile/Containers/Data/Application/OLD/Library/Application Support/pet_photos/pet_avatar_mochi.png';
+      final storage = PetNoteLocalStorage.memory(initialValues: {
+        PetNoteLocalTable.pets.storageKey: jsonEncode([
+          {
+            'id': 'pet-legacy-photo',
+            'name': 'Mochi',
+            'avatarText': 'MO',
+            'photoPath': oldPhotoPath,
+            'type': 'cat',
+            'breed': '英短',
+            'sex': '母',
+            'birthday': '2024-02-12',
+            'ageLabel': '新加入',
+            'weightKg': 4.2,
+            'neuterStatus': 'neutered',
+            'feedingPreferences': '未填写',
+            'allergies': '未填写',
+            'note': '更新前头像',
+          }
+        ]),
+      });
+
+      final store = await PetNoteStore.load(
+        storage: storage,
+        appSupportDirectoryLoader: () async => currentSupportDirectory.path,
+      );
+
+      expect(store.pets.single.photoPath, migratedPhoto.path);
+      final persistedPets = jsonDecode(
+        storage.readTable(PetNoteLocalTable.pets)!,
+      ) as List<dynamic>;
+      expect(
+        (persistedPets.single as Map<String, dynamic>)['photoPath'],
+        migratedPhoto.path,
+      );
     });
 
     test('dismissing first-launch intro persists auto-show disabled', () async {

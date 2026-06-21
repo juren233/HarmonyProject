@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('PetNote root routes Android bottom navigation through a native dock host',
+  test(
+      'PetNote root routes Android bottom navigation through a native dock host',
       () {
     final source = File('lib/app/petnote_root.dart').readAsStringSync();
 
@@ -18,19 +19,28 @@ void main() {
   test('android native dock host file defines a platform view bridge', () {
     final source = File('lib/app/android_native_dock.dart').readAsStringSync();
 
-    expect(source.contains("const _androidLiquidGlassDockViewType = 'petnote/android_liquid_glass_dock'"), isTrue);
-    expect(source.contains('class AndroidLiquidGlassDockHost extends StatefulWidget'),
+    expect(
+        source.contains(
+            "const _androidLiquidGlassDockViewType = 'petnote/android_liquid_glass_dock'"),
+        isTrue);
+    expect(
+        source.contains(
+            'class AndroidLiquidGlassDockHost extends StatefulWidget'),
         isTrue);
     expect(source.contains('AndroidView('), isTrue);
-    expect(source.contains("MethodChannel('petnote/android_liquid_glass_dock_\$viewId')"),
+    expect(
+        source.contains(
+            "MethodChannel('petnote/android_liquid_glass_dock_\$viewId')"),
         isTrue);
-    expect(source.contains('this.shouldPrewarmFirstInteraction = false,'), isTrue);
+    expect(
+        source.contains('this.shouldPrewarmFirstInteraction = false,'), isTrue);
     expect(source.contains("'prewarmFirstInteraction'"), isTrue);
     expect(source.contains("'firstInteractionPrewarmed'"), isTrue);
     expect(source.contains('onFirstInteractionPrewarmed'), isTrue);
   });
 
-  test('android native dock host resets prewarm request state when intro prewarm turns off',
+  test(
+      'android native dock host resets prewarm request state when intro prewarm turns off',
       () {
     final source = File('lib/app/android_native_dock.dart').readAsStringSync();
 
@@ -42,17 +52,21 @@ void main() {
     expect(source.contains('_resetFirstInteractionPrewarmState();'), isTrue);
   });
 
-  test('android native dock host retries failed prewarm requests instead of swallowing them',
+  test(
+      'android native dock host retries failed prewarm requests instead of swallowing them',
       () {
     final source = File('lib/app/android_native_dock.dart').readAsStringSync();
 
     expect(source.contains('_scheduleFirstInteractionPrewarmRetry();'), isTrue);
     expect(source.contains('Future<void>.delayed('), isTrue);
-    expect(source.contains('if (!mounted || retryEpoch != _firstInteractionPrewarmEpoch)'),
+    expect(
+        source.contains(
+            'if (!mounted || retryEpoch != _firstInteractionPrewarmEpoch)'),
         isTrue);
   });
 
-  test('android liquid glass dock keeps selection in compose state and uses material icons',
+  test(
+      'android liquid glass dock keeps selection in compose state and uses material icons',
       () {
     final source = File(
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockFactory.kt',
@@ -73,14 +87,20 @@ void main() {
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockFactory.kt',
     ).readAsStringSync();
 
-    expect(source.contains('selectionSlotIndexes = listOf(0, 1, 3, 4)'), isTrue);
+    expect(
+        source.contains('selectionSlotIndexes = listOf(0, 1, 3, 4)'), isTrue);
     expect(source.contains('LiquidBottomPlaceholderSlot()'), isFalse);
     expect(source.contains('effectContent = {'), isTrue);
     expect(source.contains('LiquidBottomVisualSlot {'), isTrue);
     expect(source.contains('LiquidBottomVisualActionSlot {'), isTrue);
     expect(source.contains('LiquidBottomTab(onClick = {})'), isFalse);
-    expect(source.contains('key(isDarkTheme, palette.navBackground, palette.backdropColor)'), isTrue);
-    expect(source.contains('key(isDarkTheme, selectedAccentColor, palette.navBackground)'),
+    expect(
+        source.contains(
+            'key(isDarkTheme, palette.navBackground, palette.backdropColor)'),
+        isTrue);
+    expect(
+        source.contains(
+            'key(isDarkTheme, selectedAccentColor, palette.navBackground)'),
         isFalse);
     expect(source.contains('foregroundSlotIndex = 2'), isFalse);
     expect(source.contains('AndroidLiquidGlassAddButton('), isTrue);
@@ -88,26 +108,32 @@ void main() {
     expect(source.contains('Color(0xFF73B87F)'), isTrue);
   });
 
-  test('android liquid glass component animates from a stable current index state',
+  test(
+      'android liquid glass component animates from a stable current index state',
       () {
     final source = File(
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockComponents.kt',
     ).readAsStringSync();
 
     expect(source.contains('remember(selectedTabIndex)'), isFalse);
-    expect(source.contains(
+    expect(
+        source.contains(
             'val selectedIndex = selectedTabIndex().coerceIn(0, normalizedSelectionSlotIndexes.lastIndex)'),
         isTrue);
     expect(source.contains('LaunchedEffect(selectedIndex)'), isTrue);
-    expect(source.contains('selectionSlotIndexes: List<Int> = List(tabsCount) { it }'),
+    expect(
+        source.contains(
+            'selectionSlotIndexes: List<Int> = List(tabsCount) { it }'),
         isTrue);
     expect(source.contains('prewarmRequestToken: Int = 0,'), isTrue);
     expect(source.contains('onPrewarmCompleted: () -> Unit = {},'), isTrue);
-    expect(source.contains('effectContent: @Composable RowScope.() -> Unit = {}'),
+    expect(
+        source.contains('effectContent: @Composable RowScope.() -> Unit = {}'),
         isTrue);
     expect(source.contains('nearestSelectionIndexForValue('), isTrue);
     expect(source.contains('val shouldSnapSelection ='), isTrue);
-    expect(source.contains('dampedDragAnimation.prewarmReleaseCycle()'), isTrue);
+    expect(
+        source.contains('dampedDragAnimation.prewarmReleaseCycle()'), isTrue);
     expect(source.contains('val prewarmSelectionIndex = when {'), isTrue);
     expect(
       source.contains(
@@ -118,18 +144,23 @@ void main() {
     expect(source.contains('onPrewarmCompleted()'), isTrue);
   });
 
-  test('android liquid glass component keeps the slider above the track and only the add button in the foreground',
+  test(
+      'android liquid glass component keeps the slider above the track and only the add button in the foreground',
       () {
     final source = File(
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockComponents.kt',
     ).readAsStringSync();
 
     expect(source.contains('foregroundSlotIndex: Int? = null,'), isFalse);
-    expect(source.contains('foregroundContent: @Composable BoxScope.() -> Unit = {}'),
+    expect(
+        source.contains(
+            'foregroundContent: @Composable BoxScope.() -> Unit = {}'),
         isFalse);
-    expect(source.contains('fun RowScope.LiquidBottomVisualActionSlot('), isTrue);
+    expect(
+        source.contains('fun RowScope.LiquidBottomVisualActionSlot('), isTrue);
 
-    final trackRowIndex = source.indexOf('content = { content(requestTabSelection) }');
+    final trackRowIndex =
+        source.indexOf('content = { content(requestTabSelection) }');
     final effectRowIndex = source.indexOf('content = effectContent');
     final sliderIndex = source.indexOf('.fillMaxWidth(1f / tabsCount)');
 
@@ -138,7 +169,8 @@ void main() {
     expect(sliderIndex, greaterThan(effectRowIndex));
   });
 
-  test('android native dock prewarms after the platform view is first laid out', () {
+  test('android native dock prewarms after the platform view is first laid out',
+      () {
     final factorySource = File(
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockFactory.kt',
     ).readAsStringSync();
@@ -146,25 +178,40 @@ void main() {
       'android/app/src/main/kotlin/com/krustykrab/petnote/AndroidLiquidGlassDockInteractions.kt',
     ).readAsStringSync();
 
-    expect(factorySource.contains('ViewTreeObserver.OnGlobalLayoutListener'), isTrue);
+    expect(factorySource.contains('ViewTreeObserver.OnGlobalLayoutListener'),
+        isTrue);
     expect(factorySource.contains('prewarmRequestToken'), isTrue);
     expect(factorySource.contains('firstInteractionPrewarmed'), isTrue);
     expect(factorySource.contains('"resetFirstInteractionPrewarm"'), isTrue);
-    expect(factorySource.contains('hasRequestedFirstInteractionPrewarm = false'),
+    expect(
+        factorySource.contains('hasRequestedFirstInteractionPrewarm = false'),
         isTrue);
-    expect(factorySource.contains('hasCompletedFirstInteractionPrewarm = false'),
+    expect(
+        factorySource.contains('hasCompletedFirstInteractionPrewarm = false'),
         isTrue);
     expect(factorySource.contains('diagnosticsEvent'), isFalse);
-    expect(interactionsSource.contains('suspend fun prewarmReleaseCycle()'), isTrue);
-    expect(interactionsSource.contains('suspend fun prewarmSelectionCycle(value: Float)'),
+    expect(interactionsSource.contains('suspend fun prewarmReleaseCycle()'),
         isTrue);
-    expect(interactionsSource.contains('suspend fun prewarmPressCycle()'), isTrue);
-    expect(interactionsSource.contains('suspend fun prewarm(position: Offset)'), isTrue);
+    expect(
+        interactionsSource
+            .contains('suspend fun prewarmSelectionCycle(value: Float)'),
+        isTrue);
+    expect(
+        interactionsSource.contains('suspend fun prewarmPressCycle()'), isTrue);
+    expect(interactionsSource.contains('suspend fun prewarm(position: Offset)'),
+        isTrue);
     expect(interactionsSource.contains('onReleaseStage'), isFalse);
-    expect(interactionsSource.contains('launch { pressProgressAnimation.animateTo(0f'), isTrue);
-    expect(interactionsSource.contains('launch { velocityAnimation.animateTo(0f'),
+    expect(
+        interactionsSource
+            .contains('launch { pressProgressAnimation.animateTo(0f'),
         isTrue);
-    expect(interactionsSource.contains('launch { positionAnimation.animateTo(startPosition'), isTrue);
+    expect(
+        interactionsSource.contains('launch { velocityAnimation.animateTo(0f'),
+        isTrue);
+    expect(
+        interactionsSource
+            .contains('launch { positionAnimation.animateTo(startPosition'),
+        isTrue);
   });
 
   test('android app gradle enables compose and backdrop dependencies', () {
@@ -172,12 +219,13 @@ void main() {
 
     expect(source.contains('buildFeatures {'), isTrue);
     expect(source.contains('compose true'), isTrue);
-    expect(source.contains("id \"org.jetbrains.kotlin.plugin.compose\""),
+    expect(
+        source.contains("id \"org.jetbrains.kotlin.plugin.compose\""), isTrue);
+    expect(
+        source.contains(
+            'implementation "androidx.compose.foundation:foundation:'),
         isTrue);
-    expect(source.contains('implementation "androidx.compose.foundation:foundation:'),
-        isTrue);
-    expect(source.contains('implementation "androidx.compose.ui:ui:'),
-        isTrue);
+    expect(source.contains('implementation "androidx.compose.ui:ui:'), isTrue);
     expect(source.contains('implementation "io.github.kyant0:backdrop:1.0.6"'),
         isTrue);
   });
@@ -204,21 +252,33 @@ void main() {
       'android/app/src/main/kotlin/com/krustykrab/petnote/MainActivity.kt',
     ).readAsStringSync();
 
-    expect(source.contains('WindowCompat.setDecorFitsSystemWindows(window, false)'),
+    expect(
+        source
+            .contains('WindowCompat.setDecorFitsSystemWindows(window, false)'),
         isTrue);
-    expect(source.contains('window.statusBarColor = Color.TRANSPARENT'), isTrue);
+    expect(
+        source.contains('window.statusBarColor = Color.TRANSPARENT'), isTrue);
     expect(source.contains('window.navigationBarColor = Color.TRANSPARENT'),
         isTrue);
-    expect(source.contains('window.navigationBarDividerColor = Color.TRANSPARENT'),
+    expect(
+        source.contains('window.navigationBarDividerColor = Color.TRANSPARENT'),
         isTrue);
-    expect(source.contains('window.isStatusBarContrastEnforced = false'),
-        isTrue);
+    expect(source.contains('layoutInDisplayCutoutMode'), isTrue);
+    expect(
+      source.contains('LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES'),
+      isTrue,
+    );
+    expect(
+        source.contains('window.isStatusBarContrastEnforced = false'), isTrue);
     expect(source.contains('window.isNavigationBarContrastEnforced = false'),
         isTrue);
-    expect(source.contains('WindowInsetsControllerCompat(window, window.decorView)'),
+    expect(
+        source
+            .contains('WindowInsetsControllerCompat(window, window.decorView)'),
         isTrue);
     expect(source.contains('override fun onResume()'), isTrue);
-    expect(source.contains('override fun onWindowFocusChanged(hasFocus: Boolean)'),
+    expect(
+        source.contains('override fun onWindowFocusChanged(hasFocus: Boolean)'),
         isTrue);
     expect(source.contains('applyImmersiveSystemBars()'), isTrue);
   });

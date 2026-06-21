@@ -78,6 +78,8 @@ void main() {
     expect(bridge, contains('publishLocalAudioStream(true)'));
     expect(bridge, contains('publishLocalVideoStream(true)'));
     expect(bridge, contains('DingRtcVideoTrack.DingRtcVideoTrackCamera'));
+    expect(bridge, contains('DingRtcRenderMode.DingRtcRenderModeCrop'));
+    expect(bridge, isNot(contains('DingRtcRenderMode.DingRtcRenderModeAuto')));
     expect(bridge, contains('audioTrack: DingRtcAudioTrack'));
     expect(
         bridge,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/pet_replica_controller.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -58,6 +60,84 @@ void main() {
           message.payload['syncId'] == 'snapshot-sync-1'),
       isTrue,
     );
+
+    controller.dispose();
+  });
+
+  test('收到快照时会把主人端宠物头像写成本机图片路径', () async {
+    final sourceDirectory = Directory.systemTemp.createTempSync(
+      'petnote_owner_photo_',
+    );
+    final replicaDirectory = Directory.systemTemp.createTempSync(
+      'petnote_replica_photo_',
+    );
+    addTearDown(() async {
+      if (sourceDirectory.existsSync()) {
+        await sourceDirectory.delete(recursive: true);
+      }
+      if (replicaDirectory.existsSync()) {
+        await replicaDirectory.delete(recursive: true);
+      }
+    });
+    final sourcePhoto = File('${sourceDirectory.path}/strong.jpg')
+      ..writeAsBytesSync([1, 2, 3, 4]);
+    final sourceStore = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+    );
+    await sourceStore.addPet(
+      name: '强',
+      type: PetType.dog,
+      photoPath: sourcePhoto.path,
+      breed: '法斗',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      weightKg: 8,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '主人端头像',
+    );
+    final replicaStore = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+    );
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+      photoAttachmentCodec: SyncPhotoAttachmentCodec(
+        directoryLoader: () async => replicaDirectory.path,
+      ),
+    )..start(requestInitialSnapshot: false);
+    final ownerCodec = SyncPhotoAttachmentCodec(
+      directoryLoader: () async => sourceDirectory.path,
+    );
+    final state = sourceStore.exportDataState();
+    final payload = {
+      'data': state.toJson(),
+      petPhotoAttachmentsPayloadKey: [
+        for (final attachment in await ownerCodec.collectFromState(state))
+          attachment.toJson(),
+      ],
+    };
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.snapshot, {
+        'version': 2,
+        'ciphertext': await crypto.encryptString(jsonEncode(payload)),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    final syncedPet = replicaStore.pets.single;
+    expect(syncedPet.photoPath, isNot(sourcePhoto.path));
+    expect(syncedPet.photoPath, isNotNull);
+    expect(File(syncedPet.photoPath!).readAsBytesSync(), [1, 2, 3, 4]);
+    expect(syncedPet.photoPath, startsWith(replicaDirectory.path));
 
     controller.dispose();
   });
@@ -365,6 +445,88 @@ void main() {
           message.payload['syncId'] == 'sync-mutation-1'),
       isTrue,
     );
+
+    controller.dispose();
+  });
+
+  test('收到主人端宠物 upsert 时会同步头像附件', () async {
+    final sourceDirectory = Directory.systemTemp.createTempSync(
+      'petnote_owner_mutation_photo_',
+    );
+    final replicaDirectory = Directory.systemTemp.createTempSync(
+      'petnote_replica_mutation_photo_',
+    );
+    addTearDown(() async {
+      if (sourceDirectory.existsSync()) {
+        await sourceDirectory.delete(recursive: true);
+      }
+      if (replicaDirectory.existsSync()) {
+        await replicaDirectory.delete(recursive: true);
+      }
+    });
+    final sourcePhoto = File('${sourceDirectory.path}/strong.png')
+      ..writeAsBytesSync([9, 8, 7]);
+    final replicaStore = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+    );
+    final remotePet = Pet(
+      id: 'pet-remote-photo',
+      name: '强',
+      avatarText: '强',
+      photoPath: sourcePhoto.path,
+      type: PetType.dog,
+      breed: '法斗',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      ageLabel: '新加入',
+      weightKg: 8,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '主人端头像',
+    );
+    final mutation = PetNoteMutation(
+      id: 'mutation-pet-photo',
+      entityType: PetNoteEntityType.pet,
+      entityId: remotePet.id,
+      kind: PetNoteMutationKind.upsert,
+      data: remotePet.toJson(),
+    );
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+      photoAttachmentCodec: SyncPhotoAttachmentCodec(
+        directoryLoader: () async => replicaDirectory.path,
+      ),
+    )..start(requestInitialSnapshot: false);
+    final attachment =
+        await const SyncPhotoAttachmentCodec().collectForPet(remotePet);
+    final mutationPayload = mutation.toJson()
+      ..[petPhotoAttachmentPayloadKey] = attachment!.toJson();
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.mutation, {
+        'mutationId': mutation.id,
+        'syncId': 'sync-pet-photo',
+        'originDeviceId': 'owner-1',
+        'entityType': mutation.entityType.name,
+        'entityId': mutation.entityId,
+        'kind': mutation.kind.name,
+        'ciphertext': await crypto.encryptString(jsonEncode(mutationPayload)),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    final syncedPet = replicaStore.petById(remotePet.id)!;
+    expect(syncedPet.photoPath, isNot(sourcePhoto.path));
+    expect(syncedPet.photoPath, startsWith(replicaDirectory.path));
+    expect(File(syncedPet.photoPath!).readAsBytesSync(), [9, 8, 7]);
 
     controller.dispose();
   });

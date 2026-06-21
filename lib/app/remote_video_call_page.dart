@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:petnote/app/remote_video_entry.dart';
@@ -62,13 +61,15 @@ class RemoteVideoCallPage extends StatefulWidget {
   State<RemoteVideoCallPage> createState() => _RemoteVideoCallPageState();
 }
 
-class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
+class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
+    with WidgetsBindingObserver {
   bool _initializing = false;
   bool _rtcJoined = false;
   bool _disposed = false;
   bool _micEnabled = true;
   bool _speakerEnabled = true;
   bool _cameraEnabled = true;
+  bool _remoteCameraEnabled = true;
   bool _localVideoOnMain = false;
   bool _isDraggingPreview = false;
   bool _retryAfterFailureRequested = false;
@@ -107,6 +108,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_enterImmersiveSystemUi());
     _resolvedCallId = widget.callId ?? _newRtcCallId(widget.mode);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -119,6 +121,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _callTimer?.cancel();
     unawaited(configureStartupSystemUi());
     unawaited(_signalSubscription?.cancel());
@@ -126,6 +129,13 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
     _ownedTokenClient?.dispose();
     unawaited(_ownedSignalingController?.dispose());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _rtcJoined) {
+      _sendMediaState();
+    }
   }
 
   @override
@@ -151,7 +161,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
         extendBodyBehindAppBar: true,
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final mediaPadding = MediaQuery.paddingOf(context);
+            final mediaPadding = MediaQuery.viewPaddingOf(context);
             final previewBounds = _previewBounds(
               Size(constraints.maxWidth, constraints.maxHeight),
               mediaPadding,
@@ -170,6 +180,8 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
                     feed: _localVideoOnMain
                         ? _VideoFeed.local
                         : _VideoFeed.remote,
+                    localCameraEnabled: _cameraEnabled,
+                    remoteCameraEnabled: _remoteCameraEnabled,
                   ),
                 ),
                 Positioned(
@@ -198,6 +210,8 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
                         : _VideoFeed.local,
                     remoteUserId: _targetDeviceId,
                     isConnected: _rtcJoined,
+                    localCameraEnabled: _cameraEnabled,
+                    remoteCameraEnabled: _remoteCameraEnabled,
                     onTap: _swapMainVideo,
                     onPanUpdate: (details) =>
                         _dragPreview(details.delta, previewOffset),
@@ -229,7 +243,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   }
 
   Future<void> _enterImmersiveSystemUi() async {
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setSystemUIOverlayStyle(_remoteVideoSystemUiOverlayStyle);
   }
 
@@ -293,7 +307,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
   void _dragPreview(Offset delta, Offset currentOffset) {
     final bounds = _previewBounds(
       MediaQuery.sizeOf(context),
-      MediaQuery.paddingOf(context),
+      MediaQuery.viewPaddingOf(context),
     );
     setState(() {
       _isDraggingPreview = true;
@@ -356,9 +370,25 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
     });
     if (_rtcJoined) {
       unawaited(_rtcAdapter?.toggleCamera(enabled: _cameraEnabled));
+      _sendMediaState();
     } else {
       _retryRtcAfterFailure();
     }
+  }
+
+  void _sendMediaState() {
+    final controller = _signalingController;
+    final targetDeviceId = _targetDeviceId;
+    if (controller == null ||
+        targetDeviceId == null ||
+        targetDeviceId.isEmpty) {
+      return;
+    }
+    controller.sendMediaState(
+      callId: _callId,
+      targetDeviceId: targetDeviceId,
+      cameraEnabled: _cameraEnabled,
+    );
   }
 
   void _retryRtcAfterFailure() {
@@ -450,6 +480,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
           sdp: 'ready',
         );
       }
+      _sendMediaState();
       if (mounted) {
         setState(() {
           _statusOverride = '阿里云视频通话已连接';
@@ -536,7 +567,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
       }
       timer?.cancel();
       if (listener != null) {
-        engine.devices.removeListener(listener!);
+        engine.devices.removeListener(listener);
       }
       completer.complete(value);
     }
@@ -604,10 +635,21 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage> {
 
   void _listenForRemoteHangup(RtcSignalingController signalingController) {
     _signalSubscription ??= signalingController.signals.listen((signal) {
-      if (signal is! RtcCallEnd || signal.callId != _callId) {
+      if (signal.callId != _callId) {
         return;
       }
-      unawaited(_handleRemoteHangup());
+      switch (signal) {
+        case RtcCallEnd():
+          unawaited(_handleRemoteHangup());
+        case RtcCallMediaState(:final cameraEnabled):
+          if (mounted) {
+            setState(() {
+              _remoteCameraEnabled = cameraEnabled;
+            });
+          }
+        case _:
+          break;
+      }
     });
   }
 
@@ -739,6 +781,8 @@ class _RemoteVideoSurface extends StatelessWidget {
     required this.remoteUserId,
     required this.isConnected,
     required this.feed,
+    required this.localCameraEnabled,
+    required this.remoteCameraEnabled,
   });
 
   final String title;
@@ -747,10 +791,13 @@ class _RemoteVideoSurface extends StatelessWidget {
   final String? remoteUserId;
   final bool isConnected;
   final _VideoFeed feed;
+  final bool localCameraEnabled;
+  final bool remoteCameraEnabled;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      key: const ValueKey('remote_video_main_surface'),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -762,13 +809,23 @@ class _RemoteVideoSurface extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           if (isConnected && feed == _VideoFeed.local)
-            const RtcVideoView.local(
-              key: ValueKey('remote_video_main_local_view'),
+            _RtcVideoTile(
+              feed: feed,
+              localCameraEnabled: localCameraEnabled,
+              remoteCameraEnabled: remoteCameraEnabled,
+              child: const RtcVideoView.local(
+                key: ValueKey('remote_video_main_local_view'),
+              ),
             )
           else if (isConnected && remoteUserId != null)
-            RtcVideoView.remote(
-              key: const ValueKey('remote_video_main_remote_view'),
-              remoteUserId: remoteUserId!,
+            _RtcVideoTile(
+              feed: feed,
+              localCameraEnabled: localCameraEnabled,
+              remoteCameraEnabled: remoteCameraEnabled,
+              child: RtcVideoView.remote(
+                key: const ValueKey('remote_video_main_remote_view'),
+                remoteUserId: remoteUserId!,
+              ),
             )
           else
             Center(
@@ -876,6 +933,8 @@ class _FloatingVideoPreview extends StatelessWidget {
     required this.feed,
     required this.remoteUserId,
     required this.isConnected,
+    required this.localCameraEnabled,
+    required this.remoteCameraEnabled,
     required this.onTap,
     required this.onPanUpdate,
     required this.onPanEnd,
@@ -884,6 +943,8 @@ class _FloatingVideoPreview extends StatelessWidget {
   final _VideoFeed feed;
   final String? remoteUserId;
   final bool isConnected;
+  final bool localCameraEnabled;
+  final bool remoteCameraEnabled;
   final VoidCallback onTap;
   final GestureDragUpdateCallback onPanUpdate;
   final VoidCallback onPanEnd;
@@ -910,19 +971,84 @@ class _FloatingVideoPreview extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 if (isConnected && feed == _VideoFeed.local)
-                  const RtcVideoView.local(
-                    key: ValueKey('remote_video_preview_local_view'),
+                  _RtcVideoTile(
+                    feed: feed,
+                    localCameraEnabled: localCameraEnabled,
+                    remoteCameraEnabled: remoteCameraEnabled,
+                    child: const RtcVideoView.local(
+                      key: ValueKey('remote_video_preview_local_view'),
+                    ),
                   )
                 else if (isConnected && remoteUserId != null)
-                  RtcVideoView.remote(
-                    key: const ValueKey('remote_video_preview_remote_view'),
-                    remoteUserId: remoteUserId!,
+                  _RtcVideoTile(
+                    feed: feed,
+                    localCameraEnabled: localCameraEnabled,
+                    remoteCameraEnabled: remoteCameraEnabled,
+                    child: RtcVideoView.remote(
+                      key: const ValueKey('remote_video_preview_remote_view'),
+                      remoteUserId: remoteUserId!,
+                    ),
                   )
                 else
                   const ColoredBox(color: Color(0xFF171A21)),
                 const ColoredBox(color: Color(0x11000000)),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RtcVideoTile extends StatelessWidget {
+  const _RtcVideoTile({
+    required this.feed,
+    required this.localCameraEnabled,
+    required this.remoteCameraEnabled,
+    required this.child,
+  });
+
+  final _VideoFeed feed;
+  final bool localCameraEnabled;
+  final bool remoteCameraEnabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final showOverlay = switch (feed) {
+      _VideoFeed.local => !localCameraEnabled,
+      _VideoFeed.remote => !remoteCameraEnabled,
+    };
+    if (showOverlay) {
+      return const _CameraOffOverlay(
+        key: ValueKey('remote_video_camera_off_overlay'),
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+      ],
+    );
+  }
+}
+
+class _CameraOffOverlay extends StatelessWidget {
+  const _CameraOffOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Color(0x80000000),
+      child: Center(
+        child: Text(
+          '摄像头已关闭',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),

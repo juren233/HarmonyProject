@@ -19,7 +19,7 @@
         "description": "$string:EntryAbility_desc",
         "icon": "$media:icon",
         "label": "$string:EntryAbility_label",
-        "orientation": "portrait",
+        "orientation": "auto_rotation",
         "startWindowIcon": "$media:start_window_blank",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,

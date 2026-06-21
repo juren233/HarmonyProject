@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/system_ui_policy.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('OHOS startup policy restores edge-to-edge after immersive pages', () {
     expect(ohosStartupSystemUiPolicy.mode, SystemUiMode.edgeToEdge);
     expect(
@@ -15,7 +17,15 @@ void main() {
     expect(appPortraitOrientations, [DeviceOrientation.portraitUp]);
   });
 
-  test('OHOS 竖屏不走 Flutter 平台通道', () async {
-    await lockAppToPortrait(platformName: 'ohos');
+  test('宠物端方向策略允许竖屏和横屏', () {
+    expect(petDeviceOrientations, [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  });
+
+  test('锁定竖屏策略允许注入方向列表', () async {
+    await lockAppToPortrait(orientations: appPortraitOrientations);
   });
 }

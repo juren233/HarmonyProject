@@ -3,37 +3,42 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Android MainActivity 在原生层固定为竖屏', () {
-    final manifest =
-        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+  test('Android MainActivity 不在原生层固定竖屏', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
 
     expect(
       manifest.contains('android:screenOrientation="portrait"'),
-      isTrue,
-      reason: 'Android 原生入口必须显式锁定 portrait，避免旋转后重建界面。',
+      isFalse,
+      reason: '宠物端需要横屏，Android 原生入口应允许 Flutter 按角色控制方向。',
     );
   });
 
-  test('Harmony Ability 在原生层固定为竖屏', () {
-    final moduleJson =
-        File('ohos/entry/src/main/module.json5').readAsStringSync();
+  test('Harmony Ability 允许横竖屏旋转', () {
+    final moduleJson = File(
+      'ohos/entry/src/main/module.json5',
+    ).readAsStringSync();
 
     expect(
-      moduleJson.contains('"orientation": "portrait"'),
+      moduleJson.contains('"orientation": "auto_rotation"'),
       isTrue,
-      reason: 'Harmony 原生 Ability 必须显式锁定 portrait，避免启动期通过 Flutter 平台通道切方向。',
+      reason: '宠物端需要横屏，Harmony 原生 Ability 应允许旋转。',
     );
   });
 
-  test('iOS 仅声明竖屏方向', () {
+  test('iOS 声明竖屏和横屏方向，由 Flutter 按角色锁定', () {
     final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
 
     expect(
-        infoPlist.contains('<string>UIInterfaceOrientationPortrait</string>'),
-        isTrue);
-    expect(infoPlist.contains('UIInterfaceOrientationLandscapeLeft'), isFalse);
-    expect(infoPlist.contains('UIInterfaceOrientationLandscapeRight'), isFalse);
-    expect(infoPlist.contains('UIInterfaceOrientationPortraitUpsideDown'),
-        isFalse);
+      infoPlist.contains('<string>UIInterfaceOrientationPortrait</string>'),
+      isTrue,
+    );
+    expect(infoPlist.contains('UIInterfaceOrientationLandscapeLeft'), isTrue);
+    expect(infoPlist.contains('UIInterfaceOrientationLandscapeRight'), isTrue);
+    expect(
+      infoPlist.contains('UIInterfaceOrientationPortraitUpsideDown'),
+      isFalse,
+    );
   });
 }

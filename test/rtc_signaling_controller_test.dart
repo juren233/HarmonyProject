@@ -30,6 +30,11 @@ void main() {
       reason: 'busy',
     );
     controller.sendEnd(callId: 'call-1', targetDeviceId: 'pet-device');
+    controller.sendMediaState(
+      callId: 'call-1',
+      targetDeviceId: 'pet-device',
+      cameraEnabled: false,
+    );
     controller.sendIceCandidate(
       callId: 'call-1',
       targetDeviceId: 'pet-device',
@@ -41,10 +46,12 @@ void main() {
       SyncMessageTypes.callAnswer,
       SyncMessageTypes.callReject,
       SyncMessageTypes.callEnd,
+      SyncMessageTypes.callMediaState,
       SyncMessageTypes.iceCandidate,
     ]);
     expect(transport.sent.first.payload['mode'], 'watch');
     expect(transport.sent.first.payload['callerDeviceId'], 'owner-device');
+    expect(transport.sent[4].payload['cameraEnabled'], isFalse);
     expect(transport.sent.last.payload['candidate'],
         {'candidate': 'candidate-line'});
     await controller.dispose();
@@ -61,10 +68,16 @@ void main() {
       'callId': 'call-1',
       'targetDeviceId': 'owner-device',
     }));
+    transport.incoming.add(const SyncMessage(SyncMessageTypes.callMediaState, {
+      'callId': 'call-1',
+      'targetDeviceId': 'owner-device',
+      'cameraEnabled': false,
+    }));
     await Future<void>.delayed(Duration.zero);
 
-    expect(received, hasLength(1));
-    expect(received.single, isA<RtcCallEnd>());
+    expect(received, hasLength(2));
+    expect(received.first, isA<RtcCallEnd>());
+    expect(received.last, isA<RtcCallMediaState>());
     await subscription.cancel();
     await controller.dispose();
   });

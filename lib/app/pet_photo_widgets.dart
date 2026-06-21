@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/interaction_feedback.dart';
+import 'package:petnote/platform/pet_photo_path_resolver.dart';
 
 const String petPhotoIntroHeroAssetPath =
     'assets/images/intro/first_page_hero.svg';
@@ -28,11 +29,7 @@ bool hasPetPhoto(String? photoPath) {
   if (photoPath == null || photoPath.trim().isEmpty) {
     return false;
   }
-  try {
-    return File(photoPath).existsSync();
-  } catch (_) {
-    return false;
-  }
+  return PetPhotoPathResolver.resolveExistingPath(photoPath) != null;
 }
 
 bool _isAnimalEmojiFallback(String text) {
@@ -77,16 +74,19 @@ class PetPhotoAvatar extends StatelessWidget {
   }
 
   Widget _buildPhoto(String resolvedPhotoPath, Widget fallback) {
+    final photoPath =
+        PetPhotoPathResolver.resolveExistingPath(resolvedPhotoPath) ??
+            resolvedPhotoPath;
     final imageBuilder = debugPetPhotoImageBuilder;
     if (imageBuilder != null) {
       return imageBuilder(
-        photoPath: resolvedPhotoPath,
+        photoPath: photoPath,
         fit: BoxFit.cover,
         fallback: fallback,
       );
     }
     return Image.file(
-      File(resolvedPhotoPath),
+      File(photoPath),
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => fallback,
     );
@@ -152,16 +152,19 @@ class PetPhotoSquare extends StatelessWidget {
   }
 
   Widget _buildPhoto(String resolvedPhotoPath, Widget fallback) {
+    final photoPath =
+        PetPhotoPathResolver.resolveExistingPath(resolvedPhotoPath) ??
+            resolvedPhotoPath;
     final imageBuilder = debugPetPhotoImageBuilder;
     if (imageBuilder != null) {
       return imageBuilder(
-        photoPath: resolvedPhotoPath,
+        photoPath: photoPath,
         fit: BoxFit.cover,
         fallback: fallback,
       );
     }
     return Image.file(
-      File(resolvedPhotoPath),
+      File(photoPath),
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => fallback,
     );
@@ -194,16 +197,19 @@ class PetPhotoContainFrame extends StatelessWidget {
   }
 
   Widget _buildPhoto(String resolvedPhotoPath, Widget fallback) {
+    final photoPath =
+        PetPhotoPathResolver.resolveExistingPath(resolvedPhotoPath) ??
+            resolvedPhotoPath;
     final imageBuilder = debugPetPhotoImageBuilder;
     if (imageBuilder != null) {
       return imageBuilder(
-        photoPath: resolvedPhotoPath,
+        photoPath: photoPath,
         fit: BoxFit.contain,
         fallback: fallback,
       );
     }
     return Image.file(
-      File(resolvedPhotoPath),
+      File(photoPath),
       fit: BoxFit.contain,
       errorBuilder: (_, __, ___) => fallback,
     );
@@ -272,9 +278,8 @@ class _PetPhotoPickerCardState extends State<PetPhotoPickerCard> {
                     setState(() => _pressed = true);
                   }
                 : null,
-            onTapUp: widget.enabled
-                ? (_) => setState(() => _pressed = false)
-                : null,
+            onTapUp:
+                widget.enabled ? (_) => setState(() => _pressed = false) : null,
             onTapCancel:
                 widget.enabled ? () => setState(() => _pressed = false) : null,
             child: hasPhoto

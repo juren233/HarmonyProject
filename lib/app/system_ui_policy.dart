@@ -1,15 +1,17 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 const List<DeviceOrientation> appPortraitOrientations = [
   DeviceOrientation.portraitUp,
 ];
 
+const List<DeviceOrientation> petDeviceOrientations = [
+  DeviceOrientation.portraitUp,
+  DeviceOrientation.landscapeLeft,
+  DeviceOrientation.landscapeRight,
+];
+
 class StartupSystemUiPolicy {
-  const StartupSystemUiPolicy({
-    required this.mode,
-    required this.overlayStyle,
-  });
+  const StartupSystemUiPolicy({required this.mode, required this.overlayStyle});
 
   final SystemUiMode? mode;
   final SystemUiOverlayStyle overlayStyle;
@@ -38,11 +40,12 @@ Future<void> configureStartupSystemUi({
 
 Future<void> lockAppToPortrait({
   List<DeviceOrientation> orientations = appPortraitOrientations,
-  String? platformName,
 }) {
-  final resolvedPlatformName = platformName ?? defaultTargetPlatform.name;
-  if (resolvedPlatformName == 'ohos') {
-    return Future<void>.value();
-  }
+  return SystemChrome.setPreferredOrientations(orientations);
+}
+
+Future<void> allowPetDeviceOrientations({
+  List<DeviceOrientation> orientations = petDeviceOrientations,
+}) {
   return SystemChrome.setPreferredOrientations(orientations);
 }

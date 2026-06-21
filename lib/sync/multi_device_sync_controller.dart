@@ -7,6 +7,7 @@ import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_failure_queue.dart';
 import 'package:petnote/sync/sync_mutation_outbox.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
@@ -19,8 +20,11 @@ class MultiDeviceSyncController {
     this.settings,
     this.onRemoved,
     this.throttle = const Duration(seconds: 2),
+    SyncPhotoAttachmentCodec? photoAttachmentCodec,
     int? initialVersion,
-  }) : _version =
+  })  : _photoAttachmentCodec =
+            photoAttachmentCodec ?? const SyncPhotoAttachmentCodec(),
+        _version =
             initialVersion ?? DateTime.now().toUtc().microsecondsSinceEpoch;
 
   final PetNoteStore store;
@@ -30,6 +34,7 @@ class MultiDeviceSyncController {
   final AppSettingsController? settings;
   final VoidCallback? onRemoved;
   final Duration throttle;
+  final SyncPhotoAttachmentCodec _photoAttachmentCodec;
 
   final ValueNotifier<List<SyncedDeviceInfo>> devices =
       ValueNotifier<List<SyncedDeviceInfo>>(const <SyncedDeviceInfo>[]);
@@ -122,7 +127,15 @@ class MultiDeviceSyncController {
         return;
       }
       retryFailedSync();
-      final json = jsonEncode(store.exportDataState().toJson());
+      final state = store.exportDataState();
+      final attachments = await _photoAttachmentCodec.collectFromState(state);
+      final snapshotPayload = <String, Object?>{
+        'data': state.toJson(),
+        if (attachments.isNotEmpty)
+          petPhotoAttachmentsPayloadKey:
+              attachments.map((item) => item.toJson()).toList(),
+      };
+      final json = jsonEncode(snapshotPayload);
       final snapshotKey = '${dataPolicy.name}:$preserveConflictingIds:$json';
       if (!force && snapshotKey == _lastPushedSnapshotKey) {
         return;
@@ -270,10 +283,14 @@ class MultiDeviceSyncController {
         throw const FormatException('missing mutation ciphertext');
       }
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
-      final mutation =
-          PetNoteMutation.fromJson(Map<String, dynamic>.from(decoded as Map));
-      await store.applyMutation(
+      final mutationPayload = Map<String, dynamic>.from(decoded as Map);
+      final mutation = PetNoteMutation.fromJson(mutationPayload);
+      final resolvedMutation = await _resolveMutationPhotoAttachment(
         mutation,
+        mutationPayload[petPhotoAttachmentPayloadKey],
+      );
+      await store.applyMutation(
+        resolvedMutation,
         sourceNamespace: _sourceNamespace(message),
         localNamespace: _localNamespace,
       );
@@ -284,6 +301,43 @@ class MultiDeviceSyncController {
     }
   }
 
+  Future<PetNoteMutation> _resolveMutationPhotoAttachment(
+    PetNoteMutation mutation,
+    Object? rawAttachment,
+  ) async {
+    if (mutation.entityType != PetNoteEntityType.pet ||
+        mutation.kind != PetNoteMutationKind.upsert ||
+        mutation.data == null) {
+      return mutation;
+    }
+    final attachment = syncPhotoAttachmentFromPayload(rawAttachment);
+    if (attachment == null) {
+      return mutation;
+    }
+    final state = PetNoteDataState(
+      pets: [Pet.fromJson(mutation.data!)],
+      todos: const <TodoItem>[],
+      reminders: const <ReminderItem>[],
+      records: const <PetRecord>[],
+    );
+    final resolvedState = await _photoAttachmentCodec.applyToState(
+      state,
+      [attachment],
+    );
+    if (resolvedState.pets.isEmpty) {
+      return mutation;
+    }
+    return PetNoteMutation(
+      id: mutation.id,
+      entityType: mutation.entityType,
+      entityId: mutation.entityId,
+      kind: mutation.kind,
+      data: resolvedState.pets.first.toJson(),
+      actionKind: mutation.actionKind,
+      occurredAtMs: mutation.occurredAtMs,
+    );
+  }
+
   Future<void> _applySnapshot(SyncMessage message) async {
     try {
       final ciphertext = message.payload['ciphertext'];
@@ -291,8 +345,17 @@ class MultiDeviceSyncController {
         throw const FormatException('missing snapshot ciphertext');
       }
       final decoded = jsonDecode(await crypto.decryptString(ciphertext));
-      final state =
-          PetNoteDataState.fromJson(Map<String, dynamic>.from(decoded as Map));
+      final snapshotPayload = Map<String, dynamic>.from(decoded as Map);
+      final rawData = snapshotPayload['data'];
+      final decodedState = PetNoteDataState.fromJson(
+        rawData is Map ? Map<String, dynamic>.from(rawData) : snapshotPayload,
+      );
+      final state = await _photoAttachmentCodec.applyToState(
+        decodedState,
+        syncPhotoAttachmentsFromPayload(
+          snapshotPayload[petPhotoAttachmentsPayloadKey],
+        ),
+      );
       final shouldResolveMergeConflict = _resolveNextMergeSnapshotConflict &&
           message.payload['dataPolicy'] != SyncDataPolicy.remoteWins.name;
       _resolveNextMergeSnapshotConflict = false;

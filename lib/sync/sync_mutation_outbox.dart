@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/sync_failure_queue.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 class SyncMutationOutbox {
@@ -24,6 +25,8 @@ class SyncMutationOutbox {
   final bool Function() isStopped;
   final ValueNotifier<Set<String>>? pendingItemKeys;
   final VoidCallback? beforeSend;
+  final SyncPhotoAttachmentCodec _photoAttachmentCodec =
+      const SyncPhotoAttachmentCodec();
 
   final Set<String> _pendingActionKeys = <String>{};
   StreamSubscription<PetNoteMutation>? _subscription;
@@ -74,7 +77,12 @@ class SyncMutationOutbox {
         await _pushChecklistAction(mutation);
         return;
       }
-      final json = jsonEncode(mutation.toJson());
+      final mutationPayload = mutation.toJson();
+      final petPhotoAttachment = await _petPhotoAttachmentJson(mutation);
+      if (petPhotoAttachment != null) {
+        mutationPayload[petPhotoAttachmentPayloadKey] = petPhotoAttachment;
+      }
+      final json = jsonEncode(mutationPayload);
       if (generation != _runtimeGeneration) {
         return;
       }
@@ -95,6 +103,23 @@ class SyncMutationOutbox {
     } on Object catch (error) {
       lastError.value = error;
     }
+  }
+
+  Future<Map<String, dynamic>?> _petPhotoAttachmentJson(
+    PetNoteMutation mutation,
+  ) async {
+    if (mutation.entityType != PetNoteEntityType.pet ||
+        mutation.kind != PetNoteMutationKind.upsert) {
+      return null;
+    }
+    final data = mutation.data;
+    if (data == null) {
+      return null;
+    }
+    final attachment = await _photoAttachmentCodec.collectForPet(
+      Pet.fromJson(data),
+    );
+    return attachment?.toJson();
   }
 
   Future<void> applySyncReceived(SyncMessage message) async {

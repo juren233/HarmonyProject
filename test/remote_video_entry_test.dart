@@ -98,7 +98,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final firstCallId = firstTransport.sent.single.payload['callId'] as String;
+    final firstInvite = firstTransport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.callInvite,
+    );
+    final firstCallId = firstInvite.payload['callId'] as String;
     expect(tokenRequests.single['channelId'], firstCallId);
     expect(firstCallId.length, lessThanOrEqualTo(64));
     expect(firstCallId, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
@@ -128,8 +131,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final secondCallId =
-        secondTransport.sent.single.payload['callId'] as String;
+    final secondInvite = secondTransport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.callInvite,
+    );
+    final secondCallId = secondInvite.payload['callId'] as String;
     expect(tokenRequests.last['channelId'], secondCallId);
     expect(secondCallId.length, lessThanOrEqualTo(64));
     expect(secondCallId, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
@@ -497,7 +502,7 @@ void main() {
             .having((call) => call.method, 'method',
                 'SystemChrome.setEnabledSystemUIMode')
             .having((call) => call.arguments, 'arguments',
-                'SystemUiMode.edgeToEdge'),
+                'SystemUiMode.immersiveSticky'),
       ),
     );
 
@@ -563,6 +568,207 @@ void main() {
     );
   });
 
+  testWidgets('本地关闭摄像头遮罩会跟随本地画面切换', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = _fakeRtcTokenClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('摄像头已关闭'), findsNothing);
+    expect(find.byKey(const ValueKey('remote_video_preview_local_view')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_camera_button')));
+    await tester.pump();
+
+    expect(find.text('摄像头已关闭'), findsOneWidget);
+    expect(find.byKey(const ValueKey('remote_video_preview_local_view')),
+        findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_local_preview')),
+        matching: find.byKey(
+          const ValueKey('remote_video_camera_off_overlay'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_local_preview')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('remote_video_main_local_view')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('remote_video_preview_remote_view')),
+        findsOneWidget);
+    expect(find.text('摄像头已关闭'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_local_preview')),
+        matching: find.byKey(
+          const ValueKey('remote_video_camera_off_overlay'),
+        ),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_main_surface')),
+        matching: find.byKey(
+          const ValueKey('remote_video_camera_off_overlay'),
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_camera_button')));
+    await tester.pump();
+
+    expect(find.text('摄像头已关闭'), findsNothing);
+    expect(transport.sent.last.type, SyncMessageTypes.callMediaState);
+    expect(transport.sent.last.payload['cameraEnabled'], isTrue);
+    expect(adapter.calls.where((call) => call == 'toggleCamera:false'),
+        hasLength(1));
+    expect(adapter.calls.where((call) => call == 'toggleCamera:true'),
+        hasLength(2));
+  });
+
+  testWidgets('远端关闭摄像头时遮罩跟随远端画面而不是显示黑屏', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = _fakeRtcTokenClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    transport.incoming.add(const RtcCallMediaState(
+      callId: 'call-1',
+      targetDeviceId: 'owner-device',
+      cameraEnabled: false,
+    ).toSyncMessage());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('remote_video_main_remote_view')),
+        findsNothing);
+    expect(find.text('摄像头已关闭'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_main_surface')),
+        matching: find.byKey(const ValueKey('remote_video_camera_off_overlay')),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('remote_video_local_preview')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('remote_video_main_local_view')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('remote_video_preview_remote_view')),
+        findsNothing);
+    expect(find.text('摄像头已关闭'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_local_preview')),
+        matching: find.byKey(const ValueKey('remote_video_camera_off_overlay')),
+      ),
+      findsOneWidget,
+    );
+
+    transport.incoming.add(const RtcCallMediaState(
+      callId: 'call-1',
+      targetDeviceId: 'owner-device',
+      cameraEnabled: true,
+    ).toSyncMessage());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('摄像头已关闭'), findsNothing);
+    expect(find.byKey(const ValueKey('remote_video_preview_remote_view')),
+        findsOneWidget);
+  });
+
+  testWidgets('应用恢复前台后会重新同步本端摄像头状态', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+    final tokenClient = _fakeRtcTokenClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: tokenClient,
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    transport.sent.clear();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(transport.sent, hasLength(1));
+    expect(transport.sent.single.type, SyncMessageTypes.callMediaState);
+    expect(transport.sent.single.payload['cameraEnabled'], isTrue);
+    expect(transport.sent.single.payload['targetDeviceId'], 'pet-device');
+  });
+
   testWidgets('远程视频挂断会发送 call_end 信令', (tester) async {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);
@@ -589,7 +795,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(transport.sent.single.type, SyncMessageTypes.callInvite);
+    expect(transport.sent.map((message) => message.type), [
+      SyncMessageTypes.callInvite,
+      SyncMessageTypes.callMediaState,
+    ]);
     transport.sent.clear();
 
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
@@ -669,11 +878,13 @@ void main() {
     expect(adapter.joinedConfig?.remoteUserId, 'pet-device');
     expect(adapter.joinedConfig?.token, 'signed-token');
     expect(adapter.joinedConfig?.singleToken, 'single-token');
-    expect(transport.sent, hasLength(1));
-    expect(transport.sent.single.type, SyncMessageTypes.callInvite);
-    expect(transport.sent.single.payload['callId'], 'call-1');
-    expect(transport.sent.single.payload['callerDeviceId'], 'owner-device');
-    expect(transport.sent.single.payload['targetDeviceId'], 'pet-device');
+    expect(transport.sent, hasLength(2));
+    expect(transport.sent.first.type, SyncMessageTypes.callInvite);
+    expect(transport.sent.first.payload['callId'], 'call-1');
+    expect(transport.sent.first.payload['callerDeviceId'], 'owner-device');
+    expect(transport.sent.first.payload['targetDeviceId'], 'pet-device');
+    expect(transport.sent.last.type, SyncMessageTypes.callMediaState);
+    expect(transport.sent.last.payload['cameraEnabled'], isTrue);
 
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
     await tester.pumpAndSettle();
@@ -687,7 +898,7 @@ void main() {
       'leave',
       'dispose',
     ]);
-    expect(transport.sent, hasLength(2));
+    expect(transport.sent, hasLength(3));
     expect(transport.sent.last.type, SyncMessageTypes.callEnd);
   });
 
@@ -789,8 +1000,10 @@ void main() {
 
     expect(tokenRequests, hasLength(1));
     expect(adapter.joinedConfig?.remoteUserId, 'pet-device');
-    expect(serviceTransport.sent.last.type, SyncMessageTypes.callInvite);
-    expect(serviceTransport.sent.last.payload['targetDeviceId'], 'pet-device');
+    final invite = serviceTransport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.callInvite,
+    );
+    expect(invite.payload['targetDeviceId'], 'pet-device');
   });
 
   testWidgets('远程视频请求 Token 时携带恢复后的家庭认证', (tester) async {
@@ -1090,7 +1303,11 @@ void main() {
       'toggleSpeaker:true',
       'toggleCamera:true',
     ]);
-    expect(transport.sent, isEmpty);
+    expect(transport.sent.map((message) => message.type), [
+      SyncMessageTypes.callMediaState,
+    ]);
+    expect(transport.sent.single.payload['cameraEnabled'], isTrue);
+    transport.sent.clear();
 
     await tester.tap(find.byKey(const ValueKey('remote_video_hangup_button')));
     await tester.pumpAndSettle();
