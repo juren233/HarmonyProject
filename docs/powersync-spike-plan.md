@@ -84,6 +84,8 @@ only:
 
 The spike compose uses separate Docker volumes and must be started with
 `server/docker-compose.powersync.yml`, never with the production compose file.
+For networks where Docker Hub is slow, the compose file accepts
+`POSTGRES_IMAGE` and `POWERSYNC_IMAGE` overrides.
 
 ## Data Tables
 
