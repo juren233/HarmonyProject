@@ -657,7 +657,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode run -T
 
 - 不要直接相信 `flutter doctor` / 设备列表里的 `ohos-arm64`，它按内核位数猜测；部分工程机内核是 aarch64 但用户态是 32 位（armeabi-v7a）
 - 判别方法：`hdc shell "bm dump -n com.ohos.arkwebcore" | grep cpuAbi`，显示 `arm64-v8a` 才是 64 位用户态；显示 `armeabi-v7a` 说明是 32 位用户态设备
-- **32 位用户态设备目前无法运行本应用**：项目锁定的 OHOS Flutter SDK（3.35.8-ohos）只发布 `ohos-arm64` 和 `ohos-x64` 预编译引擎（见 SDK 内 `flutter_tools` 的 `_ohosBinaryDirs` 清单），`-TargetPlatform arm` 会因缺少 `ohos-arm/flutter_embedding_debug.har` 直接构建失败。要支持 32 位设备只能自编 32 位引擎或换 64 位设备
+- **32 位用户态设备目前无法运行本应用**：项目锁定的 OHOS Flutter SDK（3.41.10-ohos-0.0.2-beta）只发布 `ohos-arm64` 和 `ohos-x64` 预编译引擎（见 SDK 内 `flutter_tools` 的 `_ohosBinaryDirs` 清单），`-TargetPlatform arm` 会因缺少 `ohos-arm/flutter_embedding_debug.har` 直接构建失败。要支持 32 位设备只能自编 32 位引擎或换 64 位设备
 - ABI 不匹配的典型特征：安装成功但启动即闪退，jscrash 栈在 `FlutterNapi.ets` 报 `Cannot read property nativeInit of undefined`，且 `bm dump -n com.krustykrab.petnote` 里 `nativeLibraryPath` 为空（安装器没匹配到 HAP 里的 so 目录，原生库被静默丢弃）
 - 验收标准：安装后 `nativeLibraryPath` 非空（如 `libs/arm64`），应用进程存活且无新增 jscrash，界面正常渲染；`aa start` 命令返回成功不等于应用可正常运行
 - [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1) 会在每次构建前自动清理上一次的 `entry-default-unsigned.hap` / `entry-default-signed.hap` 产物，确保构建失败时如实报错，而不是把过期包当成新包安装（2026-06 修复，此前版本存在该陷阱）
