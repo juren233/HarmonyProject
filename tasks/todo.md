@@ -1,5 +1,21 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 服务端 serverSeq / checkpoint 基础层
+
+- [x] 为服务端同步事件增加单调 `serverSeq` → 验证: 新 snapshot/mutation/action 事件序号递增并持久化
+- [x] 为旧 `syncEvents` 加载路径回填序号并推进 household 当前序号 → 验证: legacy 存储加载后事件有稳定 seq
+- [x] 记录设备 `lastAckServerSeq` 水位 → 验证: `sync_received` 后对应设备 ack 水位更新
+- [x] 在同步诊断接口暴露 household 当前 seq、最小 ack 和设备 ack → 验证: server app 测试覆盖诊断字段
+- [x] 跑 server 测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端 `Household` 现在维护 `nextServerSeq`，新注册的 snapshot/mutation/action 同步事件会分配单调 `serverSeq`，并把该序号放入服务端事件 payload。
+- 旧 `syncEvents` 加载时会为缺少 `serverSeq` 的事件回填稳定序号，并推进 `nextServerSeq`，避免旧数据阻塞后续 checkpoint 设计。
+- 设备模型新增 `lastAckServerSeq`，收到 `sync_received` 后记录对应设备已确认的最高服务端序号。
+- `/diagnostics/sync` 现在暴露 `nextServerSeq`、事件 seq 范围、active 设备最小 ack 和每设备 ack 水位；这只是 checkpoint/batch pull 的服务端基础层，客户端 `lastPulledSeq` 与按 seq 拉取尚未实现。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/pairing_test.dart test/server_app_test.dart test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/household_store.dart lib/src/session_handler.dart lib/src/server_app.dart test/pairing_test.dart test/server_app_test.dart test/sync_flow_test.dart`；`git diff --check`。
+
 ## 2026-06-23 横屏宠物选择页左侧卡片排版再优化
 
 - [x] 对齐“我的”页项目介绍 App 图标盒视觉参数 → 验证: widget 测试覆盖深浅色 logo 背景、边框、阴影和 SVG 过滤

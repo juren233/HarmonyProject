@@ -615,20 +615,23 @@ class SessionHandler {
     if (household == null) return;
     final syncId = _requiredString(message, 'syncId');
     if (syncId == null) return;
+    final currentDeviceId = deviceId;
+    if (currentDeviceId == null) return;
     final event = household.syncEvents[syncId];
     if (event == null) {
       return;
     }
-    if (deviceId != event.originDeviceId) {
-      event.receivedByDeviceIds.add(deviceId!);
+    _recordDeviceAck(household, currentDeviceId, event.serverSeq);
+    if (currentDeviceId != event.originDeviceId) {
+      event.receivedByDeviceIds.add(currentDeviceId);
     }
     final originDeviceId = _optionalString(message.payload['originDeviceId']) ??
         event.originDeviceId;
-    if (originDeviceId.isNotEmpty && originDeviceId != deviceId) {
+    if (originDeviceId.isNotEmpty && originDeviceId != currentDeviceId) {
       final receiptPayload = _syncReceivedPayload(
         event,
         syncId: syncId,
-        receivedDeviceId: deviceId!,
+        receivedDeviceId: currentDeviceId,
       );
       await app.store.flush();
       app.hub.sendTo(
@@ -641,6 +644,21 @@ class SessionHandler {
     await app.store.flush();
   }
 
+  void _recordDeviceAck(
+    Household household,
+    String receivedDeviceId,
+    int serverSeq,
+  ) {
+    final device = household.devices[receivedDeviceId];
+    if (device == null || serverSeq <= 0) {
+      return;
+    }
+    final previousSeq = device.lastAckServerSeq ?? 0;
+    if (serverSeq > previousSeq) {
+      device.lastAckServerSeq = serverSeq;
+    }
+  }
+
   Map<String, dynamic> _syncReceivedPayload(
     SyncEventReceipt event, {
     required String syncId,
@@ -650,6 +668,7 @@ class SessionHandler {
       'syncId': syncId,
       'originDeviceId': event.originDeviceId,
       'receivedDeviceId': receivedDeviceId,
+      'serverSeq': event.serverSeq,
     };
     for (final key in <String>[
       'actionId',
@@ -811,13 +830,16 @@ class SessionHandler {
     final syncId = _optionalString(payload['syncId']) ??
         '${DateTime.now().toUtc().microsecondsSinceEpoch}-${deviceId ?? 'unknown'}';
     final originDeviceId = deviceId ?? '';
+    final serverSeq = household.allocateServerSeq();
     final eventPayload = Map<String, dynamic>.from(payload)
       ..['syncId'] = syncId
-      ..['originDeviceId'] = originDeviceId;
+      ..['originDeviceId'] = originDeviceId
+      ..['serverSeq'] = serverSeq;
     final event = SyncEventReceipt(
       syncId: syncId,
       originDeviceId: originDeviceId,
       messageType: messageType,
+      serverSeq: serverSeq,
       payload: eventPayload,
     );
     household.syncEvents[syncId] = event;

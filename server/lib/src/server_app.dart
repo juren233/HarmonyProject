@@ -187,8 +187,18 @@ class SyncServerApp {
         'online': online,
         'active': active,
         'lastSeenMs': device.lastSeenMs,
+        'lastAckServerSeq': device.lastAckServerSeq,
       };
     }).toList(growable: false);
+    final activeAckSeqs = devices
+        .where((device) => device['active'] == true)
+        .map((device) => device['lastAckServerSeq'])
+        .whereType<int>()
+        .toList(growable: false);
+    final eventSeqs = household.syncEvents.values
+        .map((event) => event.serverSeq)
+        .where((seq) => seq > 0)
+        .toList(growable: false);
     final syncEventSizes = household.syncEvents.values
         .map((event) => utf8.encode(jsonEncode(event.toJson())).length)
         .toList(growable: false);
@@ -199,6 +209,14 @@ class SyncServerApp {
         .length;
     return {
       'householdId': household.id,
+      'nextServerSeq': household.nextServerSeq,
+      'minActiveAckServerSeq': activeAckSeqs.isEmpty
+          ? null
+          : activeAckSeqs.reduce((a, b) => a < b ? a : b),
+      'minSyncEventServerSeq':
+          eventSeqs.isEmpty ? null : eventSeqs.reduce((a, b) => a < b ? a : b),
+      'maxSyncEventServerSeq':
+          eventSeqs.isEmpty ? null : eventSeqs.reduce((a, b) => a > b ? a : b),
       'deviceCount': household.devices.length,
       'activeDeviceCount':
           devices.where((device) => device['active'] == true).length,

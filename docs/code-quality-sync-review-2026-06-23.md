@@ -6,14 +6,14 @@
 
 ## 结论摘要
 
-当前 `main` 相比 2026-06-22 的旧同步审查已有明显进步：客户端已经有握手状态机、认证后发送门禁、持久化 outbox、pending mutation、首次配对默认双向 merge；服务端已经有按连接串行处理、事件回执账本、设备 role 持久化和 `households.json` 原子写入。这些改动已经覆盖了此前最危险的“启动时单向同步”“回执/出站消息进程重启丢失”“服务端写文件中断损坏”几类问题。
+当前 `main` 相比 2026-06-22 的旧同步审查已有明显进步：客户端已经有握手状态机、认证后发送门禁、单一持久化 outbox、pending mutation、首次配对默认双向 merge；服务端已经有按连接串行处理、事件回执账本、设备 role 持久化、`households.json` 原子写入、同步事件 TTL/数量/字节保留策略、只读诊断接口，以及 `serverSeq` / 设备 ack 水位基础。这些改动已经覆盖了此前最危险的“启动时单向同步”“回执/出站消息进程重启丢失”“服务端写文件中断损坏”“长期离线设备拖住剪枝”“服务端无诊断入口”几类问题。
 
 但如果目标是“极端网络和高频操作后仍稳定高效”，当前自研同步仍未到最终形态。主要剩余风险集中在四处：
 
-1. 客户端还有双层 outbox：`SyncFailureQueue` 持久化队列之外，`SyncClient` 内部还有无上限内存 `_outbox`，发送路径复杂且缺少 backpressure。
-2. 服务端事件账本仍按“所有登记设备回执才剪枝”，永久离线或废弃设备会拖住 `syncEvents` 增长。
-3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路，缺少统一 server sequence / checkpoint，冲突收敛依赖多处分支规则。
-4. 诊断能力仍偏本地 UI 状态，缺少服务端 per-household 队列长度、事件滞后、payload 大小和 last seq 的可观测指标。
+1. 客户端持久 outbox 已有数量/字节上限，但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
+2. 服务端事件账本已有 active device TTL 和容量上限，但补发路径仍按 `syncEvents.values` 全扫，事件多时效率和诊断定位仍不理想。
+3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；服务端已具备 `serverSeq` / 设备 ack 水位基础，但客户端 checkpoint、按 seq batch pull 和统一 operation log 尚未完成。
+4. 诊断能力已有服务端只读入口和 per-household 同步统计，后续还需要把 last pulled seq、事件滞后和客户端错误分类串起来。
 
 本轮建议：不要在当前轮贸然替换同步底座；先做“上限、压缩、可观测、checkpoint”四类增量加固。`codex/powersync-spike` 分支仍有保留价值，作为中长期迁移验证分支；已合并的 `feature/unified-ohos-flutter` 已在本轮删除。
 
@@ -29,41 +29,29 @@
 
 ## 重要问题与风险
 
-### P1: 双层 outbox 与无上限内存队列
+### 已完成: 双层 outbox 与无上限内存队列收敛
 
-`SyncFailureQueue` 已经能把消息持久化到本地存储，但底层 `SyncClient.send()` 在 WebSocket 不在线时仍把帧追加到内存 `_outbox`，且没有数量、字节数或过期上限。证据：`lib/sync/sync_client.dart:27`、`lib/sync/sync_client.dart:60`、`lib/sync/sync_client.dart:82`。
+`SyncClient` 底层不可见内存 outbox 已移除，断线发送显式抛错，由 `SyncFailureQueue` 统一负责持久化、去重、重试和容量控制。
 
-影响：
+剩余边界：大 snapshot / 附件 payload 仍需要更细粒度的 blob 与分片策略，避免单帧过大。
 
-- 弱网抖动时，同一条业务消息可能先被上层判断“可发送”，再被底层内存 outbox 缓存；可观测状态只统计上层 pending outbox，无法看到底层积压。
-- 高频点击、频繁断网或代理半连接状态下，内存 `_outbox` 可以无界增长，App 进程被杀后这部分也没有恢复能力。
-- 双层队列让故障定位变难：用户看到 `failedSyncCount=0` 不等于底层没有缓存帧。
+### 已完成: 服务端事件账本 active device TTL 与容量上限
 
-建议：让 `SyncClient.send()` 在断线时直接抛出可分类错误，由 `SyncFailureQueue` 统一负责持久化、重试、去重和上限；或者给 `SyncClient` 内存队列设极小上限并把长度暴露进 `SyncStatusSnapshot`。优先方案是删除底层 `_outbox`。
+服务端 `_pruneReceivedSyncEvents` 已只等待在线或近期活跃设备；`syncEvents` 同时有数量与 UTF-8 字节上限，超限时剪掉最旧事件并写日志告警。
 
-### P1: 服务端事件账本缺少 active device cursor/TTL
-
-服务端 `_pruneReceivedSyncEvents` 只有在除 origin 外所有登记设备都回执后才删除事件。证据：`server/lib/src/session_handler.dart:638`、`server/lib/src/session_handler.dart:804`、`server/lib/src/session_handler.dart:825`。
-
-影响：
-
-- 已配对但长期不用的设备会让 `syncEvents` 永久保留，后续每次 snapshotRequest 都可能重放更多事件。
-- 头像附件、全量快照和高频 mutation 会放大 `households.json` 体积，最终拖慢服务端 load/flush。
-- 依赖用户主动移除设备才能清理事件，对真实家庭设备换机/丢失/卸载不够稳。
-
-建议：引入 active device 概念和 cursor：设备超过 N 天未见且非当前 active 设备时不再阻塞剪枝；服务端按 `serverSeq` 保存事件，每个设备维护 `lastAckSeq`，事件只保留到最小 active cursor；再加事件数量/字节上限和压缩任务。
+剩余边界：服务端已记录 `serverSeq` 和 `lastAckServerSeq`，但还没有用 active cursor 直接驱动 batch pull / cursor prune。
 
 ### P2: 缺少 server sequence / checkpoint，重连恢复仍靠事件全扫
 
-当前事件注册使用 `syncId` 和 payload，服务端向新连接补发时遍历 `household.syncEvents.values` 判断当前设备是否缺失。证据：`server/lib/src/household_store.dart:56`、`server/lib/src/session_handler.dart:804`、`server/lib/src/session_handler.dart:825`。
+当前事件注册已分配 `serverSeq`，设备确认后服务端也会记录 `lastAckServerSeq`，但服务端向新连接补发仍遍历 `household.syncEvents.values` 判断当前设备是否缺失。证据：`server/lib/src/household_store.dart`、`server/lib/src/session_handler.dart`。
 
 影响：
 
 - 事件数量增长后，补发复杂度与 household 历史事件数相关。
-- 客户端不能明确表达“我已处理到哪个 serverSeq”，只能通过逐条 `sync_received` 间接确认。
+- 客户端还不能明确持久表达“我已处理到哪个 serverSeq”，只能通过逐条 `sync_received` 间接确认，且当前 ack 水位只保存在服务端设备状态里。
 - 高频多端写入下，冲突调试缺少统一顺序坐标。
 
-建议：服务端为所有 snapshot/mutation/action 分配单调 `serverSeq`；客户端本地保存 `lastPulledSeq` / `lastAckedSeq`；重连时请求 `eventsAfter(seq)`，服务端按 batch 下发并返回新 checkpoint。
+建议：在现有服务端 `serverSeq` / `lastAckServerSeq` 基础上，继续让客户端本地保存 `lastPulledSeq` / `lastAckedSeq`；重连时请求 `eventsAfter(seq)`，服务端按 batch 下发并返回新 checkpoint。
 
 ### P2: snapshot、mutation、checklist action 三条链路冲突语义分散
 
@@ -87,11 +75,11 @@
 
 建议：设置上限，例如每 household pending outbox 最大消息数、最大总字节、最大单帧字节；超限时进入 blocked 状态并提示用户。头像改为 content-addressed blob：业务 op 只同步 `photoBlobId/hash/size`，文件内容单独分片上传下载。
 
-### P3: 可观测性仍不足
+### P3: 可观测性仍需串联端侧状态
 
-客户端已有 `SyncStatusSnapshot`，但服务端没有公开 household 级诊断数据，用户反馈同步失败时仍难以判断是认证、网络、队列、冲突、附件还是服务端积压。
+客户端已有 `SyncStatusSnapshot`，服务端也已新增默认关闭的 household 级只读诊断入口，能够看到 household/device/syncEvents、事件字节数和 ack 水位；但用户反馈同步失败时，仍难以把服务端指标、客户端队列、认证错误、附件体积和具体冲突归因串成一条可读链路。
 
-建议新增只读诊断接口或本地导出：`householdId`、设备数、active 设备数、`syncEvents` 数、最大 payload 字节、每设备 lastSeen/lastAckSeq、最近错误分类。注意生产接口必须走本地调试密钥或仅内网/管理员可访问。
+建议继续扩展只读诊断或本地导出：补充每设备 last pulled/last ack 差值、最近错误分类、最近大 payload 来源和客户端 outbox 状态。生产接口仍必须走诊断 token、内网或管理员访问边界。
 
 ## 外部资料取证与可借鉴设计
 
@@ -113,10 +101,10 @@
 
 ## 优先行动清单
 
-1. 短期：移除或限制 `SyncClient._outbox`，让持久 `SyncFailureQueue` 成为唯一出站队列，并补测试覆盖断线发送不进入不可见内存层。
-2. 短期：给 `SyncFailureQueue` 加消息数/字节数上限，超限进入 `SyncSessionState.blocked` 或明确 issue kind。
-3. 短期：服务端为 `syncEvents` 增加数量/字节统计、最大保留上限和日志告警；设备超过 TTL 未见时不再阻塞剪枝。
-4. 中期：引入 `serverSeq`、per-device checkpoint 和 batch pull，替代按 `syncEvents.values` 全扫补发。
+1. 已完成：移除 `SyncClient._outbox`，让持久 `SyncFailureQueue` 成为唯一出站队列，并补测试覆盖断线发送不进入不可见内存层。
+2. 已完成：给 `SyncFailureQueue` 加消息数/字节数上限，超限进入明确容量异常并保留既有队列。
+3. 已完成：服务端为 `syncEvents` 增加数量/字节统计、最大保留上限和日志告警；设备超过 TTL 未见时不再阻塞剪枝。
+4. 进行中：服务端已落地 `serverSeq` / per-device ack 水位基础；下一步引入客户端 checkpoint 和 batch pull，替代按 `syncEvents.values` 全扫补发。
 5. 中期：把 checklist action 收敛进统一 operation log，快照只保留初始化/恢复/手动覆盖用途。
 6. 中长期：保留并继续推进 PowerSync spike，重点验证 Android/iOS 官方 Flutter、OHOS Flutter、服务端部署和数据迁移脚本。
 

@@ -53,11 +53,13 @@ void main() {
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
 
     final household = app.store.create('household-1', 'salt', 'auth-token');
+    household.nextServerSeq = 4;
     household.devices['owner-1'] = HouseholdDevice(
       deviceId: 'owner-1',
       name: '主人手机',
       role: 'owner',
       lastSeenMs: DateTime.now().millisecondsSinceEpoch,
+      lastAckServerSeq: 2,
     );
     household.devices['pet-stale'] = HouseholdDevice(
       deviceId: 'pet-stale',
@@ -71,9 +73,11 @@ void main() {
       syncId: 'sync-1',
       originDeviceId: 'owner-1',
       messageType: SyncMessageTypes.snapshot,
+      serverSeq: 3,
       payload: {
         'syncId': 'sync-1',
         'originDeviceId': 'owner-1',
+        'serverSeq': 3,
         'version': 7,
         'ciphertext': 'very-sensitive-ciphertext',
       },
@@ -121,12 +125,18 @@ void main() {
     final diagnosticsHousehold =
         (json['households'] as List<dynamic>).single as Map<String, dynamic>;
     expect(diagnosticsHousehold['householdId'], 'household-1');
+    expect(diagnosticsHousehold['nextServerSeq'], 4);
+    expect(diagnosticsHousehold['minSyncEventServerSeq'], 3);
+    expect(diagnosticsHousehold['maxSyncEventServerSeq'], 3);
+    expect(diagnosticsHousehold['minActiveAckServerSeq'], 2);
     expect(diagnosticsHousehold['syncEventBytes'], isA<int>());
     expect(diagnosticsHousehold['maxSyncEventBytes'], isA<int>());
     final devices = (diagnosticsHousehold['devices'] as List<dynamic>)
         .cast<Map<String, dynamic>>();
     expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
         containsPair('online', true));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('lastAckServerSeq', 2));
     expect(devices.firstWhere((device) => device['deviceId'] == 'pet-stale'),
         containsPair('active', false));
     expect(body, isNot(contains('auth-token')));
@@ -165,8 +175,9 @@ void main() {
       }),
     );
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
-    app.store.create('household-1', 'salt', 'auth-token')
-      .devices['owner-device'] = HouseholdDevice(
+    app.store
+        .create('household-1', 'salt', 'auth-token')
+        .devices['owner-device'] = HouseholdDevice(
       deviceId: 'owner-device',
       name: '主人手机',
     );
@@ -194,8 +205,8 @@ void main() {
     expect(json['token'], isA<String>());
     expect(json['token'] as String, isNot(contains('fake-app-key-for-test')));
     expect(json['singleToken'], isA<String>());
-    expect(
-        json['singleToken'] as String, isNot(contains('fake-app-key-for-test')));
+    expect(json['singleToken'] as String,
+        isNot(contains('fake-app-key-for-test')));
     expect(json['nonce'], isA<String>());
     expect(json['timestamp'], isA<int>());
     expect(json['gslb'], isA<List<dynamic>>());
@@ -268,8 +279,9 @@ void main() {
       }),
     );
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
-    app.store.create('household-1', 'salt', 'auth-token')
-      .devices['known-device'] = HouseholdDevice(
+    app.store
+        .create('household-1', 'salt', 'auth-token')
+        .devices['known-device'] = HouseholdDevice(
       deviceId: 'known-device',
       name: '已配对设备',
     );
