@@ -341,11 +341,11 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
                                       'first_launch_intro_page_view',
                                     ),
                                     controller: _pageController,
-                                    physics: _showLaunchPaw ||
-                                            _pageIndex ==
-                                                _roleSelectionPageIndex
+                                    physics: _showLaunchPaw
                                         ? const NeverScrollableScrollPhysics()
-                                        : null,
+                                        : _pageIndex == _roleSelectionPageIndex
+                                            ? const _RoleSelectionBackOnlyPagePhysics()
+                                            : null,
                                     onPageChanged: _handlePageChanged,
                                     children:
                                         List.generate(_pages.length, (index) {
@@ -856,6 +856,34 @@ class _FooterReveal extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _RoleSelectionBackOnlyPagePhysics extends PageScrollPhysics {
+  const _RoleSelectionBackOnlyPagePhysics({super.parent});
+
+  @override
+  _RoleSelectionBackOnlyPagePhysics applyTo(ScrollPhysics? ancestor) {
+    return _RoleSelectionBackOnlyPagePhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    if (offset < 0) {
+      return 0;
+    }
+    return super.applyPhysicsToUserOffset(position, offset);
+  }
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    if (velocity < 0) {
+      return null;
+    }
+    return super.createBallisticSimulation(position, velocity);
   }
 }
 

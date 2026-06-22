@@ -88,7 +88,7 @@ void main() {
       name: '强',
       type: PetType.dog,
       photoPath: sourcePhoto.path,
-      breed: '法斗',
+      breed: '兔兔混合描述',
       sex: '弟弟',
       birthday: '2025-01-01',
       weightKg: 8,
@@ -527,6 +527,8 @@ void main() {
     expect(syncedPet.photoPath, isNot(sourcePhoto.path));
     expect(syncedPet.photoPath, startsWith(replicaDirectory.path));
     expect(File(syncedPet.photoPath!).readAsBytesSync(), [9, 8, 7]);
+    expect(syncedPet.type, PetType.dog);
+    expect(petAvatarFallbackForPet(syncedPet), '🐶');
 
     controller.dispose();
   });

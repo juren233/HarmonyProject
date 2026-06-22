@@ -518,12 +518,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('onboarding_weight_field')),
-      '4.2',
-    );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
+    await _setOnboardingWeight(tester, '4.2');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -1356,6 +1351,21 @@ void main() {
 
     expect(find.byKey(const ValueKey('intro_page_2_content')), findsOneWidget);
     expect(find.byKey(const ValueKey('intro_page_3_content')), findsNothing);
+  });
+
+  testWidgets('role selection page can be swiped back to the previous page',
+      (tester) async {
+    await tester.pumpWidget(const PetNoteApp());
+    await _advanceIntroToRolePage(tester);
+
+    await tester.drag(
+      find.byKey(const ValueKey('first_launch_intro_page_view')),
+      const Offset(500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('intro_page_1_content')), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro_page_2_content')), findsNothing);
   });
 
   testWidgets('role selection hero uses soft blue icon and shell colors',
@@ -2253,10 +2263,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_weight_field')), '4.2');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
+    await _setOnboardingWeight(tester, '4.2');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -2394,6 +2401,82 @@ void main() {
     expect(find.text('快速选择日期/年份'), findsNothing);
   });
 
+  testWidgets('birthday calendar is hosted inside the onboarding surface',
+      (tester) async {
+    await _enterBirthdayStep(tester);
+
+    final surfaceRect = tester.getRect(
+      find.byKey(const ValueKey('onboarding_birthday_calendar_surface')),
+    );
+    final calendarRect = tester.getRect(find.byType(CalendarDatePicker));
+
+    expect(calendarRect.left, greaterThanOrEqualTo(surfaceRect.left));
+    expect(calendarRect.right, lessThanOrEqualTo(surfaceRect.right));
+    expect(calendarRect.top, greaterThanOrEqualTo(surfaceRect.top));
+    expect(calendarRect.bottom, lessThanOrEqualTo(surfaceRect.bottom));
+  });
+
+  testWidgets('weight step supports wheel selection and direct input',
+      (tester) async {
+    await _enterBirthdayStep(tester);
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('onboarding_weight_wheel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding_weight_field')), findsNothing);
+
+    await tester.drag(
+      find.byKey(const ValueKey('onboarding_weight_wheel')),
+      const Offset(0, -84),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('4.2 kg'), findsOneWidget);
+
+    await _setOnboardingWeight(tester, '6.8');
+    expect(find.text('6.8 kg'), findsOneWidget);
+  });
+
+  testWidgets('weight direct input rejects invalid values and clamps range',
+      (tester) async {
+    await _enterBirthdayStep(tester);
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_weight_value_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_weight_direct_input_field')),
+      'abc',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('onboarding_weight_direct_input_save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('请输入有效体重'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('onboarding_weight_direct_input_field')),
+      '99',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('onboarding_weight_direct_input_save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('80.0 kg'), findsOneWidget);
+  });
+
   testWidgets('neuter step only shows explicit yes or no options',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
@@ -2421,10 +2504,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_weight_field')), '4.2');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
+    await _setOnboardingWeight(tester, '4.2');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -2460,10 +2540,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-        find.byKey(const ValueKey('onboarding_weight_field')), '4.2');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
+    await _setOnboardingWeight(tester, '4.2');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -4876,6 +4953,20 @@ Future<void> _selectBirthdayDay(WidgetTester tester, DateTime date) async {
   );
   await tester.ensureVisible(dayFinder.first);
   await tester.tap(dayFinder.first);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _setOnboardingWeight(WidgetTester tester, String value) async {
+  await tester
+      .tap(find.byKey(const ValueKey('onboarding_weight_value_button')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const ValueKey('onboarding_weight_direct_input_field')),
+    value,
+  );
+  await tester.tap(
+    find.byKey(const ValueKey('onboarding_weight_direct_input_save')),
+  );
   await tester.pumpAndSettle();
 }
 

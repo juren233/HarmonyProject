@@ -170,8 +170,9 @@ void main() {
         find.byKey(const ValueKey('pet_selector_side_panel')), findsOneWidget);
     expect(
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
-    expect(find.text('选择服务宠物'), findsOneWidget);
-    expect(find.text('这台设备照顾谁？'), findsOneWidget);
+    expect(find.text('选择服务宠物'), findsNothing);
+    expect(find.text('这台设备照顾谁？'), findsWidgets);
+    expect(find.text('2 只可服务'), findsNothing);
     expect(find.text('横放设备时，左侧保留状态和设置，右侧留给宠物选择。'), findsNothing);
     expect(find.text('选择后进入常亮中枢屏'), findsNothing);
     expect(find.text('点击一张宠物卡片即可接管对应待办和观察状态。'), findsNothing);
@@ -183,7 +184,7 @@ void main() {
     final listPanelSize = tester.getSize(
       find.byKey(const ValueKey('pet_selector_list_panel')),
     );
-    expect(sidePanelSize.width / listPanelSize.width, closeTo(35 / 65, 0.02));
+    expect(sidePanelSize.width / listPanelSize.width, closeTo(3 / 7, 0.02));
 
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -234,9 +235,16 @@ void main() {
       final syncPillRect = tester.getRect(find.text('同步中...'));
       expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
       expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
-      final titleRect = tester.getRect(find.text('选择服务宠物'));
+      final titleRect = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_status_card')),
+          matching: find.text('这台设备照顾谁？'),
+        ),
+      );
       expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
       expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      expect(find.text('选择服务宠物'), findsNothing);
+      expect(find.text('${store.pets.length} 只可服务'), findsNothing);
 
       final pet = store.pets.first;
       await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -300,7 +308,12 @@ void main() {
       final syncPillRect = tester.getRect(find.text('同步中，请保持设备在线'));
       expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
       expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
-      final titleRect = tester.getRect(find.text('选择服务宠物'));
+      final titleRect = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_status_card')),
+          matching: find.text('这台设备照顾谁？'),
+        ),
+      );
       expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
       expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
       final petCardRect = tester.getRect(
@@ -376,6 +389,9 @@ void main() {
   });
 
   testWidgets('看板展示同步状态并把待办完成动作回调给上层', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final store = PetNoteStore.seeded();
     final pet = store.pets.first;
     await store.addTodo(
@@ -409,7 +425,9 @@ void main() {
     expect(find.text('已连接'), findsOneWidget);
     final petCard = find.byKey(const ValueKey('pet_dashboard_pet_card'));
     expect(
-        find.descendant(of: petCard, matching: find.text('已连接')), findsNothing);
+      find.descendant(of: petCard, matching: find.text('已连接')),
+      findsNothing,
+    );
     expect(find.text(firstItem.title), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.check_circle_rounded).first);
@@ -566,9 +584,176 @@ void main() {
     expect(find.text('已连接'), findsOneWidget);
     final petCard = find.byKey(const ValueKey('pet_dashboard_pet_card'));
     expect(
-        find.descendant(of: petCard, matching: find.text('已连接')), findsNothing);
+      find.descendant(of: petCard, matching: find.text('已连接')),
+      findsOneWidget,
+    );
     expect(find.text(firstItem.title), findsOneWidget);
     expect(find.text('下一件事'), findsOneWidget);
+  });
+
+  testWidgets('横屏看板多尺寸下控件保持在卡片边界内', (tester) async {
+    final sizes = <Size>[
+      const Size(720, 390),
+      const Size(900, 520),
+      const Size(2048, 945),
+    ];
+
+    for (final size in sizes) {
+      await tester.binding.setSurfaceSize(size);
+
+      final store = PetNoteStore.seeded();
+      final pet = store.pets.first;
+      await store.addTodo(
+        petId: pet.id,
+        title: '横屏特别长的待办标题用于压测完成按钮是否仍然留在卡片里面',
+        dueAt: DateTime(2026, 6, 22, 20, 15),
+        notificationLeadTime: NotificationLeadTime.none,
+        note: '备注也需要在横屏空间里保持省略，不应该把完成按钮向卡片外挤出。',
+      );
+
+      await tester.pumpWidget(
+        _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: pet.id,
+            syncStatusLabel: '已连接',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (_) {},
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+            nowProvider: () => DateTime(2026, 6, 22, 19, 15),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      final petCardRect = tester.getRect(
+        find.byKey(const ValueKey('pet_dashboard_pet_card')),
+      );
+      final todoPanelRect = tester.getRect(
+        find.byKey(const ValueKey('pet_dashboard_todo_panel')),
+      );
+      final settingsRect = tester.getRect(
+        find.byKey(const ValueKey('pet_dashboard_settings')),
+      );
+      final connectionRect = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_dashboard_pet_card')),
+          matching: find.text('已连接'),
+        ),
+      );
+      final completeButtonRect = tester.getRect(
+        find.byKey(ValueKey(
+            'dashboard_item_${store.checklistSections.expand((section) => section.items).where((item) => item.petId == pet.id).first.sourceType}_${store.checklistSections.expand((section) => section.items).where((item) => item.petId == pet.id).first.id}')),
+      );
+
+      expect(settingsRect.right, closeTo(petCardRect.right, 1.0));
+      expect(connectionRect.left, greaterThanOrEqualTo(petCardRect.left + 8));
+      expect(connectionRect.right, lessThanOrEqualTo(petCardRect.right - 8));
+      expect(connectionRect.bottom, lessThanOrEqualTo(petCardRect.bottom - 8));
+
+      expect(todoPanelRect.left, greaterThan(petCardRect.right));
+      expect(todoPanelRect.right, lessThanOrEqualTo(size.width));
+      expect(todoPanelRect.bottom, lessThanOrEqualTo(size.height));
+      expect(completeButtonRect.left,
+          greaterThanOrEqualTo(todoPanelRect.left + 8));
+      expect(
+          completeButtonRect.right, lessThanOrEqualTo(todoPanelRect.right - 8));
+      expect(completeButtonRect.bottom,
+          lessThanOrEqualTo(todoPanelRect.bottom - 8));
+    }
+
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  });
+
+  testWidgets('横屏看板设置和完成交互保持可用', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = PetNoteStore.seeded();
+    final pet = store.pets.first;
+    await store.addTodo(
+      petId: pet.id,
+      title: '横屏完成交互',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final firstItem = store.checklistSections
+        .expand((section) => section.items)
+        .where((item) => item.petId == pet.id)
+        .first;
+    var openedSettings = false;
+    PetAction? action;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (value) => action = value,
+          onOpenSettings: () => openedSettings = true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('pet_dashboard_settings')));
+    await tester.pump();
+    expect(openedSettings, isTrue);
+
+    await tester.tap(
+      find.byKey(
+          ValueKey('dashboard_item_${firstItem.sourceType}_${firstItem.id}')),
+    );
+    await tester.pump();
+    expect(action?.kind, PetActionKind.markDone);
+    expect(action?.sourceType, firstItem.sourceType);
+  });
+
+  testWidgets('横屏看板待确认事项仍显示同步中并禁用完成按钮', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = PetNoteStore.seeded();
+    final pet = store.pets.first;
+    await store.addTodo(
+      petId: pet.id,
+      title: '横屏待确认事项',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    final firstItem = store.checklistSections
+        .expand((section) => section.items)
+        .where((item) => item.petId == pet.id)
+        .first;
+    PetAction? action;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: {'${firstItem.sourceType}:${firstItem.id}'},
+          onSelectServedPet: (_) {},
+          onMarkDone: (value) => action = value,
+          onOpenSettings: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('同步中'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+          ValueKey('dashboard_item_${firstItem.sourceType}_${firstItem.id}')),
+    );
+    await tester.pump();
+    expect(action, isNull);
   });
 
   testWidgets('宠物端看板优先显示同步后的真实头像', (tester) async {
@@ -639,6 +824,7 @@ void main() {
       crypto: crypto,
     );
     final settings = await AppSettingsController.load();
+    await settings.setHouseholdId('house-1');
     final service = SyncService(settings: settings);
     service.petController = controller;
     SyncService.instance = service;

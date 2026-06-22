@@ -660,6 +660,44 @@ void main() {
       expect(pet.name, 'Luna');
     });
 
+    test('pet fallback emoji follows type rather than breed text', () {
+      final dog = Pet.fromJson(<String, Object?>{
+        'id': 'pet-dog-rabbit-breed',
+        'name': 'Bolt',
+        'avatarText': 'BO',
+        'type': 'dog',
+        'breed': '兔兔混合描述',
+        'sex': '公',
+        'birthday': '2024-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 8.2,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+      final unknown = Pet.fromJson(<String, Object?>{
+        'id': 'pet-unknown-type',
+        'name': 'Mystery',
+        'avatarText': 'MY',
+        'type': 'fox',
+        'breed': '柯基',
+        'sex': '母',
+        'birthday': '2024-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 5.0,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+
+      expect(dog.type, PetType.dog);
+      expect(petAvatarFallbackForPet(dog), '🐶');
+      expect(unknown.type, PetType.other);
+      expect(petAvatarFallbackForPet(unknown), 'MY');
+    });
+
     test('iOS update relocates legacy pet avatar paths into current sandbox',
         () async {
       final currentSupportDirectory =

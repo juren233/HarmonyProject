@@ -184,7 +184,7 @@ class _PetSelector extends StatelessWidget {
           return Row(
             children: [
               Expanded(
-                flex: 35,
+                flex: 3,
                 child: _PetSelectorSidePanel(
                   now: now,
                   syncStatusLabel: syncStatusLabel,
@@ -193,7 +193,7 @@ class _PetSelector extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               Expanded(
-                flex: 65,
+                flex: 7,
                 child: _PetSelectorListPanel(
                   pets: pets,
                   onSelectServedPet: onSelectServedPet,
@@ -211,7 +211,7 @@ class _PetSelector extends StatelessWidget {
               onOpenSettings: onOpenSettings,
             ),
             const SizedBox(height: 14),
-            _PetSelectorHero(syncStatusLabel: syncStatusLabel),
+            const _PetSelectorHero(),
             const SizedBox(height: 14),
             Expanded(
               child: _PetSelectorListPanel(
@@ -283,9 +283,7 @@ class _PetSelectorTopBar extends StatelessWidget {
 }
 
 class _PetSelectorHero extends StatelessWidget {
-  const _PetSelectorHero({required this.syncStatusLabel});
-
-  final String syncStatusLabel;
+  const _PetSelectorHero();
 
   @override
   Widget build(BuildContext context) {
@@ -297,15 +295,6 @@ class _PetSelectorHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _selectorSyncKicker(syncStatusLabel),
-            style: TextStyle(
-              color: tokens.navAddGradientEnd,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 7),
           Text(
             '这台设备照顾谁？',
             style: TextStyle(
@@ -336,91 +325,110 @@ class _PetSelectorSidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    return _SelectorSurface(
+    return Column(
       key: const ValueKey('pet_selector_side_panel'),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      children: [
+        _SelectorLandscapeTopBar(
+          now: now,
+          onOpenSettings: onOpenSettings,
+        ),
+        const SizedBox(height: 14),
+        Expanded(
+          child: _SelectorSurface(
+            key: const ValueKey('pet_selector_status_card'),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '这台设备照顾谁？',
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: tokens.primaryText,
+                      fontSize: 34,
+                      height: 1.18,
+                      letterSpacing: 0,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: double.infinity),
+                  child: _ConnectionPill(label: syncStatusLabel),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectorLandscapeTopBar extends StatelessWidget {
+  const _SelectorLandscapeTopBar({
+    required this.now,
+    required this.onOpenSettings,
+  });
+
+  final DateTime now;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _formatClock(now),
-                        maxLines: 1,
-                        style: TextStyle(
-                          color: tokens.primaryText,
-                          fontSize: 48,
-                          height: 1.0,
-                          letterSpacing: 0,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_formatWeekday(now)} · 家中设备',
-                      style: TextStyle(
-                        color: tokens.secondaryText,
-                        fontSize: 13,
-                        height: 1.45,
-                        letterSpacing: 0,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatClock(now),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: tokens.primaryText,
+                    fontSize: 42,
+                    height: 1.0,
+                    letterSpacing: 0,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-              _IconSurfaceButton(
-                key: const ValueKey('pet_dashboard_settings'),
-                onPressed: onOpenSettings,
-                icon: Icons.settings_rounded,
-                semanticLabel: '设置',
+              const SizedBox(height: 8),
+              Text(
+                '${_formatWeekday(now)} · 家中设备',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: tokens.secondaryText,
+                  fontSize: 13,
+                  height: 1.35,
+                  letterSpacing: 0,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
-          const Spacer(),
-          Text(
-            _selectorSyncKicker(syncStatusLabel),
-            style: TextStyle(
-              color: tokens.navAddGradientEnd,
-              fontSize: 13,
-              height: 1.45,
-              letterSpacing: 0,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '选择服务宠物',
-              maxLines: 1,
-              style: TextStyle(
-                color: tokens.primaryText,
-                fontSize: 32,
-                height: 1.4,
-                letterSpacing: 0,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: double.infinity),
-            child: _ConnectionPill(label: syncStatusLabel),
-          ),
-          const Spacer(),
-        ],
-      ),
+        ),
+        const SyncFailureChip(),
+        const SizedBox(width: 8),
+        _IconSurfaceButton(
+          key: const ValueKey('pet_dashboard_settings'),
+          onPressed: onOpenSettings,
+          icon: Icons.settings_rounded,
+          semanticLabel: '设置',
+        ),
+      ],
     );
   }
 }
@@ -451,26 +459,22 @@ class _PetSelectorListPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '这台设备照顾谁？',
-                        style: TextStyle(
-                          color: tokens.primaryText,
-                          fontSize: 30,
-                          height: 1.4,
-                          letterSpacing: 0,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    '这台设备照顾谁？',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.primaryText,
+                      fontSize: 30,
+                      height: 1.25,
+                      letterSpacing: 0,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
-                _SelectorCountChip(count: pets.length),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
           ] else ...[
             Row(
               children: [
@@ -493,10 +497,15 @@ class _PetSelectorListPanel extends StatelessWidget {
             child: pets.isEmpty
                 ? const _PetSelectorEmptyState()
                 : GridView.builder(
-                    padding: const EdgeInsets.only(bottom: 4),
+                    padding: EdgeInsets.fromLTRB(
+                      landscape ? 4 : 0,
+                      0,
+                      landscape ? 4 : 0,
+                      landscape ? 12 : 4,
+                    ),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: landscape ? 2 : 1,
-                      mainAxisSpacing: 12,
+                      mainAxisSpacing: landscape ? 16 : 12,
                       crossAxisSpacing: 16,
                       mainAxisExtent: landscape ? 112 : 86,
                     ),
@@ -553,9 +562,9 @@ class _PetSelectionCard extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: tokens.panelShadow,
-                blurRadius: 24,
-                offset: const Offset(0, 10),
+                color: tokens.panelShadow.withValues(alpha: 0.34),
+                blurRadius: landscape ? 10 : 18,
+                offset: Offset(0, landscape ? 4 : 8),
               ),
             ],
           ),
@@ -593,7 +602,7 @@ class _PetSelectionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${pet.breed} · ${pet.ageLabel}',
+                      _petMetaLabel(pet),
                       maxLines: landscape ? 2 : 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -752,58 +761,74 @@ class _DashboardContent extends StatelessWidget {
       builder: (context, constraints) {
         final isLandscape = constraints.maxWidth > constraints.maxHeight &&
             constraints.maxWidth >= 640;
+        if (isLandscape) {
+          return Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    _DashboardTopBar(
+                      now: now,
+                      onOpenSettings: onOpenSettings,
+                      isLandscape: true,
+                      syncStatusLabel: syncStatusLabel,
+                      showConnectionStatus: false,
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: _PetStatusPanel(
+                        pet: pet,
+                        compact: true,
+                        syncStatusLabel: syncStatusLabel,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 7,
+                child: _TodoPanel(
+                  items: items,
+                  pendingItemKeys: pendingItemKeys,
+                  onMarkDone: onMarkDone,
+                  landscape: true,
+                ),
+              ),
+            ],
+          );
+        }
         return Column(
           children: [
             _DashboardTopBar(
               now: now,
               onOpenSettings: onOpenSettings,
-              isLandscape: isLandscape,
+              isLandscape: false,
               syncStatusLabel: syncStatusLabel,
             ),
             const SizedBox(height: 14),
             Expanded(
-              child: isLandscape
-                  ? Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: _PetStatusPanel(
-                            pet: pet,
-                            compact: true,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 7,
-                          child: _TodoPanel(
-                            items: items,
-                            pendingItemKeys: pendingItemKeys,
-                            onMarkDone: onMarkDone,
-                            landscape: true,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: _PetStatusPanel(
-                            pet: pet,
-                            compact: true,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Expanded(
-                          flex: 7,
-                          child: _TodoPanel(
-                            items: items,
-                            pendingItemKeys: pendingItemKeys,
-                            onMarkDone: onMarkDone,
-                          ),
-                        ),
-                      ],
+              child: Column(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: _PetStatusPanel(
+                      pet: pet,
+                      compact: true,
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    flex: 7,
+                    child: _TodoPanel(
+                      items: items,
+                      pendingItemKeys: pendingItemKeys,
+                      onMarkDone: onMarkDone,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         );
@@ -818,12 +843,14 @@ class _DashboardTopBar extends StatelessWidget {
     required this.onOpenSettings,
     required this.isLandscape,
     required this.syncStatusLabel,
+    this.showConnectionStatus = true,
   });
 
   final DateTime now;
   final VoidCallback onOpenSettings;
   final bool isLandscape;
   final String syncStatusLabel;
+  final bool showConnectionStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -856,8 +883,10 @@ class _DashboardTopBar extends StatelessWidget {
           ),
         ),
         const SyncFailureChip(),
-        const SizedBox(width: 8),
-        _ConnectionPill(label: syncStatusLabel),
+        if (showConnectionStatus) ...[
+          const SizedBox(width: 8),
+          _ConnectionPill(label: syncStatusLabel),
+        ],
         const SizedBox(width: 8),
         _IconSurfaceButton(
           key: const ValueKey('pet_dashboard_settings'),
@@ -874,10 +903,12 @@ class _PetStatusPanel extends StatelessWidget {
   const _PetStatusPanel({
     required this.pet,
     required this.compact,
+    this.syncStatusLabel,
   });
 
   final Pet pet;
   final bool compact;
+  final String? syncStatusLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -885,50 +916,66 @@ class _PetStatusPanel extends StatelessWidget {
     final foreground = tokens.primaryText;
     return _SoftPanel(
       key: const ValueKey('pet_dashboard_pet_card'),
-      padding: EdgeInsets.all(compact ? 14 : 18),
+      padding: EdgeInsets.all(compact ? 16 : 18),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: syncStatusLabel == null
+            ? MainAxisAlignment.center
+            : MainAxisAlignment.spaceBetween,
         children: [
           Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: PetPhotoAvatar(
-                photoPath: pet.photoPath,
-                fallbackText: petAvatarFallbackForPet(pet),
-                radius: compact ? 38 : 54,
-                backgroundColor: tokens.segmentedSelectedBackground,
-                foregroundColor: Colors.white,
-                fallbackTextStyle: TextStyle(
-                  color: Colors.white,
-                  fontSize: compact ? 32 : 44,
-                  fontWeight: FontWeight.w900,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: PetPhotoAvatar(
+                      photoPath: pet.photoPath,
+                      fallbackText: petAvatarFallbackForPet(pet),
+                      radius: compact ? 45 : 54,
+                      backgroundColor: tokens.segmentedSelectedBackground,
+                      foregroundColor: Colors.white,
+                      fallbackTextStyle: TextStyle(
+                        color: Colors.white,
+                        fontSize: compact ? 36 : 44,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                SizedBox(height: compact ? 9 : 14),
+                Text(
+                  pet.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: compact ? 25 : 34,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _petMetaLabel(pet),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: tokens.secondaryText,
+                    fontSize: compact ? 13 : 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
-          SizedBox(height: compact ? 8 : 14),
-          Text(
-            pet.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: foreground,
-              fontSize: compact ? 25 : 34,
-              height: 1,
-              fontWeight: FontWeight.w900,
+          if (syncStatusLabel != null) ...[
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: double.infinity),
+              child: _ConnectionPill(label: syncStatusLabel!),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${pet.breed} · ${pet.ageLabel}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: tokens.secondaryText,
-              fontSize: compact ? 13 : 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -1335,12 +1382,14 @@ String _formatWeekday(DateTime value) {
   };
 }
 
-String _selectorSyncKicker(String label) {
-  if (label.contains('已连接') || label.contains('同步中')) {
-    return '已连接主人端';
+String _petMetaLabel(Pet pet) {
+  final breed = pet.breed.trim();
+  final age = pet.ageLabel.trim();
+  if (age.isEmpty || age == '新加入') {
+    return breed;
   }
-  if (label.contains('连接中')) {
-    return '正在连接主人端';
+  if (breed.isEmpty) {
+    return age;
   }
-  return '等待主人端同步';
+  return '$breed · $age';
 }

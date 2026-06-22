@@ -362,12 +362,12 @@ ChecklistSection _sectionByKey(
 String petAgeLabel(Pet pet, DateTime now) {
   final birthday = DateTime.tryParse(pet.birthday);
   if (birthday == null) {
-    return pet.ageLabel;
+    return _visibleAgeLabel(pet.ageLabel);
   }
   final today = DateTime(now.year, now.month, now.day);
   final birthDate = DateTime(birthday.year, birthday.month, birthday.day);
   if (birthDate.isAfter(today)) {
-    return pet.ageLabel;
+    return _visibleAgeLabel(pet.ageLabel);
   }
   var years = today.year - birthDate.year;
   final birthdayThisYear = DateTime(today.year, birthDate.month, birthDate.day);
@@ -389,7 +389,25 @@ String petAgeLabel(Pet pet, DateTime now) {
   if (days > 0) {
     return '$days天';
   }
-  return '新加入';
+  return '';
+}
+
+String petProfileSummary(
+  Pet pet,
+  DateTime now, {
+  bool includeWeight = false,
+}) {
+  return [
+    petTypeLabel(pet.type),
+    pet.breed,
+    petAgeLabel(pet, now),
+    if (includeWeight) '当前体重 ${pet.weightKg} kg',
+  ].where((item) => item.trim().isNotEmpty).join(' · ');
+}
+
+String _visibleAgeLabel(String value) {
+  final trimmed = value.trim();
+  return trimmed == '新加入' ? '' : trimmed;
 }
 
 String formatDate(DateTime value, {bool withTime = true}) {

@@ -151,6 +151,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   static const _embeddedBottomInset = 8.0;
   static const _defaultHeaderSpacing = 18.0;
   static const _embeddedHeaderSpacing = 10.0;
+  static const _minWeightKg = 0.1;
+  static const _maxWeightKg = 80.0;
+  static const _defaultWeightKg = 4.0;
 
   final _name = TextEditingController();
   final _customBreed = TextEditingController();
@@ -159,6 +162,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   final _note = TextEditingController();
   final _weight = TextEditingController();
   late final PageController _stepPageController;
+  late final FixedExtentScrollController _weightWheelController;
   late final AnimationController _entryController;
   late final IntroHapticsDriver _introHapticsDriver;
   late final NativePetPhotoPicker _nativePetPhotoPicker =
@@ -194,6 +198,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     _introHapticsDriver =
         widget.introHapticsDriver ?? MethodChannelIntroHaptics();
     _stepPageController = PageController();
+    _weightWheelController = FixedExtentScrollController(
+      initialItem: _weightIndexFor(_defaultWeightKg),
+    );
     _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 640),
@@ -242,6 +249,7 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     _note.dispose();
     _weight.dispose();
     _stepPageController.dispose();
+    _weightWheelController.dispose();
     _entryController.dispose();
     if (!_hasSubmitted && _photoPath != null) {
       unawaited(_nativePetPhotoPicker.deletePetPhoto(_photoPath!));
@@ -269,7 +277,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
         return _birthday != null;
       case 4:
         final parsed = double.tryParse(_weight.text.trim());
-        return parsed != null && parsed > 0;
+        return parsed != null &&
+            parsed >= _minWeightKg &&
+            parsed <= _maxWeightKg;
       case 5:
       case 6:
       case 7:
@@ -715,12 +725,15 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
       ),
       Theme(
         data: calendarTheme,
-        child: CalendarDatePicker(
-          initialDate: _birthday,
-          currentDate: now,
-          firstDate: DateTime(now.year - 25),
-          lastDate: latestBirthday,
-          onDateChanged: (value) => setState(() => _birthday = value),
+        child: _OnboardingInsetSurface(
+          key: const ValueKey('onboarding_birthday_calendar_surface'),
+          child: CalendarDatePicker(
+            initialDate: _birthday,
+            currentDate: now,
+            firstDate: DateTime(now.year - 25),
+            lastDate: latestBirthday,
+            onDateChanged: (value) => setState(() => _birthday = value),
+          ),
         ),
       ),
     ];
@@ -729,11 +742,14 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   List<Widget> _weightStep() {
     return [
       const SectionLabel(text: '当前体重（kg）'),
-      TextField(
-        key: const ValueKey('onboarding_weight_field'),
-        controller: _weight,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(hintText: '例如 4.2'),
+      _WeightWheelPicker(
+        controller: _weightWheelController,
+        value: _selectedWeightKg,
+        minWeightKg: _minWeightKg,
+        maxWeightKg: _maxWeightKg,
+        defaultWeightKg: _defaultWeightKg,
+        onChanged: _setWeightFromWheel,
+        onTapValue: _openWeightInputDialog,
       ),
     ];
   }
@@ -807,7 +823,9 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
             : (_breed ?? otherBreedLabel),
         sex: _sex ?? '未填写',
         birthday: _formatBirthday(_birthday!),
-        weightKg: double.parse(_weight.text.trim()),
+        weightKg: double.parse(_weight.text.trim())
+            .clamp(_minWeightKg, _maxWeightKg)
+            .toDouble(),
         neuterStatus: _neuterStatus ?? PetNeuterStatus.unknown,
         feedingPreferences: _textOrDefault(_feeding.text),
         allergies: _textOrDefault(_allergies.text),
@@ -890,6 +908,48 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
     if (mounted) {
       setState(() {});
     }
+  }
+
+  double? get _selectedWeightKg {
+    final parsed = double.tryParse(_weight.text.trim());
+    if (parsed == null) {
+      return null;
+    }
+    return parsed.clamp(_minWeightKg, _maxWeightKg).toDouble();
+  }
+
+  void _setWeightFromWheel(double value) {
+    final nextText = value.toStringAsFixed(1);
+    if (_weight.text == nextText) {
+      return;
+    }
+    _weight.text = nextText;
+  }
+
+  Future<void> _openWeightInputDialog() async {
+    final value = await showDialog<double>(
+      context: context,
+      builder: (context) => _WeightDirectInputDialog(
+        initialValue: _selectedWeightKg ?? _defaultWeightKg,
+        minWeightKg: _minWeightKg,
+        maxWeightKg: _maxWeightKg,
+      ),
+    );
+    if (value == null || !mounted) {
+      return;
+    }
+    final clamped = value.clamp(_minWeightKg, _maxWeightKg).toDouble();
+    _weight.text = clamped.toStringAsFixed(1);
+    await _weightWheelController.animateToItem(
+      _weightIndexFor(clamped),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  int _weightIndexFor(double value) {
+    final clamped = value.clamp(_minWeightKg, _maxWeightKg).toDouble();
+    return ((clamped - _minWeightKg) * 10).round();
   }
 
   void _showPhotoError(String message) {
@@ -1002,6 +1062,197 @@ class _StepCopy {
 
   final String title;
   final String subtitle;
+}
+
+class _OnboardingInsetSurface extends StatelessWidget {
+  const _OnboardingInsetSurface({
+    super.key,
+    required this.child,
+  });
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(top: 14, bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      decoration: BoxDecoration(
+        color: tokens.panelStrongBackground,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: tokens.panelBorder),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.panelShadow.withValues(alpha: isDark ? 0.24 : 0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _WeightWheelPicker extends StatelessWidget {
+  const _WeightWheelPicker({
+    required this.controller,
+    required this.value,
+    required this.minWeightKg,
+    required this.maxWeightKg,
+    required this.defaultWeightKg,
+    required this.onChanged,
+    required this.onTapValue,
+  });
+
+  final FixedExtentScrollController controller;
+  final double? value;
+  final double minWeightKg;
+  final double maxWeightKg;
+  final double defaultWeightKg;
+  final ValueChanged<double> onChanged;
+  final VoidCallback onTapValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    final selected = value ?? defaultWeightKg;
+    final itemCount = ((maxWeightKg - minWeightKg) * 10).round() + 1;
+    return _OnboardingInsetSurface(
+      key: const ValueKey('onboarding_weight_picker_surface'),
+      child: Column(
+        children: [
+          Semantics(
+            button: true,
+            label: '直接输入体重',
+            child: InkWell(
+              key: const ValueKey('onboarding_weight_value_button'),
+              borderRadius: BorderRadius.circular(18),
+              onTap: onTapValue,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                child: Text(
+                  '${selected.toStringAsFixed(1)} kg',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: tokens.primaryText,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            key: const ValueKey('onboarding_weight_wheel'),
+            height: 168,
+            child: ListWheelScrollView.useDelegate(
+              controller: controller,
+              itemExtent: 42,
+              physics: const FixedExtentScrollPhysics(),
+              overAndUnderCenterOpacity: 0.42,
+              onSelectedItemChanged: (index) {
+                onChanged(minWeightKg + index / 10);
+              },
+              childDelegate: ListWheelChildBuilderDelegate(
+                childCount: itemCount,
+                builder: (context, index) {
+                  final itemValue = minWeightKg + index / 10;
+                  final isSelected = (itemValue - selected).abs() < 0.049;
+                  return Center(
+                    child: Text(
+                      itemValue.toStringAsFixed(1),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: isSelected
+                                ? tokens.primaryText
+                                : tokens.secondaryText,
+                            fontWeight:
+                                isSelected ? FontWeight.w900 : FontWeight.w700,
+                          ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeightDirectInputDialog extends StatefulWidget {
+  const _WeightDirectInputDialog({
+    required this.initialValue,
+    required this.minWeightKg,
+    required this.maxWeightKg,
+  });
+
+  final double initialValue;
+  final double minWeightKg;
+  final double maxWeightKg;
+
+  @override
+  State<_WeightDirectInputDialog> createState() =>
+      _WeightDirectInputDialogState();
+}
+
+class _WeightDirectInputDialogState extends State<_WeightDirectInputDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue.toStringAsFixed(1),
+  );
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('输入体重'),
+      content: TextField(
+        key: const ValueKey('onboarding_weight_direct_input_field'),
+        controller: _controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          suffixText: 'kg',
+          errorText: _errorText,
+          helperText: '${widget.minWeightKg.toStringAsFixed(1)} - '
+              '${widget.maxWeightKg.toStringAsFixed(1)} kg',
+        ),
+        onSubmitted: (_) => _save(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('onboarding_weight_direct_input_save'),
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final parsed = double.tryParse(_controller.text.trim());
+    if (parsed == null || parsed <= 0) {
+      setState(() => _errorText = '请输入有效体重');
+      return;
+    }
+    Navigator.pop(
+      context,
+      parsed.clamp(widget.minWeightKg, widget.maxWeightKg).toDouble(),
+    );
+  }
 }
 
 class _AnimatedPipelineProgressBar extends StatefulWidget {

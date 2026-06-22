@@ -226,8 +226,7 @@ class _PetDetailsPageState extends State<PetDetailsPage> {
                   children: [
                     PageHeader(
                       title: widget.pet.name,
-                      subtitle:
-                          '${petTypeLabel(widget.pet.type)} · ${widget.pet.breed} · ${petAgeLabel(widget.pet, _now)}',
+                      subtitle: petProfileSummary(widget.pet, _now),
                       trailing: _isSelecting
                           ? _PetRecordBatchActions(
                               allSelected: allSelected,

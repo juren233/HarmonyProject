@@ -254,8 +254,7 @@ class _PetsPageState extends State<PetsPage> {
         else ...[
           HeroPanel(
             title: pet.name,
-            subtitle:
-                '${petTypeLabel(pet.type)} · ${pet.breed} · ${petAgeLabel(pet, _now)} · 当前体重 ${pet.weightKg} kg',
+            subtitle: petProfileSummary(pet, _now, includeWeight: true),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final availableWidth = constraints.maxWidth;
@@ -531,7 +530,7 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              petAgeLabel(pet, widget.now),
+                              _petSelectorSubtitle(pet, widget.now),
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
@@ -554,6 +553,14 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
       ),
     );
   }
+}
+
+String _petSelectorSubtitle(Pet pet, DateTime now) {
+  final age = petAgeLabel(pet, now);
+  if (age.isNotEmpty) {
+    return age;
+  }
+  return pet.breed;
 }
 
 String _petsPageSubtitle(int petCount) {

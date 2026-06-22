@@ -435,3 +435,65 @@
 - 服务端现在先构造本次 action payload；只有本次带 `occurredAtMs` 时，才按同一事项最新动作判断是否过期，避免误伤历史无时间戳兼容动作。
 - 宠物列表页和宠物详情页新增页面级分钟刷新，并用生日动态计算展示年龄；旧数据生日无法解析或未来日期时仍回退 `pet.ageLabel`。
 - 验证通过：`cd server && dart test test/sync_flow_test.dart`；`flutter test test/pets_page_subtitle_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`dart analyze lib/src/session_handler.dart`；`flutter analyze lib/app/petnote_pages.dart lib/app/petnote_pages_pets.dart lib/app/petnote_pages_pets_details.dart lib/sync/multi_device_sync_controller.dart test/pets_page_subtitle_test.dart test/owner_sync_engine_test.dart`。
+
+## 2026-06-22 横屏宠物看板空间修正
+
+- [x] 重排已选择服务宠物后的横屏看板：左侧承载时间/设置和头像状态，右侧待办卡片从顶部填充 → 验证: 横屏几何测试覆盖左右区域与设置按钮对齐
+- [x] 将连接状态迁入左侧宠物头像卡片底部，并适度增大头像 → 验证: widget 测试确认连接胶囊位于宠物卡片内且无溢出
+- [x] 收紧横屏待办卡片内部排版，防止完成按钮越界 → 验证: 多尺寸横屏测试确认完成按钮完全位于待办卡片内
+- [x] 保持设置和完成交互功能不变 → 验证: 点击设置和完成按钮仍触发原回调
+- [x] 跑聚焦测试和静态检查 → 验证: `flutter test test/pet_device_dashboard_test.dart` 与相关 `flutter analyze`
+
+### Review
+
+- 已选择服务宠物后的横屏看板改为真正的左右两栏：左侧 3 份宽度包含时间、同步异常入口、设置按钮和宠物头像状态卡，右侧 7 份宽度由待办大卡片从顶部到底部完整填充，避免顶部右侧状态区继续压缩待办空间。
+- 连接状态胶囊只在横屏看板中迁入宠物头像卡片底部；竖屏看板和未选择宠物的选择页保持原展示。头像紧凑态半径从 38 增至 45，并通过卡片内 `spaceBetween` 为底部状态胶囊留出稳定间距。
+- 新增横屏多尺寸 widget 几何测试，覆盖 `720x390`、`900x520` 和接近截图比例的 `2048x945`，验证设置按钮右边缘与宠物卡片右边缘对齐、连接胶囊在宠物卡片内、待办卡片和完成按钮都不越界。
+- 验证通过：`flutter test test/pet_device_dashboard_test.dart`；`flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`。
+
+## 2026-06-22 横屏看板修复后双端安装包构建
+
+- [x] 同步官方 Flutter 依赖并刷新 iOS Pods → 验证: `flutter pub get` 与 `cd ios && pod install`
+- [x] 构建 iOS 未签名 release App 并打包 unsigned IPA → 验证: `build/ios/Runner-unsigned.ipa` 存在且可计算 SHA256
+- [x] 构建 Android arm64 release APK → 验证: `build/app/outputs/flutter-apk/app-release.apk` 存在且可计算 SHA256
+- [x] 检查构建副作用和残留进程 → 验证: `git status --short`、测试/构建进程检查
+
+### Review
+
+- iOS 未签名 IPA 已构建：`build/ios/Runner-unsigned.ipa`，大小 31MB，SHA256 `af95ba06b324fb748ecdf0ffe3c750d6579730b88e5e8d96ee016ff7d76809fe`。
+- Android arm64 release APK 已构建：`build/app/outputs/flutter-apk/app-release.apk`，大小 40MB，SHA256 `7d3f808e38074bfafdca4da70710acfc1f5d28473a24661f4a3f4b967d5ca2a0`。
+- 构建过程提示 Gradle/AGP/Kotlin Gradle Plugin 未来 Flutter 兼容性警告，但本次 Android release 构建成功。
+- `flutter pub get` 曾产生 `pubspec.lock` 的 `meta/test_api` 版本翻转，已作为构建副作用恢复；`./gradlew --stop` 后复查无 Flutter/Xcode/Gradle 测试或构建残留进程。
+
+## 2026-06-22 宠物端与建档体验修复
+
+- [x] 优化宠物端横屏选择页布局、文案和小卡片阴影 → 验证: 多尺寸 widget 几何测试无越界/暗角文案残留
+- [x] 修复添加宠物流程生日卡片阴影，并重构体重滚轮/直接输入 → 验证: 建档流程 widget 测试覆盖日期、滚轮、弹窗和校验
+- [x] 修复首次启动角色页回滑和深色模式图标 → 验证: intro widget 测试覆盖不能前进、可后退、深色颜色
+- [x] 清理用户可见“新加入”展示 → 验证: UI 测试和 `rg` 聚焦检查
+- [x] 审阅宠物类型/品种/emoji 同步链路并落盘报告 → 验证: `docs/pet-type-avatar-sync-risk-review-2026-06-22.md`
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: Flutter tests、`flutter analyze`、`git diff --check`
+
+### Review
+
+- 宠物端横屏选择页已统一为左侧时间/设置加状态卡、右侧宠物列表；右侧计数胶囊和左侧“选择服务宠物/已连接主人端”类冗余文案已移除，小卡片阴影降噪并留出安全 padding。
+- 添加宠物流程中，生日 `CalendarDatePicker` 现在包在独立内嵌面板内；体重步骤改为滚轮选择，点击数值可直接输入，非法输入保留弹窗错误，超范围值会 clamp 到 `0.1-80.0kg`。
+- 首次启动角色页保留不能继续滑到下一页的逻辑，并允许从角色页回滑到上一页；角色页英雄图标继续使用浅蓝圆形背景和蓝色设备图标。
+- 用户可见展示层不再直接展示“新加入”；`Pet.ageLabel` 字段保留作旧数据兼容，相关过滤在展示 helper 中完成。
+- 同步风险报告已落盘到 `docs/pet-type-avatar-sync-risk-review-2026-06-22.md`；新增数据测试确认 dog 类型不会因兔相关品种文案变成兔 emoji，未知 type 会降级为 other 并使用 `avatarText`。
+- 验证通过：`flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_onboarding_overlay.dart lib/app/pet_first_launch_intro.dart lib/app/petnote_pages.dart lib/app/petnote_pages_pets.dart lib/app/petnote_pages_pets_details.dart test/pet_device_dashboard_test.dart test/widget_test.dart test/pet_care_store_test.dart test/pet_replica_controller_test.dart`；`flutter test test/pet_device_dashboard_test.dart test/widget_test.dart test/pet_care_store_test.dart test/pet_replica_controller_test.dart`；`git diff --check`。复查无测试残留进程。
+
+## 2026-06-22 宠物端与建档体验修复后双端构建
+
+- [x] 检查 README 构建约定和 macOS 串行脚本可用性 → 验证: 脚本存在性、booted simulator 状态
+- [x] 构建 iOS release App 并打包 unsigned IPA → 验证: `build/ios/Runner-unsigned.ipa` 存在且可计算 SHA256
+- [x] 构建 Android arm64-v8a release APK → 验证: `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` 存在且可计算 SHA256
+- [x] 检查构建副作用和残留进程 → 验证: `git status --short`、构建/测试进程检查
+
+### Review
+
+- 当前没有已启动 iOS 模拟器，`scripts/post-build-macos.sh` 的模拟器安装步骤会被设备状态阻塞；本次按 README release 链路构建产物。
+- iOS 未签名 IPA 已构建：`build/ios/Runner-unsigned.ipa`，大小 31MB，SHA256 `7d40724e667d6a994c7d4f035daa144e27950b6c3c5711511673b46600212cca`。
+- Android arm64-v8a release APK 已构建：`build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`，大小 27MB，SHA256 `08a276b7dccc3a9aa5dd1d92f1365a66ef601839a9bf39523f254ad9dfae8074`。
+- Android 构建首次在 Gradle 启动阶段出现 `exit code -9`，随后确认 Gradle wrapper 可启动并重跑成功；构建过程仍提示 Gradle/AGP/Kotlin Gradle Plugin 未来 Flutter 兼容性警告。
+- `./gradlew --stop` 后复查无 Flutter/Xcode/Gradle 测试或构建残留进程；`git status --short` 未出现 lockfile、Pods 或签名配置噪音。
