@@ -57,6 +57,8 @@ class SyncMessageTypes {
       'mutation'; // srv→device {mutationId, ciphertext, entityType, entityId, kind}
   static const syncReceived =
       'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?, actionId?, kind?, sourceType?, itemId?}
+  static const syncCheckpoint =
+      'sync_checkpoint'; // srv→device {fromServerSeq?, toServerSeq?, sentEventCount, remainingEventCount, hasMore}
   // 设备管理
   static const devicesRequest = 'devices_request'; // device→srv {}
   static const devices = 'devices'; // srv→device {devices: [...]}

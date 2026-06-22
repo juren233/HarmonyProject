@@ -386,7 +386,24 @@ class SessionHandler {
   void _sendSnapshotIfAny(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    _sendMissingSyncEvents(household);
+    final afterServerSeq = _optionalInt(message.payload['afterServerSeq']);
+    final maxEvents = _optionalInt(message.payload['maxEvents']);
+    final batch = _sendMissingSyncEvents(
+      household,
+      afterServerSeq: afterServerSeq,
+      maxEvents: maxEvents,
+    );
+    if (afterServerSeq != null || maxEvents != null) {
+      _send(SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'afterServerSeq': afterServerSeq,
+        'requestedMaxEvents': maxEvents,
+        'sentEventCount': batch.sentEventCount,
+        'remainingEventCount': batch.remainingEventCount,
+        'hasMore': batch.remainingEventCount > 0,
+        if (batch.fromServerSeq != null) 'fromServerSeq': batch.fromServerSeq,
+        if (batch.toServerSeq != null) 'toServerSeq': batch.toServerSeq,
+      }));
+    }
     _broadcastToOtherDevices(
       household,
       (_) => SyncMessage(
@@ -847,18 +864,32 @@ class SessionHandler {
     return event;
   }
 
-  void _sendMissingSyncEvents(Household household) {
+  _SyncEventBatch _sendMissingSyncEvents(
+    Household household, {
+    int? afterServerSeq,
+    int? maxEvents,
+  }) {
     final currentDeviceId = deviceId;
     if (currentDeviceId == null) {
-      return;
+      return const _SyncEventBatch();
     }
+    final eventLimit = maxEvents == null ? null : maxEvents.clamp(1, 100);
     final missingCompletedKeys = <String>{};
     var receiptChanged = false;
-    for (final event in household.syncEvents.values) {
+    var sentEventCount = 0;
+    var remainingEventCount = 0;
+    int? fromServerSeq;
+    int? toServerSeq;
+    final events = household.syncEvents.values.toList(growable: false)
+      ..sort((a, b) => a.serverSeq.compareTo(b.serverSeq));
+    for (final event in events) {
       if (event.originDeviceId == currentDeviceId) {
         continue;
       }
       if (event.receivedByDeviceIds.contains(currentDeviceId)) {
+        continue;
+      }
+      if (afterServerSeq != null && event.serverSeq <= afterServerSeq) {
         continue;
       }
       if (_isObsoleteCompletedAction(household, event.payload)) {
@@ -877,7 +908,14 @@ class SessionHandler {
           continue;
         }
       }
+      if (eventLimit != null && sentEventCount >= eventLimit) {
+        remainingEventCount += 1;
+        continue;
+      }
       _send(SyncMessage(event.messageType, event.payload));
+      sentEventCount += 1;
+      fromServerSeq ??= event.serverSeq;
+      toServerSeq = event.serverSeq;
     }
     if (missingCompletedKeys.isNotEmpty) {
       _sendMissingCompletedActions(household, missingCompletedKeys);
@@ -886,6 +924,12 @@ class SessionHandler {
       _pruneReceivedSyncEvents(household);
       unawaited(app.store.flush());
     }
+    return _SyncEventBatch(
+      sentEventCount: sentEventCount,
+      remainingEventCount: remainingEventCount,
+      fromServerSeq: fromServerSeq,
+      toServerSeq: toServerSeq,
+    );
   }
 
   void _sendMissingCompletedActions(
@@ -1079,6 +1123,16 @@ class SessionHandler {
 
   String? _optionalString(Object? value) => value is String ? value : null;
 
+  int? _optionalInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return null;
+  }
+
   Set<String> _stringSet(Object? value) {
     if (value is! List) {
       return const <String>{};
@@ -1112,4 +1166,18 @@ class SessionHandler {
   }
 
   void _send(SyncMessage message) => channel.sink.add(message.encode());
+}
+
+class _SyncEventBatch {
+  const _SyncEventBatch({
+    this.sentEventCount = 0,
+    this.remainingEventCount = 0,
+    this.fromServerSeq,
+    this.toServerSeq,
+  });
+
+  final int sentEventCount;
+  final int remainingEventCount;
+  final int? fromServerSeq;
+  final int? toServerSeq;
 }

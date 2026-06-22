@@ -712,6 +712,81 @@ void main() {
     expect(household.devices['pet-1']?.lastAckServerSeq, 2);
   });
 
+  test('snapshotRequest 支持按 serverSeq 增量限量补发并返回 checkpoint', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    for (var index = 1; index <= 3; index += 1) {
+      owner.send(SyncMessageTypes.mutationPush, {
+        'mutationId': 'batch-mutation-$index',
+        'ciphertext': 'encrypted-mutation-$index',
+        'entityType': PetNoteEntityType.todo.name,
+        'entityId': 'todo-$index',
+        'kind': PetNoteMutationKind.upsert.name,
+      });
+      await owner.expectType(SyncMessageTypes.syncReceived);
+    }
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    pet.send(SyncMessageTypes.snapshotRequest, {});
+    for (var index = 1; index <= 3; index += 1) {
+      final mutation = await pet.expectType(SyncMessageTypes.mutation);
+      expect(mutation.payload['serverSeq'], index);
+      expect(mutation.payload['mutationId'], 'batch-mutation-$index');
+    }
+    await pet.expectNoType(SyncMessageTypes.syncCheckpoint);
+
+    pet.send(SyncMessageTypes.snapshotRequest, {
+      'afterServerSeq': 1,
+      'maxEvents': 1,
+    });
+    final mutation = await pet.expectType(SyncMessageTypes.mutation);
+    expect(mutation.payload['serverSeq'], 2);
+    expect(mutation.payload['mutationId'], 'batch-mutation-2');
+    final checkpoint = await pet.expectType(SyncMessageTypes.syncCheckpoint);
+    expect(checkpoint.payload['afterServerSeq'], 1);
+    expect(checkpoint.payload['requestedMaxEvents'], 1);
+    expect(checkpoint.payload['fromServerSeq'], 2);
+    expect(checkpoint.payload['toServerSeq'], 2);
+    expect(checkpoint.payload['sentEventCount'], 1);
+    expect(checkpoint.payload['remainingEventCount'], 1);
+    expect(checkpoint.payload['hasMore'], isTrue);
+  });
+
   test('长期离线设备不会阻塞已确认同步事件剪枝', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {

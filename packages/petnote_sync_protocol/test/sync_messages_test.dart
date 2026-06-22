@@ -12,6 +12,20 @@ void main() {
     expect(decoded.payload['version'], 3);
   });
 
+  test('同步 checkpoint 消息 JSON 编解码往返', () {
+    const message = SyncMessage(SyncMessageTypes.syncCheckpoint, {
+      'afterServerSeq': 4,
+      'sentEventCount': 2,
+      'remainingEventCount': 1,
+      'hasMore': true,
+    });
+    final decoded = SyncMessage.decode(message.encode());
+
+    expect(decoded.type, SyncMessageTypes.syncCheckpoint);
+    expect(decoded.payload['afterServerSeq'], 4);
+    expect(decoded.payload['hasMore'], isTrue);
+  });
+
   test('PetAction 编解码往返', () {
     final action = PetAction(kind: PetActionKind.markDone, sourceType: 'todo', itemId: 't1');
     final decoded = PetAction.fromJson(action.toJson());

@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 服务端按 serverSeq 增量补发
+
+- [x] 为 `snapshot_request` 增加可选 `afterServerSeq` / `maxEvents` → 验证: 不传字段时旧补发行为不变
+- [x] 服务端按 `serverSeq` 过滤与限量补发事件 → 验证: 测试只收到目标序号之后的事件且最多一批
+- [x] 新增同步 checkpoint 响应 → 验证: 测试收到 `sync_checkpoint` 且包含 batch 边界和 remaining 标记
+- [x] 跑协议/服务端测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `snapshot_request` 现在可选携带 `afterServerSeq` 与 `maxEvents`；旧客户端不传字段时仍按原逻辑补发所有未确认事件，且不会额外收到 checkpoint。
+- 服务端补发路径按 `serverSeq` 排序，支持只发送 `afterServerSeq` 之后的事件，并把单批数量限制在 `maxEvents`，服务端内部最大按 100 条钳制。
+- 新增 `sync_checkpoint` 协议消息，增量请求后返回 `sentEventCount`、`remainingEventCount`、`fromServerSeq`、`toServerSeq` 与 `hasMore`，为后续客户端持久 checkpoint / batch pull 接入留好协议坐标。
+- 验证通过：`cd packages/petnote_sync_protocol && ../../.flutter_ohos_sdk_gitcode/bin/dart test`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；协议与服务端相关 `dart analyze`；`git diff --check`。
+
 ## 2026-06-23 服务端 serverSeq / checkpoint 基础层
 
 - [x] 为服务端同步事件增加单调 `serverSeq` → 验证: 新 snapshot/mutation/action 事件序号递增并持久化
