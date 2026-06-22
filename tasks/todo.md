@@ -1,5 +1,22 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 全面代码质量与同步稳定性评估
+
+- [x] 复核当前 CI、工作区和 README 约束 → 验证: `gh run list` / `git status` 证据明确
+- [x] 审查 Flutter 客户端同步核心、服务端 relay 和协议包 → 验证: 关键文件与测试覆盖路径可追溯
+- [x] 联网调研弱网/高频操作下的可靠同步实践 → 验证: 报告引用官方或成熟项目资料
+- [x] 输出代码质量与同步稳定性评估报告 → 验证: `docs/` 落盘 Markdown
+- [x] 审查本地和远端分支留存必要性 → 验证: merged/stale 分支清单与处理建议明确
+- [x] 根据评估结果决定是否需要代码修复/提交推送 → 验证: 如有变更则测试、提交并触发 Actions
+
+### Review 2026-06-23
+
+- UI 提交 `852528b` 的 GitHub Actions 已完成：`PetNote Notify` 和 `PetNote Release` 均 success，并生成 `v1.4.0-beta.39`。
+- 新评估报告已落盘到 `docs/code-quality-sync-review-2026-06-23.md`，覆盖当前 main 的同步可靠性基线、剩余风险、外部官方资料依据、优先行动清单和分支留存结论。
+- 审查结论：当前 main 已具备握手门禁、持久 outbox、首次配对双向 merge、服务端原子写入等基础；剩余重点是收敛 `SyncClient._outbox`、增加队列/事件上限、引入 server sequence/checkpoint 和服务端诊断。
+- 分支处理：已删除已合并远端 `origin/feature/unified-ohos-flutter`；已删除干净且已合并的本地 `claude/frosty-greider-5d3ed7` worktree/分支；保留未合并且有同步迁移价值的 `codex/powersync-spike`。
+- 本轮没有直接修改同步核心代码，原因是未发现当前 main 会直接导致数据错位或同步完全失败的高危 bug；报告建议下一轮从 `SyncClient._outbox` 收敛开始做低风险增量修复。
+
 ## 2026-06-23 横屏宠物选择页左侧卡片图标排版优化
 
 - [x] 在横屏选择页左侧状态卡加入深浅色自适应 App 图标 → 验证: widget 测试覆盖 light/dark logo 样式
