@@ -352,17 +352,17 @@ class _PetSelectorSidePanel extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final logoSize =
-                    (constraints.maxHeight * 0.29).clamp(72.0, 88.0).toDouble();
+                    (constraints.maxHeight * 0.24).clamp(64.0, 82.0).toDouble();
                 final topGap =
-                    (constraints.maxHeight * 0.06).clamp(8.0, 18.0).toDouble();
-                final logoBottomGap =
-                    (constraints.maxHeight * 0.06).clamp(8.0, 18.0).toDouble();
+                    (constraints.maxHeight * 0.05).clamp(6.0, 14.0).toDouble();
+                final brandBottomGap =
+                    (constraints.maxHeight * 0.05).clamp(8.0, 16.0).toDouble();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(height: topGap),
-                    Center(child: _SelectorAppLogo(size: logoSize)),
-                    SizedBox(height: logoBottomGap),
+                    Center(child: _SelectorBrandHeader(logoSize: logoSize)),
+                    SizedBox(height: brandBottomGap),
                     Expanded(
                       child: Align(
                         alignment: Alignment.bottomLeft,
@@ -399,6 +399,50 @@ class _PetSelectorSidePanel extends StatelessWidget {
                 );
               },
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectorBrandHeader extends StatelessWidget {
+  const _SelectorBrandHeader({required this.logoSize});
+
+  final double logoSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Column(
+      key: const ValueKey('pet_selector_brand_header'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SelectorAppLogo(size: logoSize),
+        const SizedBox(height: 10),
+        Text(
+          '宠记',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.primaryText,
+            fontSize: 20,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'PetNote',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.secondaryText,
+            fontSize: 11,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ],

@@ -1,5 +1,32 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 SyncFailureQueue 容量保护
+
+- [x] 为 durable sync outbox 增加消息数量上限 → 验证: 超过 `maxPendingMessages` 时拒绝新增并保留既有队列
+- [x] 为 durable sync outbox 增加持久化字节上限 → 验证: 超过 `maxPendingBytes` 时拒绝新增并暴露容量异常
+- [x] 按 UTF-8 实际持久化体积计算字节上限 → 验证: 多字节 payload 回归测试覆盖字符串长度误判场景
+- [x] 跑同步相关测试、analyze、服务端同步流和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncFailureQueue` 现在默认限制 durable outbox 最多 500 条、持久化 JSON 最多 64 MiB，弱网或服务端异常时不会无限堆积非 mutation 出站消息。
+- 超过数量或字节上限时不会写入新消息，会保留既有队列并通过 `SyncOutboxCapacityException` 写入 `lastError`；同 `syncId` 替换消息超限时也不会误删旧消息。
+- 字节上限按 UTF-8 编码后的实际持久化体积计算，新增多字节 payload 回归测试避免中文/emoji 被字符串长度低估。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_client_test.dart test/sync_failure_queue_test.dart test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart lib/sync/sync_failure_queue.dart test/sync_failure_queue_test.dart lib/sync/sync_client.dart test/sync_client_test.dart lib/sync/sync_service.dart test/sync_service_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`git diff --check`。
+
+## 2026-06-23 横屏宠物选择页左侧卡片品牌区微调
+
+- [x] 在横屏左侧状态卡上半区加入紧凑品牌信息 → 验证: widget 测试覆盖 `宠记` / `PetNote` 位于状态卡内
+- [x] 保持标题和连接状态向下排列且不越界 → 验证: 多尺寸横屏几何测试覆盖品牌区、标题、状态胶囊边界
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡上半区现在展示紧凑品牌区，图标盒继续沿用“我的”页项目介绍卡片的深浅色背景、边框、阴影和深色 SVG 白色过滤逻辑。
+- 标题“这台设备照顾谁？”与连接状态胶囊保持在卡片底部区域，品牌区、标题和状态胶囊均由多尺寸横屏几何测试约束在状态卡边界内。
+- 右侧宠物列表、宠物卡片点击选择、设置按钮和竖屏选择页语义不变。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`；`git diff --check -- lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart tasks/todo.md`。
+
 ## 2026-06-23 SyncClient 出站队列收敛
 
 - [x] 移除 `SyncClient` 底层不可见内存 outbox → 验证: 断线 `send()` 不再静默缓存

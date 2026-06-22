@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:petnote/sync/sync_transport.dart';
@@ -17,6 +18,8 @@ class SyncFailureQueue {
     this.loadOutbox,
     this.saveOutbox,
     this.scopeKey,
+    this.maxPendingMessages = 500,
+    this.maxPendingBytes = 64 * 1024 * 1024,
     DateTime Function()? nowProvider,
   }) : _nowProvider = nowProvider ?? DateTime.now;
 
@@ -27,6 +30,8 @@ class SyncFailureQueue {
   final SyncOutboxLoader? loadOutbox;
   final SyncOutboxSaver? saveOutbox;
   final String? scopeKey;
+  final int maxPendingMessages;
+  final int maxPendingBytes;
   final DateTime Function() _nowProvider;
 
   final List<_QueuedSyncMessage> _messages = <_QueuedSyncMessage>[];
@@ -75,28 +80,26 @@ class SyncFailureQueue {
 
   void sendOrQueue(SyncMessage message) {
     if (!_isReadyToSend) {
-      _dedupeBySyncId(message);
-      _messages.add(_QueuedSyncMessage.create(
+      final item = _QueuedSyncMessage.create(
         message,
         _nowProvider(),
         scopeKey: scopeKey,
-      ));
-      _refreshFailedCount();
-      _persist();
+      );
+      _queue(item);
       return;
     }
     try {
       transport.send(message);
     } on Object catch (error) {
-      _dedupeBySyncId(message);
-      _messages.add(_QueuedSyncMessage.create(
+      final item = _QueuedSyncMessage.create(
         message,
         _nowProvider(),
         scopeKey: scopeKey,
-      ).failed(error, _nowProvider()));
+      ).failed(error, _nowProvider());
+      if (!_queue(item)) {
+        return;
+      }
       lastError.value = error;
-      _refreshFailedCount();
-      _persist();
     }
   }
 
@@ -146,16 +149,32 @@ class SyncFailureQueue {
         (canSend?.call() ?? true);
   }
 
-  void _dedupeBySyncId(SyncMessage message) {
+  bool _queue(_QueuedSyncMessage item) {
+    final existingMessages = _withoutDuplicateBySyncId(item.message);
+    if (!_canAdd(item, existingMessages)) {
+      return false;
+    }
+    _messages
+      ..clear()
+      ..addAll(existingMessages)
+      ..add(item);
+    _refreshFailedCount();
+    _persist();
+    return true;
+  }
+
+  List<_QueuedSyncMessage> _withoutDuplicateBySyncId(SyncMessage message) {
     final syncId = message.payload['syncId'];
     if (syncId is! String || syncId.isEmpty) {
-      return;
+      return List<_QueuedSyncMessage>.from(_messages);
     }
-    _messages.removeWhere(
-      (item) =>
-          item.message.type == message.type &&
-          item.message.payload['syncId'] == syncId,
-    );
+    return _messages
+        .where(
+          (item) =>
+              item.message.type != message.type ||
+              item.message.payload['syncId'] != syncId,
+        )
+        .toList(growable: false);
   }
 
   bool _matchesScope(_QueuedSyncMessage item) {
@@ -164,6 +183,32 @@ class SyncFailureQueue {
       return true;
     }
     return item.scopeKey == currentScope;
+  }
+
+  bool _canAdd(
+    _QueuedSyncMessage item,
+    List<_QueuedSyncMessage> existingMessages,
+  ) {
+    if (existingMessages.length >= maxPendingMessages) {
+      lastError.value = SyncOutboxCapacityException(
+        'sync outbox message limit reached: $maxPendingMessages',
+      );
+      _refreshFailedCount();
+      return false;
+    }
+    final rows = [
+      ...existingMessages.map((message) => message.toJson()),
+      item.toJson(),
+    ];
+    final projectedBytes = utf8.encode(jsonEncode(rows)).length;
+    if (projectedBytes > maxPendingBytes) {
+      lastError.value = SyncOutboxCapacityException(
+        'sync outbox byte limit reached: $maxPendingBytes',
+      );
+      _refreshFailedCount();
+      return false;
+    }
+    return true;
   }
 
   void _persist() {
@@ -179,6 +224,15 @@ class SyncFailureQueue {
       lastError.value = error;
     });
   }
+}
+
+class SyncOutboxCapacityException implements Exception {
+  const SyncOutboxCapacityException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'SyncOutboxCapacityException($message)';
 }
 
 class _QueuedSyncMessage {

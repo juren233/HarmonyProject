@@ -182,6 +182,22 @@ void main() {
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
     expect(find.byKey(const ValueKey('pet_selector_app_logo_box')),
         findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_brand_header')),
+        findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('宠记'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('PetNote'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('选择服务宠物'), findsNothing);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
     expect(
@@ -254,9 +270,23 @@ void main() {
       final logoRect = tester.getRect(
         find.byKey(const ValueKey('pet_selector_app_logo_box')),
       );
+      final brandHeaderRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_brand_header')),
+      );
       expect(sidePanelRect.left, greaterThanOrEqualTo(0));
       expect(listPanelRect.right, lessThanOrEqualTo(size.width));
       expect(sidePanelRect.right, lessThan(listPanelRect.left));
+      expect(
+          brandHeaderRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(brandHeaderRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
+      expect(
+        brandHeaderRect.right,
+        lessThanOrEqualTo(statusCardRect.right - 8),
+      );
+      expect(
+        brandHeaderRect.bottom,
+        lessThanOrEqualTo(statusCardRect.bottom - 8),
+      );
       expect(logoRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
       expect(logoRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
       expect(logoRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
@@ -273,7 +303,9 @@ void main() {
       );
       expect(titleRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
       expect(titleRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
-      expect(logoRect.bottom, lessThan(titleRect.top));
+      expect(logoRect.top, greaterThanOrEqualTo(brandHeaderRect.top));
+      expect(logoRect.bottom, lessThan(brandHeaderRect.bottom));
+      expect(brandHeaderRect.bottom, lessThan(titleRect.top));
       expect(titleRect.bottom, lessThan(syncPillRect.top));
       expect(find.text('选择服务宠物'), findsNothing);
       expect(find.text('${store.pets.length} 只可服务'), findsNothing);
