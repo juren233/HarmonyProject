@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:petnote/ai/ai_provider_config.dart';
 import 'package:petnote/data/data_storage_models.dart';
+import 'package:petnote/sync/sync_engine_mode.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +29,7 @@ class AppSettingsController extends ChangeNotifier {
     String? sharedKeyBase64,
     String? householdAuthToken,
     String? servedPetId,
+    SyncEngineMode syncEngineMode = _defaultSyncEngineMode,
     SyncDataPolicy? pendingInitialSyncPolicy,
     String? pendingResetSnapshotSyncId,
     bool petKeepScreenOn = true,
@@ -43,6 +45,7 @@ class AppSettingsController extends ChangeNotifier {
         _sharedKeyBase64 = sharedKeyBase64,
         _householdAuthToken = householdAuthToken,
         _servedPetId = servedPetId,
+        _syncEngineMode = syncEngineMode,
         _pendingInitialSyncPolicy = pendingInitialSyncPolicy,
         _pendingResetSnapshotSyncId = pendingResetSnapshotSyncId,
         _petKeepScreenOn = petKeepScreenOn;
@@ -63,12 +66,17 @@ class AppSettingsController extends ChangeNotifier {
   static const String householdAuthTokenStorageKey =
       'sync_household_auth_token_v1';
   static const String servedPetIdStorageKey = 'served_pet_id_v1';
+  static const String syncEngineModeStorageKey = 'sync_engine_mode_v1';
   static const String pendingInitialSyncPolicyStorageKey =
       'pending_initial_sync_policy_v1';
   static const String pendingResetSnapshotSyncIdStorageKey =
       'pending_reset_snapshot_sync_id_v1';
   static const String petKeepScreenOnStorageKey = 'pet_keep_screen_on_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
+  static const SyncEngineMode _defaultSyncEngineMode =
+      bool.fromEnvironment('PETNOTE_POWERSYNC_SPIKE')
+          ? SyncEngineMode.powersyncSpike
+          : SyncEngineMode.legacy;
 
   final SharedPreferences? _preferences;
   AppThemePreference _themePreference;
@@ -82,6 +90,7 @@ class AppSettingsController extends ChangeNotifier {
   String? _sharedKeyBase64;
   String? _householdAuthToken;
   String? _servedPetId;
+  SyncEngineMode _syncEngineMode;
   SyncDataPolicy? _pendingInitialSyncPolicy;
   String? _pendingResetSnapshotSyncId;
   bool _petKeepScreenOn;
@@ -100,6 +109,7 @@ class AppSettingsController extends ChangeNotifier {
   String? get sharedKeyBase64 => _sharedKeyBase64;
   String? get householdAuthToken => _householdAuthToken;
   String? get servedPetId => _servedPetId;
+  SyncEngineMode get syncEngineMode => _syncEngineMode;
   SyncDataPolicy? get pendingInitialSyncPolicy => _pendingInitialSyncPolicy;
   String? get pendingResetSnapshotSyncId => _pendingResetSnapshotSyncId;
   bool get petKeepScreenOn => _petKeepScreenOn;
@@ -159,6 +169,9 @@ class AppSettingsController extends ChangeNotifier {
       householdAuthToken:
           _nonBlank(preferences?.getString(householdAuthTokenStorageKey)),
       servedPetId: _nonBlank(preferences?.getString(servedPetIdStorageKey)),
+      syncEngineMode: _syncEngineModeFromName(
+        preferences?.getString(syncEngineModeStorageKey),
+      ),
       pendingInitialSyncPolicy: _syncDataPolicyFromName(
         preferences?.getString(pendingInitialSyncPolicyStorageKey),
       ),
@@ -272,6 +285,15 @@ class AppSettingsController extends ChangeNotifier {
     }
     _servedPetId = normalized;
     await _writeOptionalString(servedPetIdStorageKey, normalized);
+    notifyListeners();
+  }
+
+  Future<void> setSyncEngineMode(SyncEngineMode value) async {
+    if (_syncEngineMode == value) {
+      return;
+    }
+    _syncEngineMode = value;
+    await _preferences?.setString(syncEngineModeStorageKey, value.name);
     notifyListeners();
   }
 
@@ -543,6 +565,12 @@ SyncServerMode _syncServerModeFromName(
       'custom' => SyncServerMode.custom,
       'official' => SyncServerMode.official,
       _ => hasStoredServerUrl ? SyncServerMode.custom : SyncServerMode.official,
+    };
+
+SyncEngineMode _syncEngineModeFromName(String? value) => switch (value) {
+      'powersyncSpike' => SyncEngineMode.powersyncSpike,
+      'legacy' => SyncEngineMode.legacy,
+      _ => AppSettingsController._defaultSyncEngineMode,
     };
 
 String? _nonBlank(String? value) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,6 +22,7 @@ class SyncServerApp {
     PowerSyncJwtSigner? powerSyncJwtSigner,
     PowerSyncUploadRepository? powerSyncUploadRepository,
     String? powerSyncEndpoint,
+    String? powerSyncServiceProxyEndpoint,
   })  : store = HouseholdStore(dataDirectory),
         hub = WsHub(),
         rtcTokenService = rtcTokenService ??
@@ -32,6 +34,10 @@ class SyncServerApp {
                 Platform.environment),
         powerSyncEndpoint = powerSyncEndpoint ??
             (Platform.environment['POWERSYNC_ENDPOINT'] ??
+                'http://127.0.0.1:8080'),
+        powerSyncServiceProxyEndpoint = powerSyncServiceProxyEndpoint ??
+            (Platform.environment['POWERSYNC_SERVICE_PROXY_ENDPOINT'] ??
+                Platform.environment['POWERSYNC_ENDPOINT'] ??
                 'http://127.0.0.1:8080') {
     pairing = PairingService(store);
   }
@@ -42,6 +48,7 @@ class SyncServerApp {
   final PowerSyncJwtSigner powerSyncJwtSigner;
   final PowerSyncUploadRepository powerSyncUploadRepository;
   final String powerSyncEndpoint;
+  final String powerSyncServiceProxyEndpoint;
   late final PairingService pairing;
 
   Future<HttpServer> serve(
@@ -64,6 +71,10 @@ class SyncServerApp {
     }
     if (request.url.path == 'powersync/upload') {
       return _handlePowerSyncUpload(request);
+    }
+    if (request.url.pathSegments.isNotEmpty &&
+        request.url.pathSegments.first == 'powersync-service') {
+      return _handlePowerSyncServiceProxy(request);
     }
     if (request.url.path == 'ws') {
       return webSocketHandler((WebSocketChannel channel, _) {
@@ -195,6 +206,71 @@ class SyncServerApp {
       );
     } on FormatException {
       return Response(400, body: 'bad request');
+    }
+  }
+
+  Future<Response> _handlePowerSyncServiceProxy(Request request) async {
+    final endpoint = Uri.tryParse(powerSyncServiceProxyEndpoint);
+    if (endpoint == null || endpoint.host.isEmpty) {
+      return Response(503, body: 'powersync service not configured');
+    }
+    final proxiedSegments = request.url.pathSegments.skip(1).toList();
+    final proxiedUri = endpoint.replace(
+      pathSegments: [
+        ...endpoint.pathSegments.where((segment) => segment.isNotEmpty),
+        ...proxiedSegments,
+      ],
+      query: request.url.query,
+    );
+    final client = HttpClient();
+    try {
+      final proxiedRequest = await client.openUrl(request.method, proxiedUri);
+      final contentType = request.headers[HttpHeaders.contentTypeHeader];
+      if (contentType != null) {
+        proxiedRequest.headers.set(HttpHeaders.contentTypeHeader, contentType);
+      }
+      final authorization = request.headers[HttpHeaders.authorizationHeader];
+      if (authorization != null) {
+        proxiedRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          authorization,
+        );
+      }
+      final accept = request.headers[HttpHeaders.acceptHeader];
+      if (accept != null) {
+        proxiedRequest.headers.set(HttpHeaders.acceptHeader, accept);
+      }
+      await for (final chunk in request.read()) {
+        proxiedRequest.add(chunk);
+      }
+      final proxiedResponse = await proxiedRequest.close();
+      final responseHeaders = <String, String>{};
+      final responseContentType = proxiedResponse.headers.contentType;
+      if (responseContentType != null) {
+        responseHeaders[HttpHeaders.contentTypeHeader] =
+            responseContentType.toString();
+      }
+      return Response(
+        proxiedResponse.statusCode,
+        body: _closeClientAfterStream(proxiedResponse, client),
+        headers: responseHeaders,
+      );
+    } on Object {
+      client.close();
+      rethrow;
+    }
+  }
+
+  Stream<List<int>> _closeClientAfterStream(
+    Stream<List<int>> stream,
+    HttpClient client,
+  ) async* {
+    try {
+      await for (final chunk in stream) {
+        yield chunk;
+      }
+    } finally {
+      client.close();
     }
   }
 

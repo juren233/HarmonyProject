@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -215,6 +216,40 @@ void main() {
 
     expect(response.statusCode, 400);
     expect(repository.requests, isEmpty);
+  });
+
+  test('powersync-service 路径经公开同步入口反代', () async {
+    final upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final upstreamDone = Completer<void>();
+    unawaited(() async {
+      await for (final request in upstream) {
+        expect(request.method, 'GET');
+        expect(request.uri.path, '/probes/liveness');
+        request.response.statusCode = 204;
+        await request.response.close();
+        await upstream.close(force: true);
+        upstreamDone.complete();
+      }
+    }());
+    app = SyncServerApp(
+      dataDirectory: Directory.systemTemp.createTempSync('petnote_ps_srv_'),
+      powerSyncJwtSigner: _fixedSigner(),
+      powerSyncUploadRepository: const DisabledPowerSyncUploadRepository(),
+      powerSyncEndpoint: 'https://petnote.example.com/powersync-service/',
+      powerSyncServiceProxyEndpoint: 'http://127.0.0.1:${upstream.port}',
+    );
+    server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
+
+    final client = HttpClient();
+    final request = await client.getUrl(Uri.parse(
+      'http://127.0.0.1:${server.port}/powersync-service/probes/liveness',
+    ));
+    final response = await request.close();
+    await response.drain<void>();
+    client.close();
+
+    expect(response.statusCode, 204);
+    await upstreamDone.future.timeout(const Duration(seconds: 2));
   });
 
   test('PowerSync JWT 使用 HS256 并写入 household/device claims', () {

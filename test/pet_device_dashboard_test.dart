@@ -72,6 +72,37 @@ void main() {
     expect(openedSettings, isTrue);
   });
 
+  testWidgets('宠物选择页时间会在页面停留时自动刷新', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = PetNoteStore.seeded();
+    var currentTime = DateTime(2026, 6, 22, 10, 1);
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: null,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          now: () => currentTime,
+        ),
+      ),
+    );
+
+    expect(find.text('10:01'), findsOneWidget);
+
+    currentTime = DateTime(2026, 6, 22, 10, 2);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('10:01'), findsNothing);
+    expect(find.text('10:02'), findsOneWidget);
+  });
+
   testWidgets('横屏下服务宠物选择页使用中枢式分栏', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 520));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -344,6 +375,35 @@ void main() {
 
     expect(action?.kind, PetActionKind.markDone);
     expect(action?.sourceType, firstItem.sourceType);
+  });
+
+  testWidgets('宠物详情看板时间会在页面停留时自动刷新', (tester) async {
+    final store = PetNoteStore.seeded();
+    final pet = store.pets.first;
+    var currentTime = DateTime(2026, 6, 22, 21, 8);
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          now: () => currentTime,
+        ),
+      ),
+    );
+
+    expect(find.text('21:08'), findsOneWidget);
+
+    currentTime = DateTime(2026, 6, 22, 21, 9);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('21:08'), findsNothing);
+    expect(find.text('21:09'), findsOneWidget);
   });
 
   testWidgets('深色模式下宠物端看板使用主题文字和监控面板', (tester) async {

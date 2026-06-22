@@ -1116,12 +1116,12 @@ void main() {
     transport.reconnectAndFlushQueue();
     await Future<void>.delayed(Duration.zero);
 
-    expect(transport.sent.map((message) => message.type).take(2), [
-      SyncMessageTypes.hello,
-      SyncMessageTypes.snapshotPush,
-    ]);
+    final sentTypes = transport.sent.map((message) => message.type).toList();
+    expect(sentTypes.first, SyncMessageTypes.hello);
+    expect(sentTypes.skip(1), contains(SyncMessageTypes.snapshotPush));
+    expect(sentTypes.skip(1), contains(SyncMessageTypes.mutationPush));
     expect(
-      transport.sent.map((message) => message.type),
+      sentTypes,
       contains(SyncMessageTypes.snapshotRequest),
     );
 

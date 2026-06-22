@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
@@ -15,6 +17,7 @@ class PetDeviceDashboard extends StatelessWidget {
     required this.onSelectServedPet,
     required this.onMarkDone,
     required this.onOpenSettings,
+    this.now,
   });
 
   final PetNoteStore store;
@@ -24,45 +27,105 @@ class PetDeviceDashboard extends StatelessWidget {
   final ValueChanged<String> onSelectServedPet;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
     final pets = store.pets;
     final selectedPet = _findPet(pets, servedPetId);
     final tokens = context.petNoteTokens;
-    return Scaffold(
-      backgroundColor: tokens.pageGradientTop,
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+    return _MinuteClock(
+      now: now,
+      builder: (context, currentTime) {
+        return Scaffold(
+          backgroundColor: tokens.pageGradientTop,
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tokens.pageGradientTop, tokens.pageGradientBottom],
+              ),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                child: selectedPet == null
+                    ? _PetSelector(
+                        pets: pets,
+                        currentTime: currentTime,
+                        syncStatusLabel: syncStatusLabel,
+                        onSelectServedPet: onSelectServedPet,
+                        onOpenSettings: onOpenSettings,
+                      )
+                    : _DashboardContent(
+                        store: store,
+                        pet: selectedPet,
+                        currentTime: currentTime,
+                        syncStatusLabel: syncStatusLabel,
+                        pendingItemKeys: pendingItemKeys,
+                        onMarkDone: onMarkDone,
+                        onOpenSettings: onOpenSettings,
+                      ),
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
-            child: selectedPet == null
-                ? _PetSelector(
-                    pets: pets,
-                    syncStatusLabel: syncStatusLabel,
-                    onSelectServedPet: onSelectServedPet,
-                    onOpenSettings: onOpenSettings,
-                  )
-                : _DashboardContent(
-                    store: store,
-                    pet: selectedPet,
-                    syncStatusLabel: syncStatusLabel,
-                    pendingItemKeys: pendingItemKeys,
-                    onMarkDone: onMarkDone,
-                    onOpenSettings: onOpenSettings,
-                  ),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
+}
+
+class _MinuteClock extends StatefulWidget {
+  const _MinuteClock({
+    required this.builder,
+    this.now,
+  });
+
+  final DateTime Function()? now;
+  final Widget Function(BuildContext context, DateTime currentTime) builder;
+
+  @override
+  State<_MinuteClock> createState() => _MinuteClockState();
+}
+
+class _MinuteClockState extends State<_MinuteClock> {
+  late DateTime _currentTime;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentTime = _resolveNow();
+    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {
+          _currentTime = _resolveNow();
+        });
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _MinuteClock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.now != widget.now) {
+      _currentTime = _resolveNow();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(context, _currentTime);
+  }
+
+  DateTime _resolveNow() => widget.now?.call() ?? DateTime.now();
 }
 
 Pet? _findPet(List<Pet> pets, String? petId) {
@@ -77,12 +140,14 @@ Pet? _findPet(List<Pet> pets, String? petId) {
 class _PetSelector extends StatelessWidget {
   const _PetSelector({
     required this.pets,
+    required this.currentTime,
     required this.syncStatusLabel,
     required this.onSelectServedPet,
     required this.onOpenSettings,
   });
 
   final List<Pet> pets;
+  final DateTime currentTime;
   final String syncStatusLabel;
   final ValueChanged<String> onSelectServedPet;
   final VoidCallback onOpenSettings;
@@ -99,6 +164,7 @@ class _PetSelector extends StatelessWidget {
               Expanded(
                 flex: 35,
                 child: _PetSelectorSidePanel(
+                  currentTime: currentTime,
                   syncStatusLabel: syncStatusLabel,
                   onOpenSettings: onOpenSettings,
                 ),
@@ -118,6 +184,7 @@ class _PetSelector extends StatelessWidget {
         return Column(
           children: [
             _PetSelectorTopBar(
+              currentTime: currentTime,
               syncStatusLabel: syncStatusLabel,
               onOpenSettings: onOpenSettings,
             ),
@@ -139,17 +206,18 @@ class _PetSelector extends StatelessWidget {
 
 class _PetSelectorTopBar extends StatelessWidget {
   const _PetSelectorTopBar({
+    required this.currentTime,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
+  final DateTime currentTime;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return Row(
       children: [
         Expanded(
@@ -157,7 +225,7 @@ class _PetSelectorTopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _formatClock(now),
+                _formatClock(currentTime),
                 style: TextStyle(
                   color: tokens.primaryText,
                   fontSize: 44,
@@ -167,7 +235,7 @@ class _PetSelectorTopBar extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '${_formatWeekday(now)} · 家中设备',
+                '${_formatWeekday(currentTime)} · 家中设备',
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,
@@ -234,17 +302,18 @@ class _PetSelectorHero extends StatelessWidget {
 
 class _PetSelectorSidePanel extends StatelessWidget {
   const _PetSelectorSidePanel({
+    required this.currentTime,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
+  final DateTime currentTime;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return _SelectorSurface(
       key: const ValueKey('pet_selector_side_panel'),
       padding: const EdgeInsets.all(12),
@@ -262,7 +331,7 @@ class _PetSelectorSidePanel extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        _formatClock(now),
+                        _formatClock(currentTime),
                         maxLines: 1,
                         style: TextStyle(
                           color: tokens.primaryText,
@@ -275,7 +344,7 @@ class _PetSelectorSidePanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${_formatWeekday(now)} · 家中设备',
+                      '${_formatWeekday(currentTime)} · 家中设备',
                       style: TextStyle(
                         color: tokens.secondaryText,
                         fontSize: 13,
@@ -635,6 +704,7 @@ class _DashboardContent extends StatelessWidget {
   const _DashboardContent({
     required this.store,
     required this.pet,
+    required this.currentTime,
     required this.syncStatusLabel,
     required this.pendingItemKeys,
     required this.onMarkDone,
@@ -643,6 +713,7 @@ class _DashboardContent extends StatelessWidget {
 
   final PetNoteStore store;
   final Pet pet;
+  final DateTime currentTime;
   final String syncStatusLabel;
   final Set<String> pendingItemKeys;
   final ValueChanged<PetAction> onMarkDone;
@@ -664,6 +735,7 @@ class _DashboardContent extends StatelessWidget {
             _DashboardTopBar(
               onOpenSettings: onOpenSettings,
               isLandscape: isLandscape,
+              currentTime: currentTime,
               syncStatusLabel: syncStatusLabel,
             ),
             const SizedBox(height: 14),
@@ -722,17 +794,18 @@ class _DashboardTopBar extends StatelessWidget {
   const _DashboardTopBar({
     required this.onOpenSettings,
     required this.isLandscape,
+    required this.currentTime,
     required this.syncStatusLabel,
   });
 
   final VoidCallback onOpenSettings;
   final bool isLandscape;
+  final DateTime currentTime;
   final String syncStatusLabel;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return Row(
       children: [
         Expanded(
@@ -740,7 +813,7 @@ class _DashboardTopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _formatClock(now),
+                _formatClock(currentTime),
                 style: TextStyle(
                   color: tokens.primaryText,
                   fontSize: isLandscape ? 42 : 44,
@@ -750,7 +823,7 @@ class _DashboardTopBar extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '${_formatWeekday(now)} · 家中设备',
+                '${_formatWeekday(currentTime)} · 家中设备',
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,

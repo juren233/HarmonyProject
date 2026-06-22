@@ -1,5 +1,14 @@
 # PowerSync 试验分支
 
+## 2026-06-22 蓝叠双模拟器 PowerSync 闭环验证
+
+- [ ] 确认两台蓝叠模拟器在线并读取当前 UI 状态 → 验证: `adb devices -l` 与 `uiautomator dump`
+- [ ] 抓取宠物端 PowerSync 日志与服务端/数据库状态 → 验证: logcat、server logs、Postgres rows 三方互证
+- [ ] 定位宠物端已开 sync stream 但选择页不显示宠物的根因 → 验证: 能解释 UI、PowerSync 状态、本地/服务端数据差异
+- [ ] 做最小代码修复并补测试 → 验证: 相关 Flutter/server 测试通过
+- [ ] 重建 APK 安装到两台模拟器，重新配对并创建宠物 → 验证: 宠物端选择列表真实显示主人端创建的宠物
+- [ ] 复核时间实时刷新 → 验证: 页面保持打开时分钟变化自动刷新
+
 - [x] 创建隔离 worktree，不带入 main 工作区未提交改动 → 验证: `git status --short --branch` 显示 `codex/powersync-spike...origin/main`，main 工作区状态保持原样
 - [x] 接入 Flutter / server 依赖探针 → 验证: `flutter pub add powersync path_provider`、`cd server && dart pub add postgres`
 - [x] 建立 PowerSync spike 文档和任务边界 → 验证: `docs/powersync-spike-plan.md` 记录架构、Docker、本地/远端边界、三端风险
@@ -19,6 +28,20 @@
 - 验证通过：`cd server && dart test test/powersync_server_test.dart` 7/7 pass；`flutter test test/sync/powersync/powersync_spike_test.dart` 8/8 pass；`flutter analyze lib/sync/sync_engine_mode.dart lib/sync/powersync test/sync/powersync` 无问题；`cd server && dart analyze lib/src/powersync_jwt.dart lib/src/powersync_upload_repository.dart lib/src/server_app.dart test/powersync_server_test.dart` 无问题；`git diff --check` 无问题。
 - 平台探针：`flutter build ios --release --no-codesign` 通过，产出 `build/ios/iphoneos/Runner.app` 约 66M；`flutter build apk --debug --target-platform android-arm64 --no-tree-shake-icons` 通过，debug APK SHA256 `71827d5c25cf0e236f6af5ebcb6b879b539fbac864818a3f9f96615994359587`。
 - 未完成的硬门槛：`flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` 停在缺 `android/key.properties`，未进入 PowerSync 编译阶段；`powershell` 与 `pwsh` 均不存在，无法执行 README 约定的 Harmony 脚本；本机也没有 `docker`，无法运行 `docker compose -f server/docker-compose.powersync.yml config/up`。
+
+## 2026-06-22 PowerSync 运行路径接入
+
+- [x] 为 App 设置增加 `SyncEngineMode` 持久化和编译期默认开关 → 验证: `PETNOTE_POWERSYNC_SPIKE=true` 可让 spike 构建默认进入 PowerSync 模式
+- [x] 将 PowerSync adapter 从探针扩展为可监听、可镜像的运行时桥 → 验证: PowerSync 单测覆盖远端行回填和本地 store 镜像
+- [x] 新增 `PowerSyncSpikeService` 接入 App 运行路径 → 验证: owner 根节点和宠物端首页均按 sync engine 切换 legacy / PowerSync
+- [x] 调整 Release workflow，让 `codex/powersync-spike` Actions 构建默认带 PowerSync dart-define → 验证: main/beta 不带该参数，spike 分支 Android/iOS 构建带 `--dart-define=PETNOTE_POWERSYNC_SPIKE=true`
+- [x] 更新测试口径，避免 legacy mutation-first 架构被旧 snapshot-first 断言误判 → 验证: 重连测试改为断言 hello 先于业务消息
+
+### Review
+
+- PowerSync spike 不再只是 schema/connector 探针：`PowerSyncSpikeService` 会在显式 PowerSync 模式下 open/connect PowerSync 本地库，启动时从远端行回填 `PetNoteStore`，远端为空时把本地 store 镜像进 PowerSync，后续 store 变更继续节流写入 PowerSync。
+- 宠物端 `PetDeviceHome` 也已接入 PowerSync 模式；待办完成动作在 PowerSync 模式下直接应用本地 store，再由 PowerSync 服务上传，不再依赖 legacy `PetReplicaController`。
+- 当前边界：RTC 呼叫信令仍属于 legacy `/ws` 路径，本轮只把核心数据同步接进 PowerSync 运行路径；如果 PowerSync 模式需要同时保留视频信令，后续应拆出 signaling-only WebSocket 服务，避免 legacy 数据同步与 PowerSync 数据同步双写。
 
 # 数据同步与远程视频故障审查
 

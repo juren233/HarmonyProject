@@ -14,6 +14,8 @@ import 'package:petnote/rtc/rtc_media_permission_coordinator.dart';
 import 'package:petnote/rtc/rtc_signaling_controller.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/powersync/powersync_spike_service.dart';
+import 'package:petnote/sync/sync_engine_mode.dart';
 import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote/sync/sync_transport.dart';
 
@@ -23,6 +25,7 @@ class PetDeviceHome extends StatefulWidget {
     required this.settingsController,
     this.storeLoader,
     this.syncService,
+    this.powerSyncService,
     this.keepAlive,
     this.remoteVideoPermissionCoordinator,
   });
@@ -30,6 +33,7 @@ class PetDeviceHome extends StatefulWidget {
   final AppSettingsController settingsController;
   final Future<PetNoteStore> Function()? storeLoader;
   final SyncService? syncService;
+  final PowerSyncSpikeService? powerSyncService;
   final DeviceKeepAlive? keepAlive;
   final RtcMediaPermissionCoordinator? remoteVideoPermissionCoordinator;
 
@@ -40,6 +44,7 @@ class PetDeviceHome extends StatefulWidget {
 class _PetDeviceHomeState extends State<PetDeviceHome> {
   PetNoteStore? _store;
   SyncService? _syncService;
+  PowerSyncSpikeService? _powerSyncService;
   late final DeviceKeepAlive _keepAlive;
   RtcSignalingController? _rtcSignalingController;
   RtcIncomingCallController? _incomingCallController;
@@ -69,6 +74,8 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
   void dispose() {
     widget.settingsController.removeListener(_handleSettingsChanged);
     unawaited(_disposeIncomingCallController());
+    unawaited(_powerSyncService?.stop());
+    _powerSyncService?.dispose();
     _store?.dispose();
     unawaited(_stopKeepAlive());
     super.dispose();
@@ -89,6 +96,12 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
     if (store == null) {
       return;
     }
+    if (widget.settingsController.syncEngineMode ==
+        SyncEngineMode.powersyncSpike) {
+      await _restartPowerSync(store);
+      return;
+    }
+    await _powerSyncService?.stop();
     final service = widget.syncService ??
         SyncService.instance ??
         SyncService(settings: widget.settingsController);
@@ -114,6 +127,27 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
     }
   }
 
+  Future<void> _restartPowerSync(PetNoteStore store) async {
+    final legacyService = _syncService;
+    _syncService = null;
+    await legacyService?.stop();
+    await _disposeIncomingCallController();
+    final service = widget.powerSyncService ??
+        _powerSyncService ??
+        PowerSyncSpikeService(settings: widget.settingsController);
+    _powerSyncService = service;
+    if (widget.settingsController.householdId == null) {
+      await service.stop();
+      await _stopKeepAlive();
+      return;
+    }
+    await service.ensureStarted(store: store);
+    await _syncKeepAlive();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _handleSettingsChanged() {
     unawaited(_restartSync());
     if (mounted) {
@@ -133,9 +167,15 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
     }
 
     final controller = _syncService?.petController;
+    final powerSyncService = _powerSyncService;
     final listenables = <Listenable>[
       widget.settingsController,
       store,
+      if (powerSyncService != null) ...[
+        powerSyncService.connectionStatus,
+        powerSyncService.failedSyncCount,
+        powerSyncService.lastError,
+      ],
       if (controller != null) ...[
         controller.lastSyncedAt,
         controller.pendingItemKeys,
@@ -155,11 +195,19 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
         return PetDeviceDashboard(
           store: store,
           servedPetId: effectiveServedPetId,
-          syncStatusLabel: _syncStatusLabel(_syncService),
+          syncStatusLabel: powerSyncService == null
+              ? _syncStatusLabel(_syncService)
+              : _powerSyncStatusLabel(powerSyncService),
           pendingItemKeys:
               controller?.pendingItemKeys.value ?? const <String>{},
           onSelectServedPet: widget.settingsController.setServedPetId,
-          onMarkDone: (action) => controller?.sendAction(action),
+          onMarkDone: (action) async {
+            if (controller != null) {
+              await controller.sendAction(action);
+              return;
+            }
+            await store.applyLocalSyncedPetAction(action);
+          },
           onOpenSettings: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (context) => PetDeviceSettingsPage(
@@ -198,6 +246,20 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
       SyncConnectionState.connecting => '连接中',
       _ => '重连中',
     };
+  }
+
+  String _powerSyncStatusLabel(PowerSyncSpikeService service) {
+    if (service.failedSyncCount.value > 0) {
+      return '同步异常';
+    }
+    final status = service.connectionStatus.value;
+    if (status.connected) {
+      return 'PowerSync 已连接';
+    }
+    if (status.connecting || service.isActive) {
+      return 'PowerSync 连接中';
+    }
+    return '同步中...';
   }
 
   Future<void> _syncKeepAlive() async {

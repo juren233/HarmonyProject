@@ -432,11 +432,16 @@ jobs:
         run: |
           set -euo pipefail
           flutter pub get
+          extra_flutter_args=()
+          if [[ "${{ needs.resolve-release-plan.outputs.branch_name }}" == "codex/powersync-spike" ]]; then
+            extra_flutter_args+=(--dart-define=PETNOTE_POWERSYNC_SPIKE=true)
+          fi
           flutter build apk \
             --release \
             --target-platform "android-${{ matrix.scriptTarget }}" \
             --build-name "${{ needs.resolve-release-plan.outputs.version_core }}" \
             --build-number "${{ needs.resolve-release-plan.outputs.version_build }}" \
+            "${extra_flutter_args[@]}" \
             --no-tree-shake-icons
 
       - name: Rename Built APK
@@ -512,12 +517,18 @@ jobs:
 
       - name: Build iOS Without Codesign
         shell: bash
-        run: >
-          flutter build ios
-          --release
-          --no-codesign
-          --build-name "${{ needs.resolve-release-plan.outputs.version_core }}"
-          --build-number "${{ needs.resolve-release-plan.outputs.version_build }}"
+        run: |
+          set -euo pipefail
+          extra_flutter_args=()
+          if [[ "${{ needs.resolve-release-plan.outputs.branch_name }}" == "codex/powersync-spike" ]]; then
+            extra_flutter_args+=(--dart-define=PETNOTE_POWERSYNC_SPIKE=true)
+          fi
+          flutter build ios \
+            --release \
+            --no-codesign \
+            --build-name "${{ needs.resolve-release-plan.outputs.version_core }}" \
+            --build-number "${{ needs.resolve-release-plan.outputs.version_build }}" \
+            "${extra_flutter_args[@]}"
 
       - name: Package Unsigned IPA
         shell: bash

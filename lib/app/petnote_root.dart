@@ -32,6 +32,8 @@ import 'package:petnote/app/pet_onboarding_overlay.dart';
 import 'package:petnote/app/pet_pairing_page.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/powersync/powersync_spike_service.dart';
+import 'package:petnote/sync/sync_engine_mode.dart';
 import 'package:petnote/sync/sync_service.dart';
 
 class PetNoteRoot extends StatefulWidget {
@@ -89,6 +91,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
   late final AnimationController _overlayTransitionController;
   VoidCallback? _settingsListener;
   AppSettingsController? _syncSettingsController;
+  PowerSyncSpikeService? _powerSyncSpikeService;
   late final OverviewBottomCtaController _overviewBottomCtaController;
   int? _lastNotificationSyncVersion;
   Future<void> _pendingNotificationSync = Future<void>.value();
@@ -186,10 +189,10 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     if (settingsController.deviceRole != DeviceRole.owner) {
+      await _activateSyncForSettings(store, settingsController);
       return;
     }
-    final syncService = await _syncServiceForSettings(settingsController);
-    await syncService.ensureStartedForOwner(store: store);
+    await _activateSyncForSettings(store, settingsController);
   }
 
   Future<void> _activateSyncForSettings(
@@ -200,6 +203,14 @@ class _PetNoteRootState extends State<PetNoteRoot>
       return;
     }
     _attachSettingsListener(settingsController);
+    if (settingsController.syncEngineMode == SyncEngineMode.powersyncSpike) {
+      await _stopSyncServiceForSettings(settingsController);
+      final powerSyncService =
+          _powerSyncSpikeServiceForSettings(settingsController);
+      await powerSyncService.ensureStarted(store: store);
+      return;
+    }
+    await _stopPowerSyncSpikeServiceForSettings(settingsController);
     final syncService = await _syncServiceForSettings(settingsController);
     if (!mounted || !identical(widget.settingsController, settingsController)) {
       await _stopSyncServiceForSettings(settingsController);
@@ -253,6 +264,19 @@ class _PetNoteRootState extends State<PetNoteRoot>
     return SyncService.instance ??= SyncService(settings: settingsController);
   }
 
+  PowerSyncSpikeService _powerSyncSpikeServiceForSettings(
+    AppSettingsController settingsController,
+  ) {
+    final existing = _powerSyncSpikeService;
+    if (existing != null && !identical(existing.settings, settingsController)) {
+      unawaited(existing.stop());
+      existing.dispose();
+      _powerSyncSpikeService = null;
+    }
+    return _powerSyncSpikeService ??=
+        PowerSyncSpikeService(settings: settingsController);
+  }
+
   Future<void> _stopSyncServiceForSettings(
     AppSettingsController? settingsController,
   ) async {
@@ -269,11 +293,31 @@ class _PetNoteRootState extends State<PetNoteRoot>
     existing.dispose();
   }
 
+  Future<void> _stopPowerSyncSpikeServiceForSettings(
+    AppSettingsController? settingsController,
+  ) async {
+    final existing = _powerSyncSpikeService;
+    if (existing == null ||
+        settingsController == null ||
+        !identical(existing.settings, settingsController)) {
+      return;
+    }
+    _powerSyncSpikeService = null;
+    await existing.stop();
+    existing.dispose();
+  }
+
   Future<void> _pushRestoredBackupSnapshot(PetNoteStore store) async {
     final settingsController = widget.settingsController;
     if (settingsController == null ||
         settingsController.householdId == null ||
         settingsController.householdAuthToken == null) {
+      return;
+    }
+    if (settingsController.syncEngineMode == SyncEngineMode.powersyncSpike) {
+      await _powerSyncSpikeServiceForSettings(settingsController)
+          .ensureStarted(store: store);
+      await _powerSyncSpikeService?.pushStoreNow();
       return;
     }
     final syncService =
@@ -931,9 +975,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
     _detachSettingsListener();
-    if (widget.settingsController?.deviceRole == DeviceRole.owner) {
-      unawaited(_stopSyncServiceForSettings(widget.settingsController));
-    }
+    unawaited(_stopSyncServiceForSettings(widget.settingsController));
+    unawaited(_stopPowerSyncSpikeServiceForSettings(widget.settingsController));
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
     super.dispose();
