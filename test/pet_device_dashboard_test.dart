@@ -198,6 +198,13 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('宠物日常关怀记录App'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('选择服务宠物'), findsNothing);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
     expect(
@@ -273,6 +280,12 @@ void main() {
       final brandHeaderRect = tester.getRect(
         find.byKey(const ValueKey('pet_selector_brand_header')),
       );
+      final brandTaglineRect = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_brand_header')),
+          matching: find.text('宠物日常关怀记录App'),
+        ),
+      );
       expect(sidePanelRect.left, greaterThanOrEqualTo(0));
       expect(listPanelRect.right, lessThanOrEqualTo(size.width));
       expect(sidePanelRect.right, lessThan(listPanelRect.left));
@@ -305,6 +318,10 @@ void main() {
       expect(titleRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
       expect(logoRect.top, greaterThanOrEqualTo(brandHeaderRect.top));
       expect(logoRect.bottom, lessThan(brandHeaderRect.bottom));
+      expect(
+          brandTaglineRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(
+          brandTaglineRect.bottom, lessThanOrEqualTo(brandHeaderRect.bottom));
       expect(brandHeaderRect.bottom, lessThan(titleRect.top));
       expect(titleRect.bottom, lessThan(syncPillRect.top));
       expect(find.text('选择服务宠物'), findsNothing);
@@ -355,6 +372,8 @@ void main() {
     );
     final lightDecoration = lightLogo.decoration as BoxDecoration;
     expect(lightDecoration.color, Colors.white);
+    expect(lightDecoration.boxShadow?.single.blurRadius, 16);
+    expect(lightDecoration.boxShadow?.single.offset, const Offset(0, 5));
     expect(
       tester
           .widget<SvgPicture>(
@@ -373,6 +392,8 @@ void main() {
     );
     final darkDecoration = darkLogo.decoration as BoxDecoration;
     expect(darkDecoration.color, const Color(0xFF111111));
+    expect(darkDecoration.boxShadow?.single.blurRadius, 16);
+    expect(darkDecoration.boxShadow?.single.offset, const Offset(0, 5));
     expect(
       tester
           .widget<SvgPicture>(

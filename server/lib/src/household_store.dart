@@ -389,6 +389,7 @@ class HouseholdStore {
   Future<void> _flushQueue = Future<void>.value();
 
   File get _file => File('${dataDirectory.path}/households.json');
+  Iterable<Household> get households => _households.values;
 
   Household? household(String? id) => id == null ? null : _households[id];
 

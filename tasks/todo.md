@@ -1,5 +1,33 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 横屏宠物选择页左侧卡片排版再优化
+
+- [x] 对齐“我的”页项目介绍 App 图标盒视觉参数 → 验证: widget 测试覆盖深浅色 logo 背景、边框、阴影和 SVG 过滤
+- [x] 在左侧状态卡上部补充紧凑品牌说明并下移标题/连接状态 → 验证: 多尺寸横屏几何测试覆盖品牌区、标题和状态胶囊边界
+- [x] 保持宠物选择交互和右侧列表布局不变 → 验证: 点击宠物卡片仍回调选择
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡上部品牌区补充“宠物日常关怀记录App”，与“我的”页项目介绍语义保持一致，同时保留 `宠记` / `PetNote`。
+- App 图标盒继续随深浅色模式切换，阴影参数调整为与“我的”页项目介绍一致的 `blurRadius=16` / `offset=(0, 5)`。
+- 状态卡内间距和标题字号轻微收紧，标题“这台设备照顾谁？”与连接状态胶囊继续位于卡片下部，`720x390`、`900x520`、`1180x620` 横屏尺寸均由 widget 几何测试约束不越界。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`；`git diff --check -- lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart tasks/todo.md`。
+
+## 2026-06-23 服务端同步诊断接口
+
+- [x] 新增默认关闭的只读同步诊断接口 → 验证: 未配置 token 时 `/diagnostics/sync` 返回 404
+- [x] 诊断接口必须携带诊断 token → 验证: 缺少 token 返回 401，Bearer token 可访问
+- [x] 输出 household/device/syncEvents 统计但不泄露密钥或密文 → 验证: 测试断言响应不包含 auth token 与 ciphertext
+- [x] 跑 server app/sync flow 测试、server analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 新增 `/diagnostics/sync` 只读接口，默认未配置诊断 token 时返回 404，避免生产环境误暴露。
+- 配置 `diagnosticsToken` 或 `PETNOTE_SYNC_DIAGNOSTICS_TOKEN` 后，接口要求 `Authorization: Bearer ...` 或 `x-petnote-diagnostics-token`，未授权返回 401。
+- 响应只包含 household/device/syncEvents 计数、活跃/在线设备数、事件字节统计和保留策略，不包含 `authToken`、共享密钥、snapshot/action/mutation 密文。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/server_app_test.dart test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/server_app.dart lib/src/session_handler.dart lib/src/household_store.dart test/server_app_test.dart test/sync_flow_test.dart`；`git diff --check`。
+
 ## 2026-06-23 服务端 syncEvents 保留策略加固
 
 - [x] 长期离线设备不再阻塞已确认同步事件剪枝 → 验证: stale 设备 45 天未见时已确认 mutation 可清空 `syncEvents`

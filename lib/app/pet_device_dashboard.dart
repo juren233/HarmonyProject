@@ -352,11 +352,11 @@ class _PetSelectorSidePanel extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final logoSize =
-                    (constraints.maxHeight * 0.24).clamp(64.0, 82.0).toDouble();
+                    (constraints.maxHeight * 0.23).clamp(62.0, 82.0).toDouble();
                 final topGap =
-                    (constraints.maxHeight * 0.05).clamp(6.0, 14.0).toDouble();
+                    (constraints.maxHeight * 0.04).clamp(4.0, 12.0).toDouble();
                 final brandBottomGap =
-                    (constraints.maxHeight * 0.05).clamp(8.0, 16.0).toDouble();
+                    (constraints.maxHeight * 0.04).clamp(6.0, 14.0).toDouble();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -378,7 +378,7 @@ class _PetSelectorSidePanel extends StatelessWidget {
                                 maxLines: 1,
                                 style: TextStyle(
                                   color: tokens.primaryText,
-                                  fontSize: 32,
+                                  fontSize: 30,
                                   height: 1.18,
                                   letterSpacing: 0,
                                   fontWeight: FontWeight.w900,
@@ -432,7 +432,7 @@ class _SelectorBrandHeader extends StatelessWidget {
             fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           'PetNote',
           maxLines: 1,
@@ -443,6 +443,20 @@ class _SelectorBrandHeader extends StatelessWidget {
             height: 1.1,
             letterSpacing: 0,
             fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '宠物日常关怀记录App',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: tokens.secondaryText,
+            fontSize: 10,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -477,7 +491,7 @@ class _SelectorAppLogo extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: logoShadowColor,
-            blurRadius: 14,
+            blurRadius: 16,
             offset: const Offset(0, 5),
           ),
         ],
