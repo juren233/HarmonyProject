@@ -1,7 +1,7 @@
 {
   "name": "flutter-hvigor-plugin",
   "version": "1.0.0",
-  "description": "Repo-owned OHOS hvigor plugin copy for DevEco state isolation.",
+  "description": "Repo-owned OHOS hvigor plugin copy for DevEco runs.",
   "main": "index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

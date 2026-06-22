@@ -56,38 +56,23 @@ void main() {
           'ensureFlutterPackages(flutterExecutablePath, flutterProjectPath, sdkPath)'),
       isTrue,
     );
+    expect(ownedPlugin.contains('function backupManagedFlutterState('), isFalse);
+    expect(ownedPlugin.contains('function restoreManagedFlutterState('), isFalse);
+    expect(ownedPlugin.contains('function switchToOhosFlutterState('), isFalse);
+    expect(ownedPlugin.contains('function restoreFlutterSharedState('), isFalse);
     expect(
-      ownedPlugin.contains('function backupManagedFlutterState('),
-      isTrue,
-    );
+        ownedPlugin.contains("console.info('Backup Flutter shared state start')"),
+        isFalse);
     expect(
-      ownedPlugin.contains('function restoreManagedFlutterState('),
-      isTrue,
-    );
+        ownedPlugin.contains("console.info('Switch to OHOS Flutter state start')"),
+        isFalse);
     expect(
-      ownedPlugin.contains("console.info('Backup Flutter shared state start')"),
-      isTrue,
-    );
-    expect(
-      ownedPlugin
-          .contains("console.info('Switch to OHOS Flutter state start')"),
-      isTrue,
-    );
-    expect(
-      ownedPlugin
-          .contains("console.info('Restore Flutter shared state start')"),
-      isTrue,
-    );
-    expect(
-      ownedPlugin
-          .contains("restoreNamedFlutterState(flutterProjectPath, 'ohos')"),
-      isTrue,
-    );
-    expect(
-      ownedPlugin.contains(
-          'restoreManagedFlutterState(flutterProjectPath, sessionStateBackupRoot)'),
-      isTrue,
-    );
+        ownedPlugin.contains("console.info('Restore Flutter shared state start')"),
+        isFalse);
+    expect(ownedPlugin.contains("restoreNamedFlutterState(flutterProjectPath, 'ohos')"),
+        isFalse);
+    expect(ownedPlugin.contains("restoreNamedFlutterState(flutterProjectPath, 'official')"),
+        isFalse);
   });
 
   test('OHOS tracked hvigor entrypoints import the repo-owned plugin copy', () {
@@ -98,40 +83,17 @@ void main() {
     expect(hvigorConfig.contains("../tooling/ohos-hvigor-plugin"), isTrue);
   });
 
-  test('OHOS hvigor patch includes automatic backup and restore hooks', () {
-    final patch = File(
-      'tooling/ohos-flutter/flutter-hvigor-plugin.patch',
-    ).readAsStringSync();
-
-    expect(patch.contains('function backupManagedFlutterState('), isTrue);
-    expect(patch.contains('function restoreManagedFlutterState('), isTrue);
-    expect(patch.contains("console.info('Backup Flutter shared state start')"),
-        isTrue);
-    expect(patch.contains("console.info('Switch to OHOS Flutter state start')"),
-        isTrue);
-    expect(patch.contains("console.info('Restore Flutter shared state start')"),
-        isTrue);
-  });
-
-  test('OHOS helper script patches backup and restore hooks too', () {
+  test('OHOS helper script does not patch shared Flutter state switching', () {
     final script = File('scripts/flutter-ohos.ps1').readAsStringSync();
 
-    expect(
-        script.contains(
-            "\$backupStateMarker = \"console.info('Backup Flutter shared state start')\""),
-        isTrue);
-    expect(
-        script.contains(
-            'const sessionStateBackupRoot = switchToOhosFlutterState('),
-        isTrue);
-    expect(
-        script.contains(
-            'restoreFlutterSharedState(flutterProjectPath, sessionStateBackupRoot)'),
-        isTrue);
-    expect(
-      script.contains(r'if ($content -eq $originalContent) {'),
-      isTrue,
-    );
+    expect(script.contains('flutter-state.ps1'), isFalse);
+    expect(script.contains('Backup-ManagedState'), isFalse);
+    expect(script.contains('Restore-PlatformState'), isFalse);
+    expect(script.contains('Save-PlatformState'), isFalse);
+    expect(script.contains('Restore-ManagedStateFromBackup'), isFalse);
+    expect(script.contains('switchToOhosFlutterState'), isFalse);
+    expect(script.contains('restoreFlutterSharedState'), isFalse);
+    expect(script.contains('Ensure-OhosLocalProperties'), isTrue);
   });
 
   test('OHOS hvigor plugin refreshes stale package_graph snapshots for the current app package', () {
@@ -187,29 +149,40 @@ void main() {
     expect(helperScript.contains('clearStaleFlutterOhosArkTsCache(flutterProjectPath, flutterOhosStorePath)'), isTrue);
   });
 
-  test('OHOS local.properties stays outside shared Flutter state rollback', () {
-    final flutterStateScript = File('scripts/flutter-state.ps1').readAsStringSync();
+  test('OHOS local.properties is managed directly without shared state rollback', () {
     final ownedPlugin = File(
       'tooling/ohos-hvigor-plugin/src/plugin/flutter-hvigor-plugin.ts',
     ).readAsStringSync();
     final helperScript = File('scripts/flutter-ohos.ps1').readAsStringSync();
     final readme = File('README.md').readAsStringSync();
 
-    expect(flutterStateScript.contains("'android/local.properties'"), isTrue);
-    expect(flutterStateScript.contains("'ohos/local.properties'"), isFalse);
-    expect(ownedPlugin.contains("const MANAGED_FLUTTER_STATE_FILES = ["), isTrue);
-    expect(ownedPlugin.contains("'android/local.properties'"), isTrue);
+    expect(File('scripts/flutter-state.ps1').existsSync(), isFalse);
+    expect(File('tooling/ohos-flutter/flutter-hvigor-plugin.patch').existsSync(),
+        isFalse);
+    expect(ownedPlugin.contains("const MANAGED_FLUTTER_STATE_FILES = ["), isFalse);
+    expect(ownedPlugin.contains("'android/local.properties'"), isFalse);
     expect(ownedPlugin.contains("'ohos/local.properties'"), isFalse);
-    expect(ownedPlugin.contains("const LOCKFILE_HOSTED_URL = 'https://pub.flutter-io.cn'"), isTrue);
-    expect(ownedPlugin.contains("normalizePubspecLockHostedUrl(destinationPath)"), isTrue);
-    expect(helperScript.contains("const MANAGED_FLUTTER_STATE_FILES = ["), isTrue);
-    expect(helperScript.contains("'android/local.properties',"), isTrue);
+    expect(helperScript.contains("const MANAGED_FLUTTER_STATE_FILES = ["), isFalse);
+    expect(helperScript.contains("'android/local.properties',"), isFalse);
     expect(helperScript.contains("'ohos/local.properties',"), isFalse);
-    expect(helperScript.contains("const LOCKFILE_HOSTED_URL = 'https://pub.flutter-io.cn'"), isTrue);
-    expect(helperScript.contains("normalizePubspecLockHostedUrl(destinationPath)"), isTrue);
-    expect(flutterStateScript.contains("function Normalize-PubspecLockHostedUrl {"), isTrue);
-    expect(flutterStateScript.contains("Normalize-PubspecLockHostedUrl -Path \$DestinationPath"), isTrue);
-    expect(readme.contains('ohos/local.properties) 是 Harmony 本地配置，不属于 `official` / `ohos` 共享 Flutter 状态快照'), isTrue);
+    expect(helperScript.contains('Ensure-OhosLocalProperties'), isTrue);
+    expect(readme.contains('本地三端统一使用项目内 OHOS Flutter SDK'), isTrue);
+    expect(readme.contains('不要再切回旧的官方 Flutter 状态'), isTrue);
+  });
+
+  test('GitHub Actions uses official Flutter only for Android and iOS release builds', () {
+    final workflow = File('.github/workflows/release.yml').readAsStringSync();
+    final readme = File('README.md').readAsStringSync();
+
+    expect(workflow.contains('uses: subosito/flutter-action@v2'), isTrue);
+    expect(workflow.contains('flutter pub get'), isTrue);
+    expect(workflow.contains('flutter build apk'), isTrue);
+    expect(workflow.contains('flutter build ios'), isTrue);
+    expect(workflow.contains('submodules: recursive'), isFalse);
+    expect(workflow.contains('.flutter_ohos_sdk_gitcode/bin/flutter'), isFalse);
+    expect(readme.contains('GitHub Actions 是唯一例外'), isTrue);
+    expect(readme.contains('GitHub Actions 是 Android / iOS 发布构建例外'), isTrue);
+    expect(readme.contains('不构建 HarmonyOS'), isTrue);
   });
 
   test('README documents the repo-owned OHOS hvigor plugin workflow', () {

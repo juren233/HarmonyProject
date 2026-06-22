@@ -7,10 +7,10 @@
 ## 1. 先读 README，再动手
 
 - 首次进入本仓库，或开始任何一个新任务时，必须先打开并阅读 [README.md](./README.md) 原文，再决定实现方案。
-- 如果任务涉及平台运行、签名、SDK、脚本、目录结构、提交边界、协作流程，必须重新阅读 README 对应章节，不能只依赖记忆。
+- 如果任务涉及平台运行、签名、SDK、脚本、目录结构、CI、提交边界、协作流程，必须重新阅读 README 对应章节，不能只依赖记忆。
 - 如果还没有读到 README 相关章节，不得开始修改代码、配置、脚本或文档。
 - 开始任何任务前，先阅读 [README.md](./README.md) 中与本次任务直接相关的部分。
-- 涉及平台运行、签名、SDK 切换、目录归属、提交边界、脚本入口、构建命令时，README 是项目内第一参考源。
+- 涉及平台运行、签名、SDK 使用、CI 例外、目录归属、提交边界、脚本入口、构建命令时，README 是项目内第一参考源。
 - 不要凭经验套用其他 Flutter / HarmonyOS 项目的习惯到本仓库。
 
 ## 2. 作用范围与优先级
@@ -25,7 +25,7 @@
 
 ## 3. 变更前的基础判断
 
-- 先判断本次任务涉及的是共享层、Android / iOS 官方 Flutter 平台层，还是 Harmony 平台层。
+- 先判断本次任务涉及的是共享层、Android / iOS 平台层、Harmony 平台层，还是 GitHub Actions 发布链路。
 - 先判断修改范围是否最小且必要，不要顺手重构无关文件，不要顺手清理无关 warning，不要顺手统一格式化整个仓库。
 - 如果用户只点名一个文件，默认只改这个文件；如果必须联动修改其他文件，先确认这些文件是完成任务所绝对必要的直接相关文件。
 
@@ -64,15 +64,19 @@
 
 - 本仓库同时维护 Android、iOS、HarmonyOS / OpenHarmony 三端。
 - 共享业务层主要位于 [lib](./lib) 和 [test](./test)。
-- Android 和 iOS 走官方 Flutter。
+- 本地开发和新设备初始化时，Android / iOS / HarmonyOS 三端统一使用项目内 OHOS Flutter SDK。
+- GitHub Actions 是唯一例外：当前 workflow 只构建 Android / iOS 发布产物，使用官方 Flutter，不拉取项目内 OHOS Flutter SDK 子模块，也不构建 HarmonyOS / OpenHarmony。
 - Harmony 走项目内 OHOS Flutter 与 [ohos](./ohos) 工程。
 - 不要把一个平台的经验直接套到另一个平台，尤其不要把 Android Studio / VS Code 下的 Flutter 运行方式直接套到 DevEco。
 
-### 6.2 SDK 状态切换规则
+### 6.2 SDK 使用规则
 
-- 根目录默认应保持 README 约定的官方 Flutter 状态。
+- 根目录默认应保持 README 约定的项目内 OHOS Flutter 状态。
+- 当前仓库不再维护多套 Flutter 状态快照，也不再在构建前后切换 / 恢复共享 Flutter 状态。
+- 不要把 GitHub Actions 的官方 Flutter 例外反推到本地开发流程。
+- Android / iOS 脚本优先使用项目内 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode)，不再以官方 Flutter 作为本地主路径。
 - Harmony 相关构建、测试、运行优先走 [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1) 或 README 中约定的 DevEco / hvigor 流程。
-- 不要手动混用两套 SDK 状态，不要在不确认当前状态的情况下裸跑 `flutter pub get`。
+- 不要手动切回旧的官方 Flutter 状态，不要在不确认当前状态的情况下裸跑系统 PATH 里的 `flutter pub get`。
 
 ### 6.3 Harmony 签名规则
 
@@ -131,7 +135,7 @@
 
 - 跑 Flutter / Dart 测试时，默认按受影响范围、模块、平台或测试类型分组执行，避免无必要地一次性全量并发跑完所有测试。
 - 每组测试都必须设置明确超时；测试完成、失败、超时或长时间无输出卡住后，必须主动检查并结束对应测试残留进程。
-- 在 Windows / WSL 混合环境中跑官方 Flutter 测试后，必须重点检查 `flutter_tester.exe`、`flutter_tools.snapshot test`、`dart.exe`、`dartvm.exe`、`cmd.exe /c ... flutter.bat test` 等测试相关残留；只清理能确认属于本次测试的进程，不得误杀 IDE language server、DevTools、正在运行的设备调试或用户其他 Flutter 任务。
+- 在 Windows / WSL 混合环境中跑 Flutter 测试后，必须重点检查 `flutter_tester.exe`、`flutter_tools.snapshot test`、`dart.exe`、`dartvm.exe` 等测试相关残留；只清理能确认属于本次测试的进程，不得误杀 IDE language server、DevTools、正在运行的设备调试或用户其他 Flutter 任务。
 - 如果测试入口卡住、外壳未正常退出或子进程残留占用高内存，必须先清理残留并复查系统内存，再汇报测试结果。
 - 汇报验证结果时必须区分“测试通过”“测试用例失败”“测试入口超时”“进程卡住已清理”四类状态，不能把入口/资源问题包装成测试结果本身。
 
@@ -151,11 +155,11 @@
 - 任何同时包含“本地立即可得信息”和“远端异步检查”的场景，必须优先保证本地信息首帧直接显示；远端检查只能作为异步补充，不得阻塞、覆盖或串联本地信息的即时展示。
 - 任何版本信息相关改动，必须先分别确认 `version`、`buildNumber`、内部比较口径与用户可见展示口径的职责边界，禁止把内部判断字段直接当成用户展示字段使用。
 - 任何一次改动只要同时触及数据来源、比较逻辑、展示文案三层，就必须先逐项写清楚“哪一层允许变、哪一层禁止变、哪一层需要确认后才能变”，确认边界后再动手修改代码。
-- 任何共享 Dart 层代码只要会被 Android / iOS 官方 Flutter 编译解析，就不能直接静态引用 OHOS Flutter 独有符号，例如 `TargetPlatform.ohos`、`OhosView`、`PlatformViewsService.initOhosView`、`OhosViewController`、`OhosViewSurface` 等。运行时平台判断不能隔离编译期符号解析；如果必须承载 Harmony 专属原生视图，应使用两套 SDK 都存在的公共抽象，或拆到明确只由 OHOS Flutter 状态解析的隔离入口。
-- 任何 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接相关改动，都必须同时验证官方 Flutter 和 OHOS Flutter 两条链路。Harmony 显示正常但 Android / iOS 编译失败，或者 Android 构建通过但 Harmony 原生视图不显示，都是未闭环；最低验证为 README 约定的 Android 构建脚本和 Harmony 构建脚本各跑一次。
-- 不要在共享 Dart 代码中用 `TargetPlatform.ohos` 判断 Harmony，因为官方 Flutter 没有该枚举值；不要用自造 Dart 条件导入如 `if (petnote.hasOhosView)` 试图隔离 OHOS API，因为 `--dart-define` 不会创建条件导入键。需要平台判断时，必须先确认写法能被官方 Flutter 与 OHOS Flutter 同时解析。
-- 任何跨 SDK 构建验证后，都要检查并清理 [pubspec.lock](./pubspec.lock) 的依赖源噪音。官方 Flutter 或 OHOS Flutter 构建可能把 `https://pub.flutter-io.cn` 改成 `https://pub.dev`，这不属于业务修复，不得混进提交。
-- lock 噪音不止 URL 一种：OHOS Flutter 的 `flutter` / `flutter_test` 精确锁定一组较旧版本（`characters 1.4.0`、`material_color_utilities 0.11.1`、`meta 1.16.0`、`test_api 0.7.6`、`matcher 0.12.17`），官方 Flutter 锁定更新版本，在两套 SDK 状态间跑 `pub get` 会让 lock 的锁定版本整组来回翻转。这是 SDK 状态噪音而非依赖损坏，提交前一律恢复"官方 Flutter 默认状态"的 lock，禁止把版本翻转当成升级/降级修复提交。
+- 共享 Dart 层代码会被 Android / iOS / HarmonyOS 三端共同编译解析，也会被 GitHub Actions 的 Android / iOS 官方 Flutter 发布构建解析。不能把 Harmony 专属平台视图、平台判断或桥接 API 随意写进共享入口；运行时平台判断不能隔离编译期符号解析。
+- 任何 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接相关改动，都必须同时关注本地 OHOS Flutter 三端入口和 GitHub Actions 官方 Flutter Android / iOS 发布入口。Harmony 显示正常但 Android / iOS 发布构建失败，或者 Android / iOS 构建通过但 Harmony 原生视图不显示，都是未闭环。
+- 不要在共享 Dart 代码中用 `TargetPlatform.ohos` 判断 Harmony；不要用自造 Dart 条件导入如 `if (petnote.hasOhosView)` 试图隔离 OHOS API，因为 `--dart-define` 不会创建条件导入键。需要平台判断时，必须先确认写法能被本地项目内 OHOS Flutter 与 GitHub Actions 官方 Flutter 同时解析。
+- 任何跨 SDK 构建验证后，都要检查并清理 [pubspec.lock](./pubspec.lock) 的依赖源噪音。构建或依赖解析可能把 `https://pub.flutter-io.cn` 改成 `https://pub.dev`，这不属于业务修复，不得混进提交。
+- lock 噪音不止 URL 一种：旧的官方 Flutter 状态可能让 [pubspec.lock](./pubspec.lock) 锁定版本来回翻转。当前提交前应恢复到项目内 OHOS Flutter 解析结果，禁止把版本翻转当成升级 / 降级修复提交。
 - 任何 Harmony / ArkTS 原生插件改动，必须先按 ArkTS 而不是 TypeScript 判断语法和类型可行性。禁止使用 `in`、`for..in`、动态对象布局、运行时追加字段、隐式 `any` 思路或未验证的对象探测写法；跨 MethodChannel 返回复杂结构时，必须使用明确字段结构，并用 Harmony 构建验证。
 - 任何安装后启动闪退且栈落在 `@ohos/flutter_ohos`、`FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等桥接层的位置时，禁止直接归因到新业务插件或用户环境。必须先读取生成物中的实际栈行号上下文，再回查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)、[ohos/hvigorfile.ts](./ohos/hvigorfile.ts)、[ohos/hvigorconfig.ts](./ohos/hvigorconfig.ts) 等仓库自管补丁链路。
 - 任何涉及 Harmony / ArkUI 系统对象的改动，都必须区分“普通 ArkTS 对象”和“系统原生对象”。对 `window.AvoidArea`、`window.Rect` 等对象，不得随意把嵌套字段整体替换成对象字面量；需要清零或调整时优先逐字段更新标量值，或先克隆成稳定普通结构后再使用，避免触发 `Obj is not a Valid object` 一类运行时崩溃。
