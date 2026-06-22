@@ -271,55 +271,55 @@ class _SyncFailureCountChip extends StatelessWidget {
         final service = SyncService.instance;
         final issueKind =
             service?.currentIssueKind ?? SyncIssueKind.failedQueue;
-        final label = _syncIssueChipLabel(issueKind);
+        final label = syncIssueChipLabel(issueKind);
         return Padding(
           padding: const EdgeInsets.only(left: 12),
           child: ActionChip(
             key: const ValueKey('sync_failure_chip'),
             avatar: const Icon(Icons.sync_problem_rounded, size: 18),
             label: Text(label),
-            onPressed: () => _showSyncFailureDialog(
+            onPressed: () => showSyncIssueDialog(
               context,
-              count,
-              issueKind,
+              count: count,
+              issueKind: issueKind,
             ),
           ),
         );
       },
     );
   }
-
-  Future<void> _showSyncFailureDialog(
-    BuildContext context,
-    int count,
-    SyncIssueKind issueKind,
-  ) {
-    return showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(_syncIssueDialogTitle(issueKind)),
-        content: Text(_syncIssueDialogMessage(issueKind, count)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('关闭'),
-          ),
-          FilledButton(
-            key: const ValueKey('sync_failure_retry_button'),
-            onPressed: () {
-              final service = SyncService.instance;
-              service?.retrySyncIssues();
-              Navigator.of(context).pop();
-            },
-            child: const Text('重新同步'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-String _syncIssueChipLabel(SyncIssueKind issueKind) {
+Future<void> showSyncIssueDialog(
+  BuildContext context, {
+  required int count,
+  required SyncIssueKind issueKind,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(_syncIssueDialogTitle(issueKind)),
+      content: Text(_syncIssueDialogMessage(issueKind, count)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+        FilledButton(
+          key: const ValueKey('sync_failure_retry_button'),
+          onPressed: () {
+            final service = SyncService.instance;
+            service?.retrySyncIssues();
+            Navigator.of(context).pop();
+          },
+          child: const Text('重新同步'),
+        ),
+      ],
+    ),
+  );
+}
+
+String syncIssueChipLabel(SyncIssueKind issueKind) {
   return switch (issueKind) {
     SyncIssueKind.pendingResetConfirmation => '同步确认中',
     SyncIssueKind.handshakeFailed || SyncIssueKind.failedQueue => '同步失败',

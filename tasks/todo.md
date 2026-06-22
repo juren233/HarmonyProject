@@ -1,5 +1,23 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-22 宠物端 UI 与首次配对同步修复
+
+- [x] 修复首启角色页深色模式图标背景 → 验证: 浅色/深色 widget 测试覆盖 hero 颜色
+- [x] 修复宠物端选择页卡片阴影和横屏重复标题 → 验证: dashboard widget 测试覆盖无阴影、无右侧重复标题、点击选择仍可用
+- [x] 修复宠物端同步异常展示和时间栏换行 → 验证: 不再出现额外 `sync_failure_chip`，状态胶囊可打开同步问题弹窗
+- [x] 修复首次配对默认 merge 只拉不推的问题 → 验证: sync service 测试覆盖默认双向快照交换和 `pushStartupSnapshot=false`
+- [x] 输出首次配对同步根因报告 → 验证: `docs/pet-initial-pairing-sync-root-cause-2026-06-22.md`
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 计划内命令通过并清理本次测试残留
+
+### Review 2026-06-22
+
+- 首启角色页保留浅色软蓝图标背景，深色模式切换为深蓝灰圆形背景与高对比蓝色设备图标，避免深色主题下大浅色圆块突兀。
+- 宠物端选择页小卡片已移除阴影，仅保留背景、圆角和边框；横屏右侧列表面板不再重复显示“这台设备照顾谁？”，该语义只保留在左侧状态卡。
+- 宠物端看板/选择页顶部不再使用额外 `SyncFailureChip`；同步失败、握手失败和等待确认统一由原状态胶囊展示并打开同一同步问题弹窗，时间/日期约束为单行缩放或省略。
+- 默认首次配对启动改为双向 merge 快照交换：认证后先推本地 merge 快照，再请求远端 merge 快照，修复“先添加宠物再配对”时已有宠物不稳定下发的问题；显式同步策略和 `pushStartupSnapshot=false` 保护路径保持不变。
+- 根因报告已落盘到 `docs/pet-initial-pairing-sync-root-cause-2026-06-22.md`，记录现象、方向性缺口、修复策略、保护边界和验证场景。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart test/widget_test.dart test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_first_launch_intro.dart lib/app/petnote_pages.dart lib/app/pet_device_home.dart lib/sync/sync_service.dart test/pet_device_dashboard_test.dart test/widget_test.dart test/sync_service_test.dart`；`git diff --check`。复查无本次 Flutter/Gradle 测试残留，仅有常驻 `xcodebuildmcp`。
+
 ## 2026-06-22 main 同步稳定性加固
 
 - [x] 启用 PUA always-on 模式 → 验证: `~/.pua/config.json` 保留未知字段且 `always_on=true`

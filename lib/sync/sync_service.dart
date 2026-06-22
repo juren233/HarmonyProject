@@ -247,13 +247,25 @@ class SyncService extends ChangeNotifier {
     );
 
     if (pendingPolicy == null) {
+      final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
       if (!pushStartupSnapshot) {
         await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
         _initialConnectionCompleted = true;
         return;
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-      ownerEngine?.requestSnapshot();
+      if (hasPendingReset) {
+        ownerEngine?.requestSnapshot();
+      } else {
+        await ownerEngine?.pushSnapshotNow(
+          dataPolicy: SyncDataPolicy.merge,
+          preserveConflictingIds: true,
+        );
+        ownerEngine?.requestSnapshot(
+          dataPolicy: SyncDataPolicy.merge,
+          resolveConflicts: true,
+        );
+      }
       _initialConnectionCompleted = true;
       return;
     }
@@ -339,13 +351,25 @@ class SyncService extends ChangeNotifier {
     );
 
     if (pendingPolicy == null) {
+      final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
       if (!pushStartupSnapshot) {
         await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
         _initialConnectionCompleted = true;
         return;
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
-      petController?.requestSnapshot();
+      if (hasPendingReset) {
+        petController?.requestSnapshot();
+      } else {
+        await petController?.pushSnapshotNow(
+          dataPolicy: SyncDataPolicy.merge,
+          preserveConflictingIds: true,
+        );
+        petController?.requestSnapshot(
+          dataPolicy: SyncDataPolicy.merge,
+          resolveConflicts: true,
+        );
+      }
       _initialConnectionCompleted = true;
       return;
     }

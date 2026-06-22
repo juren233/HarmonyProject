@@ -62,6 +62,15 @@ void main() {
     expect(find.text('选择后会进入常亮中枢屏，只展示它的状态和待办。'), findsNothing);
     expect(find.text('稍后可在设置中重新选择'), findsNothing);
 
+    final cardInk = tester.widget<Ink>(
+      find.descendant(
+        of: find.byKey(ValueKey('dashboard_select_pet_${store.pets.first.id}')),
+        matching: find.byType(Ink),
+      ),
+    );
+    final cardDecoration = cardInk.decoration as BoxDecoration;
+    expect(cardDecoration.boxShadow, anyOf(isNull, isEmpty));
+
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
     await tester.pump();
@@ -171,7 +180,14 @@ void main() {
     expect(
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
     expect(find.text('选择服务宠物'), findsNothing);
-    expect(find.text('这台设备照顾谁？'), findsWidgets);
+    expect(find.text('这台设备照顾谁？'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_list_panel')),
+        matching: find.text('这台设备照顾谁？'),
+      ),
+      findsNothing,
+    );
     expect(find.text('2 只可服务'), findsNothing);
     expect(find.text('横放设备时，左侧保留状态和设置，右侧留给宠物选择。'), findsNothing);
     expect(find.text('选择后进入常亮中枢屏'), findsNothing);
@@ -245,6 +261,13 @@ void main() {
       expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
       expect(find.text('选择服务宠物'), findsNothing);
       expect(find.text('${store.pets.length} 只可服务'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_list_panel')),
+          matching: find.text('这台设备照顾谁？'),
+        ),
+        findsNothing,
+      );
 
       final pet = store.pets.first;
       await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -848,9 +871,10 @@ void main() {
       find.byKey(const ValueKey('pet_dashboard_settings')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('sync_failure_chip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync_failure_chip')), findsNothing);
+    expect(find.text('同步确认中'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('sync_failure_chip')));
+    await tester.tap(find.text('同步确认中'));
     await tester.pumpAndSettle();
 
     expect(find.text('同步确认中'), findsWidgets);

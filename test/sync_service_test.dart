@@ -84,11 +84,21 @@ void main() {
           .any((message) => message.type == SyncMessageTypes.snapshotRequest),
       isTrue,
     );
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(push.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(push.payload['mergeMode'], 'preserveConflictingIds');
     expect(
       transport.sent
           .skip(1)
           .any((message) => message.type == SyncMessageTypes.snapshotPush),
-      isFalse,
+      isTrue,
     );
 
     await service.stop();
@@ -130,9 +140,19 @@ void main() {
       transport.sent.map((message) => message.type),
       contains(SyncMessageTypes.snapshotRequest),
     );
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    final push = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(push.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(push.payload['mergeMode'], 'preserveConflictingIds');
     expect(
       transport.sent.map((message) => message.type),
-      isNot(contains(SyncMessageTypes.snapshotPush)),
+      contains(SyncMessageTypes.snapshotPush),
     );
     expect(
       transport.sent.any((message) =>
@@ -1554,8 +1574,8 @@ void main() {
     service.ownerEngine?.requestSnapshot();
     await Future<void>.delayed(Duration.zero);
 
-    expect(service.failedSyncCount?.value, 2);
-    expect(service.statusSnapshot.pendingOutboxCount, 2);
+    expect(service.failedSyncCount?.value, 3);
+    expect(service.statusSnapshot.pendingOutboxCount, 3);
 
     await acknowledgeHello(transport);
 
@@ -1638,9 +1658,9 @@ void main() {
     await service.ownerEngine?.debugOutboxPersisted;
 
     final rows = store.readSyncOutboxRows();
-    expect(service.statusSnapshot.pendingOutboxCount, 1);
-    expect(rows, hasLength(1));
-    expect(rows.single['scopeKey'], 'new-house');
+    expect(service.statusSnapshot.pendingOutboxCount, 2);
+    expect(rows, hasLength(2));
+    expect(rows.map((row) => row['scopeKey']), everyElement('new-house'));
     expect(
       transport.sent.where(
         (message) => message.type == SyncMessageTypes.snapshotRequest,

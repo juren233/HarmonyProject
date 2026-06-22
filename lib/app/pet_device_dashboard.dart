@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_pages.dart';
+import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
@@ -246,29 +247,37 @@ class _PetSelectorTopBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _formatClock(now),
-                style: TextStyle(
-                  color: tokens.primaryText,
-                  fontSize: 44,
-                  height: 0.95,
-                  fontWeight: FontWeight.w900,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatClock(now),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: tokens.primaryText,
+                    fontSize: 44,
+                    height: 0.95,
+                    letterSpacing: 0,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 '${_formatWeekday(now)} · 家中设备',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,
+                  height: 1.35,
+                  letterSpacing: 0,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-        const SyncFailureChip(),
-        const SizedBox(width: 8),
         _ConnectionPill(label: syncStatusLabel),
         const SizedBox(width: 8),
         _IconSurfaceButton(
@@ -420,8 +429,6 @@ class _SelectorLandscapeTopBar extends StatelessWidget {
             ],
           ),
         ),
-        const SyncFailureChip(),
-        const SizedBox(width: 8),
         _IconSurfaceButton(
           key: const ValueKey('pet_dashboard_settings'),
           onPressed: onOpenSettings,
@@ -454,28 +461,7 @@ class _PetSelectorListPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (landscape) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    '这台设备照顾谁？',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.primaryText,
-                      fontSize: 30,
-                      height: 1.25,
-                      letterSpacing: 0,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ] else ...[
+          if (!landscape) ...[
             Row(
               children: [
                 Expanded(
@@ -560,13 +546,6 @@ class _PetSelectionCard extends StatelessWidget {
                   : tokens.panelBorder,
               width: 1.1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: tokens.panelShadow.withValues(alpha: 0.34),
-                blurRadius: landscape ? 10 : 18,
-                offset: Offset(0, landscape ? 4 : 8),
-              ),
-            ],
           ),
           child: Row(
             children: [
@@ -861,28 +840,37 @@ class _DashboardTopBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _formatClock(now),
-                style: TextStyle(
-                  color: tokens.primaryText,
-                  fontSize: isLandscape ? 42 : 44,
-                  height: 0.95,
-                  fontWeight: FontWeight.w900,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatClock(now),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: tokens.primaryText,
+                    fontSize: isLandscape ? 42 : 44,
+                    height: 0.95,
+                    letterSpacing: 0,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 '${_formatWeekday(now)} · 家中设备',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,
+                  height: 1.35,
+                  letterSpacing: 0,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-        const SyncFailureChip(),
         if (showConnectionStatus) ...[
           const SizedBox(width: 8),
           _ConnectionPill(label: syncStatusLabel),
@@ -1183,12 +1171,64 @@ class _ConnectionPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final service = SyncService.instance;
+    if (service == null) {
+      return _ConnectionPillBody(label: label);
+    }
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final failedCount = service.failedSyncCount;
+        if (failedCount == null) {
+          return _ConnectionPillBody(label: label);
+        }
+        return ValueListenableBuilder<int>(
+          valueListenable: failedCount,
+          builder: (context, count, _) {
+            final issueKind = service.currentIssueKind;
+            if (count <= 0 || issueKind == SyncIssueKind.none) {
+              return _ConnectionPillBody(label: label);
+            }
+            return _ConnectionPillBody(
+              label: syncIssueChipLabel(issueKind),
+              issueKind: issueKind,
+              issueCount: count,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _ConnectionPillBody extends StatelessWidget {
+  const _ConnectionPillBody({
+    required this.label,
+    this.issueKind = SyncIssueKind.none,
+    this.issueCount = 0,
+  });
+
+  final String label;
+  final SyncIssueKind issueKind;
+  final int issueCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasIssue = issueKind != SyncIssueKind.none;
     final connected = label.contains('已连接') || label.contains('同步中');
     final tokens = context.petNoteTokens;
-    return Container(
+    final foreground = hasIssue
+        ? tokens.badgeGoldForeground
+        : connected
+            ? tokens.emptyStateForeground
+            : tokens.badgeGoldForeground;
+    final dotColor = connected && !hasIssue
+        ? const Color(0xFF52B788)
+        : tokens.badgeGoldForeground;
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: connected
+        color: connected && !hasIssue
             ? tokens.emptyStateBackground
             : tokens.badgeGoldBackground,
         borderRadius: BorderRadius.circular(999),
@@ -1200,16 +1240,11 @@ class _ConnectionPill extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: connected
-                  ? const Color(0xFF52B788)
-                  : tokens.badgeGoldForeground,
+              color: dotColor,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: (connected
-                          ? const Color(0xFF52B788)
-                          : tokens.badgeGoldForeground)
-                      .withValues(alpha: 0.18),
+                  color: dotColor.withValues(alpha: 0.18),
                   blurRadius: 0,
                   spreadRadius: 5,
                 ),
@@ -1223,9 +1258,7 @@ class _ConnectionPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: connected
-                    ? tokens.emptyStateForeground
-                    : tokens.badgeGoldForeground,
+                color: foreground,
                 fontSize: 13,
                 height: 1.4,
                 letterSpacing: 0,
@@ -1234,6 +1267,21 @@ class _ConnectionPill extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+    if (!hasIssue) {
+      return content;
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => showSyncIssueDialog(
+          context,
+          count: issueCount,
+          issueKind: issueKind,
+        ),
+        child: content,
       ),
     );
   }

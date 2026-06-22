@@ -1387,6 +1387,34 @@ void main() {
     );
   });
 
+  testWidgets('role selection hero adapts icon and shell colors in dark mode',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'app_theme_mode_v1': 'dark',
+    });
+    final settingsController = await AppSettingsController.load();
+
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settingsController,
+      ),
+    );
+    await _advanceIntroToRolePage(tester);
+    await _pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('intro_page_2_hero_icon')),
+    );
+
+    expect(
+      _backgroundColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
+      const Color(0xFF173A52),
+    );
+    expect(
+      _iconColorByKey(tester, const ValueKey('intro_page_2_hero_icon')),
+      const Color(0xFF7BC7FF),
+    );
+  });
+
   testWidgets('second page checklist and file icons use the updated colors',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
