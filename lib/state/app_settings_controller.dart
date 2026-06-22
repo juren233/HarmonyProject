@@ -30,6 +30,7 @@ class AppSettingsController extends ChangeNotifier {
     String? servedPetId,
     SyncDataPolicy? pendingInitialSyncPolicy,
     String? pendingResetSnapshotSyncId,
+    int lastPulledServerSeq = 0,
     bool petKeepScreenOn = true,
   })  : _preferences = preferences,
         _themePreference = themePreference,
@@ -45,6 +46,7 @@ class AppSettingsController extends ChangeNotifier {
         _servedPetId = servedPetId,
         _pendingInitialSyncPolicy = pendingInitialSyncPolicy,
         _pendingResetSnapshotSyncId = pendingResetSnapshotSyncId,
+        _lastPulledServerSeq = lastPulledServerSeq,
         _petKeepScreenOn = petKeepScreenOn;
 
   static const String themeModeStorageKey = 'app_theme_mode_v1';
@@ -67,6 +69,8 @@ class AppSettingsController extends ChangeNotifier {
       'pending_initial_sync_policy_v1';
   static const String pendingResetSnapshotSyncIdStorageKey =
       'pending_reset_snapshot_sync_id_v1';
+  static const String lastPulledServerSeqStorageKey =
+      'sync_last_pulled_server_seq_v1';
   static const String petKeepScreenOnStorageKey = 'pet_keep_screen_on_v1';
   static const Duration _preferencesLoadTimeout = Duration(seconds: 2);
 
@@ -84,6 +88,7 @@ class AppSettingsController extends ChangeNotifier {
   String? _servedPetId;
   SyncDataPolicy? _pendingInitialSyncPolicy;
   String? _pendingResetSnapshotSyncId;
+  int _lastPulledServerSeq;
   bool _petKeepScreenOn;
   final List<AiProviderConfig> _aiProviderConfigs = <AiProviderConfig>[];
   String? _activeAiProviderConfigId;
@@ -102,6 +107,7 @@ class AppSettingsController extends ChangeNotifier {
   String? get servedPetId => _servedPetId;
   SyncDataPolicy? get pendingInitialSyncPolicy => _pendingInitialSyncPolicy;
   String? get pendingResetSnapshotSyncId => _pendingResetSnapshotSyncId;
+  int get lastPulledServerSeq => _lastPulledServerSeq;
   bool get petKeepScreenOn => _petKeepScreenOn;
   String? get activeAiProviderConfigId => _activeAiProviderConfigId;
   List<AiProviderConfig> get aiProviderConfigs =>
@@ -164,6 +170,8 @@ class AppSettingsController extends ChangeNotifier {
       ),
       pendingResetSnapshotSyncId: _nonBlank(
           preferences?.getString(pendingResetSnapshotSyncIdStorageKey)),
+      lastPulledServerSeq:
+          preferences?.getInt(lastPulledServerSeqStorageKey) ?? 0,
       petKeepScreenOn: preferences?.getBool(petKeepScreenOnStorageKey) ?? true,
     ).._restoreAiProviderConfigs(storedConfigs, activeConfigId);
   }
@@ -231,7 +239,9 @@ class AppSettingsController extends ChangeNotifier {
       return;
     }
     _householdId = normalized;
+    _lastPulledServerSeq = 0;
     await _writeOptionalString(syncHouseholdIdStorageKey, normalized);
+    await _preferences?.remove(lastPulledServerSeqStorageKey);
     notifyListeners();
   }
 
@@ -298,6 +308,20 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setLastPulledServerSeq(int value) async {
+    final normalized = value < 0 ? 0 : value;
+    if (_lastPulledServerSeq == normalized) {
+      return;
+    }
+    _lastPulledServerSeq = normalized;
+    if (normalized == 0) {
+      await _preferences?.remove(lastPulledServerSeqStorageKey);
+    } else {
+      await _preferences?.setInt(lastPulledServerSeqStorageKey, normalized);
+    }
+    notifyListeners();
+  }
+
   Future<void> setPetKeepScreenOn(bool value) async {
     if (_petKeepScreenOn == value) {
       return;
@@ -328,14 +352,19 @@ class AppSettingsController extends ChangeNotifier {
     String? deviceName,
     SyncDataPolicy? pendingInitialSyncPolicy,
   }) async {
+    final nextHouseholdId = _nonBlank(householdId);
+    final shouldResetCheckpoint = _householdId != nextHouseholdId;
     _syncServerUrl = _nonBlank(serverUrl);
-    _householdId = _nonBlank(householdId);
+    _householdId = nextHouseholdId;
     _sharedKeyBase64 = _nonBlank(sharedKeyBase64) ?? _sharedKeyBase64;
     _householdAuthToken = _nonBlank(householdAuthToken) ?? _householdAuthToken;
     _servedPetId = _nonBlank(servedPetId);
     _deviceName = _nonBlank(deviceName) ?? _deviceName;
     _pendingInitialSyncPolicy =
         pendingInitialSyncPolicy ?? _pendingInitialSyncPolicy;
+    if (shouldResetCheckpoint) {
+      _lastPulledServerSeq = 0;
+    }
     await _writeOptionalString(syncServerUrlStorageKey, _syncServerUrl);
     await _writeOptionalString(syncHouseholdIdStorageKey, _householdId);
     await _writeOptionalString(sharedKeyBase64StorageKey, _sharedKeyBase64);
@@ -347,6 +376,9 @@ class AppSettingsController extends ChangeNotifier {
       pendingInitialSyncPolicyStorageKey,
       _pendingInitialSyncPolicy?.name,
     );
+    if (shouldResetCheckpoint) {
+      await _preferences?.remove(lastPulledServerSeqStorageKey);
+    }
     notifyListeners();
   }
 
@@ -357,12 +389,14 @@ class AppSettingsController extends ChangeNotifier {
     _servedPetId = null;
     _pendingInitialSyncPolicy = null;
     _pendingResetSnapshotSyncId = null;
+    _lastPulledServerSeq = 0;
     await _preferences?.remove(syncHouseholdIdStorageKey);
     await _preferences?.remove(sharedKeyBase64StorageKey);
     await _preferences?.remove(householdAuthTokenStorageKey);
     await _preferences?.remove(servedPetIdStorageKey);
     await _preferences?.remove(pendingInitialSyncPolicyStorageKey);
     await _preferences?.remove(pendingResetSnapshotSyncIdStorageKey);
+    await _preferences?.remove(lastPulledServerSeqStorageKey);
     notifyListeners();
   }
 

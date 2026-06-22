@@ -11,9 +11,9 @@
 但如果目标是“极端网络和高频操作后仍稳定高效”，当前自研同步仍未到最终形态。主要剩余风险集中在四处：
 
 1. 客户端持久 outbox 已有数量/字节上限，但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
-2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq` 和按 seq 增量补发协议，但客户端还没有持久保存 checkpoint，因此默认重连路径仍兼容旧式未确认事件补发。
-3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；服务端已具备 `serverSeq` / 设备 ack 水位和 `sync_checkpoint` 基础，但客户端 checkpoint 持久化与统一 operation log 尚未完成。
-4. 诊断能力已有服务端只读入口和 per-household 同步统计，后续还需要把 last pulled seq、事件滞后和客户端错误分类串起来。
+2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq` 和按 seq 增量补发协议；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint。后续重点转为诊断展示和服务端 cursor prune。
+3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；虽然已具备 `serverSeq` / 设备 ack / 客户端 checkpoint 基础，但统一 operation log 尚未完成。
+4. 诊断能力已有服务端只读入口和 per-household 同步统计，后续还需要把客户端 last pulled seq、事件滞后和错误分类串起来。
 
 本轮建议：不要在当前轮贸然替换同步底座；先做“上限、压缩、可观测、checkpoint”四类增量加固。`codex/powersync-spike` 分支仍有保留价值，作为中长期迁移验证分支；已合并的 `feature/unified-ohos-flutter` 已在本轮删除。
 
@@ -39,19 +39,20 @@
 
 服务端 `_pruneReceivedSyncEvents` 已只等待在线或近期活跃设备；`syncEvents` 同时有数量与 UTF-8 字节上限，超限时剪掉最旧事件并写日志告警。
 
-剩余边界：服务端已记录 `serverSeq` 和 `lastAckServerSeq`，但还没有用 active cursor 直接驱动 batch pull / cursor prune。
+剩余边界：服务端已记录 `serverSeq` 和 `lastAckServerSeq`，客户端也会持久记录 `lastPulledServerSeq`；但服务端还没有用 active cursor 直接驱动 cursor prune。
 
-### P2: 客户端 checkpoint 尚未接入默认重连路径
+### 已完成: 客户端 checkpoint 接入默认 merge 拉取
 
-当前事件注册已分配 `serverSeq`，设备确认后服务端也会记录 `lastAckServerSeq`；`snapshot_request` 也支持 `afterServerSeq` / `maxEvents` 并返回 `sync_checkpoint`。但客户端还没有持久保存本机 `lastPulledSeq`，默认重连恢复仍以旧式未确认事件补发兼容为主。证据：`server/lib/src/household_store.dart`、`server/lib/src/session_handler.dart`、`packages/petnote_sync_protocol/lib/src/sync_messages.dart`。
+当前事件注册已分配 `serverSeq`，设备确认后服务端记录 `lastAckServerSeq`；`snapshot_request` 支持 `afterServerSeq` / `maxEvents` 并返回 `sync_checkpoint`。客户端现在持久保存 `lastPulledServerSeq`，默认 merge 拉取会携带 `afterServerSeq` 与批量上限，收到 checkpoint 后推进本地水位，`hasMore` 时继续拉下一批。证据：`lib/state/app_settings_controller.dart`、`lib/sync/multi_device_sync_controller.dart`、`server/lib/src/session_handler.dart`。
 
-影响：
+新增保护：
 
-- 旧客户端或未携带 `afterServerSeq` 的请求仍需要兼容扫描未确认事件。
-- 客户端还不能明确持久表达“我已处理到哪个 serverSeq”，只能通过逐条 `sync_received` 间接确认，且当前 ack 水位只保存在服务端设备状态里。
-- 高频多端写入下，冲突调试缺少统一顺序坐标。
+- 换家庭或清配对时会重置本地 checkpoint，避免旧家庭水位串到新家庭。
+- remoteWins / reset 等显式覆盖策略不携带 checkpoint，保留原覆盖语义。
+- 入站 action / mutation / snapshot 应用失败时，同一批 checkpoint 不推进水位，避免跳过失败事件。
+- 服务端将增量补发请求与普通 snapshot 请求区分开，带 `afterServerSeq` / `maxEvents` 时不再广播给其他设备，避免续拉触发额外全量快照。
 
-建议：在现有服务端 `serverSeq` / `lastAckServerSeq` / `sync_checkpoint` 基础上，继续让客户端本地保存 `lastPulledSeq` / `lastAckedSeq`；重连时携带 `afterServerSeq` 与 `maxEvents` 分批拉取，并在处理完成后推进本地 checkpoint。
+剩余边界：旧客户端或未携带 `afterServerSeq` 的请求仍会走兼容补发；服务端诊断还没有把客户端 last pulled seq 与服务端 ack 差值可视化。
 
 ### P2: snapshot、mutation、checklist action 三条链路冲突语义分散
 
@@ -104,10 +105,10 @@
 1. 已完成：移除 `SyncClient._outbox`，让持久 `SyncFailureQueue` 成为唯一出站队列，并补测试覆盖断线发送不进入不可见内存层。
 2. 已完成：给 `SyncFailureQueue` 加消息数/字节数上限，超限进入明确容量异常并保留既有队列。
 3. 已完成：服务端为 `syncEvents` 增加数量/字节统计、最大保留上限和日志告警；设备超过 TTL 未见时不再阻塞剪枝。
-4. 进行中：服务端已落地 `serverSeq` / per-device ack 水位 / `sync_checkpoint` 增量补发基础；下一步引入客户端 checkpoint 持久化和默认 batch pull。
+4. 已完成：服务端已落地 `serverSeq` / per-device ack 水位 / `sync_checkpoint` 增量补发基础；客户端已接入 `lastPulledServerSeq` 持久化、默认 batch pull、checkpoint 续拉和失败不推进保护。
 5. 中期：把 checklist action 收敛进统一 operation log，快照只保留初始化/恢复/手动覆盖用途。
 6. 中长期：保留并继续推进 PowerSync spike，重点验证 Android/iOS 官方 Flutter、OHOS Flutter、服务端部署和数据迁移脚本。
 
-## 本轮是否需要立即代码修复
+## 本轮修复状态
 
-本轮没有发现会直接导致当前 main 数据错位或同步完全失败的高危 bug；更多是“极端弱网/长期运行/高频写入”下的架构风险。考虑到同步链路刚经历多轮修复，当前最安全的交付是先落盘评估报告和分支清理，不在同一轮贸然改核心队列语义。下一轮若继续实现，建议从 `SyncClient._outbox` 收敛开始，影响面可控且测试边界清晰。
+本轮已按低风险增量路线逐步修复同步可靠性问题：先收敛 `SyncClient._outbox`，再补队列容量、服务端事件保留、服务端诊断、`serverSeq` 基础、按序号增量补发，最后接入客户端持久 checkpoint 与默认 batch pull。当前剩余优化更偏中期架构：大附件 blob/分片、统一 operation log、诊断页串联端侧 last pulled seq 与服务端 ack 差值。

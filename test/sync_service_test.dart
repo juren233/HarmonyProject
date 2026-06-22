@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/multi_device_sync_controller.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_service.dart';
@@ -92,6 +93,11 @@ void main() {
     );
     expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(request.payload['afterServerSeq'], 0);
+    expect(
+      request.payload['maxEvents'],
+      MultiDeviceSyncController.defaultSnapshotPullBatchSize,
+    );
     expect(push.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(push.payload['mergeMode'], 'preserveConflictingIds');
     expect(
@@ -148,6 +154,11 @@ void main() {
     );
     expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(request.payload['mergeMode'], 'preserveConflictingIds');
+    expect(request.payload['afterServerSeq'], 0);
+    expect(
+      request.payload['maxEvents'],
+      MultiDeviceSyncController.defaultSnapshotPullBatchSize,
+    );
     expect(push.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(push.payload['mergeMode'], 'preserveConflictingIds');
     expect(
@@ -224,8 +235,112 @@ void main() {
       (message) => message.type == SyncMessageTypes.snapshotRequest,
     );
     expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+    expect(request.payload.containsKey('afterServerSeq'), isFalse);
+    expect(request.payload.containsKey('maxEvents'), isFalse);
 
     await service.stop();
+  });
+
+  test('默认重连拉取携带持久 serverSeq checkpoint', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(18);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    await acknowledgeHello(transport);
+
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['afterServerSeq'], 18);
+    expect(
+      request.payload['maxEvents'],
+      MultiDeviceSyncController.defaultSnapshotPullBatchSize,
+    );
+
+    await service.stop();
+  });
+
+  test('收到 sync checkpoint 后持久推进水位并在 hasMore 时续拉', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(4);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(
+      store: PetNoteStore.seeded(),
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'toServerSeq': 12,
+        'sentEventCount': 8,
+        'remainingEventCount': 3,
+        'hasMore': true,
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(settings.lastPulledServerSeq, 12);
+    final request = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['afterServerSeq'], 12);
+    expect(
+      request.payload['maxEvents'],
+      MultiDeviceSyncController.defaultSnapshotPullBatchSize,
+    );
+
+    final reloaded = await AppSettingsController.load();
+    expect(reloaded.lastPulledServerSeq, 12);
+
+    await service.stop();
+  });
+
+  test('清除配对会重置持久 serverSeq checkpoint', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(27);
+
+    await settings.clearSyncPairing();
+
+    expect(settings.lastPulledServerSeq, 0);
+    final reloaded = await AppSettingsController.load();
+    expect(reloaded.lastPulledServerSeq, 0);
   });
 
   test('导入备份推送覆盖快照时不会夹带启动 merge 快照', () async {

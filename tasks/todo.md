@@ -1,5 +1,22 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 客户端 serverSeq checkpoint 接入
+
+- [x] 持久化客户端 `lastPulledServerSeq` 并在换家庭/清配对时重置 → 验证: settings 与同步测试覆盖
+- [x] 默认 merge 拉取携带 `afterServerSeq` / `maxEvents` → 验证: owner/pet 启动和重连请求断言
+- [x] 处理 `sync_checkpoint` 并在 `hasMore` 时续拉下一批 → 验证: checkpoint 入站测试覆盖水位推进和续拉
+- [x] 入站事件应用失败时不得推进 checkpoint → 验证: 坏 mutation 后 checkpoint 不更新水位
+- [x] 增量补发请求不再广播给其他设备 → 验证: server sync flow 测试覆盖
+- [x] 跑客户端/服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 客户端 settings 新增 `lastPulledServerSeq` 持久水位；切换家庭、重新配对或清除配对时会重置，避免旧家庭 checkpoint 串入新家庭。
+- 默认 merge 拉取现在携带 `afterServerSeq` 与 `maxEvents=50`，收到 `sync_checkpoint` 后推进本地水位，若 `hasMore=true` 会继续请求下一批；显式 `remoteWins` 覆盖请求不携带 checkpoint。
+- `MultiDeviceSyncController` 入站消息改为串行处理，确保 mutation/action/snapshot 与后续 checkpoint 按 WebSocket 顺序应用；如果入站事件应用失败，同批 checkpoint 不推进水位，避免跳过失败事件。
+- 服务端区分增量补发与普通快照请求，带 `afterServerSeq` / `maxEvents` 的请求只返回缺失事件与 checkpoint，不再广播给其他设备触发额外快照。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；客户端与服务端相关 analyze；`git diff --check`。复查无 lockfile diff 和测试残留进程。
+
 ## 2026-06-23 服务端按 serverSeq 增量补发
 
 - [x] 为 `snapshot_request` 增加可选 `afterServerSeq` / `maxEvents` → 验证: 不传字段时旧补发行为不变

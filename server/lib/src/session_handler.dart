@@ -393,7 +393,8 @@ class SessionHandler {
       afterServerSeq: afterServerSeq,
       maxEvents: maxEvents,
     );
-    if (afterServerSeq != null || maxEvents != null) {
+    final isIncrementalReplay = afterServerSeq != null || maxEvents != null;
+    if (isIncrementalReplay) {
       _send(SyncMessage(SyncMessageTypes.syncCheckpoint, {
         'afterServerSeq': afterServerSeq,
         'requestedMaxEvents': maxEvents,
@@ -403,6 +404,9 @@ class SessionHandler {
         if (batch.fromServerSeq != null) 'fromServerSeq': batch.fromServerSeq,
         if (batch.toServerSeq != null) 'toServerSeq': batch.toServerSeq,
       }));
+    }
+    if (isIncrementalReplay) {
+      return;
     }
     _broadcastToOtherDevices(
       household,

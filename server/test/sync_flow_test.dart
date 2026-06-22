@@ -769,6 +769,10 @@ void main() {
       expect(mutation.payload['mutationId'], 'batch-mutation-$index');
     }
     await pet.expectNoType(SyncMessageTypes.syncCheckpoint);
+    final broadcastRequest = await owner.expectType(
+      SyncMessageTypes.snapshotRequest,
+    );
+    expect(broadcastRequest.payload['afterServerSeq'], isNull);
 
     pet.send(SyncMessageTypes.snapshotRequest, {
       'afterServerSeq': 1,
@@ -785,6 +789,7 @@ void main() {
     expect(checkpoint.payload['sentEventCount'], 1);
     expect(checkpoint.payload['remainingEventCount'], 1);
     expect(checkpoint.payload['hasMore'], isTrue);
+    await owner.expectNoType(SyncMessageTypes.snapshotRequest);
   });
 
   test('长期离线设备不会阻塞已确认同步事件剪枝', () async {

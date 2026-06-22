@@ -1485,6 +1485,50 @@ void main() {
 
     engine.dispose();
   });
+
+  test('入站事件应用失败时 checkpoint 不推进本地水位', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setHouseholdId('house-1');
+    await settings.setLastPulledServerSeq(4);
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final engine = OwnerSyncEngine(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+      settings: settings,
+    )..start(pushInitialSnapshot: false, requestInitialSnapshot: false);
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.mutation, {
+        'mutationId': 'bad-mutation-1',
+        'syncId': 'sync-bad-mutation-1',
+        'serverSeq': 5,
+        'ciphertext': 'not-valid-ciphertext',
+      }),
+    );
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'toServerSeq': 5,
+        'sentEventCount': 1,
+        'remainingEventCount': 1,
+        'hasMore': true,
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(settings.lastPulledServerSeq, 4);
+    final request = transport.sent.lastWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['afterServerSeq'], 4);
+
+    engine.dispose();
+  });
 }
 
 class FakeSyncTransport implements SyncTransport {
