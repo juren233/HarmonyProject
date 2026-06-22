@@ -1,5 +1,18 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 SyncClient 出站队列收敛
+
+- [x] 移除 `SyncClient` 底层不可见内存 outbox → 验证: 断线 `send()` 不再静默缓存
+- [x] 让断线发送显式抛错交给 `SyncFailureQueue` 持久化 → 验证: sync client / service 回归测试
+- [x] 跑同步相关 analyze、服务端同步流和 diff 检查 → 验证: 命令通过且无测试残留
+- [x] 审查后提交推送触发 GitHub Actions → 验证: `gh run list` 出现新 run
+
+### Review 2026-06-23
+
+- `SyncClient` 已移除底层内存 `_outbox`，断线时 `send()` 直接抛 `StateError`，避免业务消息进入状态快照不可见、进程重启不可恢复的缓存层。
+- 上层 `SyncFailureQueue` 继续作为唯一出站缓存，负责持久化、重试、去重和 household scope 过滤；新增测试锁定断线发送行为。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_client_test.dart test/sync_failure_queue_test.dart test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_client.dart test/sync_client_test.dart lib/sync/sync_failure_queue.dart lib/sync/sync_service.dart test/sync_service_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`。
+
 ## 2026-06-23 全面代码质量与同步稳定性评估
 
 - [x] 复核当前 CI、工作区和 README 约束 → 验证: `gh run list` / `git status` 证据明确
