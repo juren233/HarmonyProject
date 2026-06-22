@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 服务端 syncEvents 保留策略加固
+
+- [x] 长期离线设备不再阻塞已确认同步事件剪枝 → 验证: stale 设备 45 天未见时已确认 mutation 可清空 `syncEvents`
+- [x] 为服务端同步事件账本增加数量上限 → 验证: 测试配置 `maxRetainedSyncEvents=2` 时保留最新事件
+- [x] 为服务端同步事件账本增加 UTF-8 字节上限和日志告警 → 验证: 测试配置小字节上限时剪掉旧 snapshot 并保留最新事件
+- [x] 跑服务端同步流测试、server analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端 `syncEvents` 剪枝现在只等待在线设备或最近 30 天内活跃的设备，长期离线/废弃设备不会永久拖住已被活跃设备确认的事件。
+- `SyncServerApp` 增加同步事件数量与 UTF-8 字节保留上限，默认最多 1000 条 / 8 MiB；超限时按插入顺序剪掉最旧事件并写入服务端告警日志。
+- 剪掉 `syncEvents` 时不删除 `actionSyncEventIds` / `mutationSyncEventIds`，保持旧 action/mutation 去重语义，避免历史事件被容量策略剪掉后重复广播。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/server_app.dart lib/src/session_handler.dart test/sync_flow_test.dart`。
+
 ## 2026-06-23 SyncFailureQueue 容量保护
 
 - [x] 为 durable sync outbox 增加消息数量上限 → 验证: 超过 `maxPendingMessages` 时拒绝新增并保留既有队列

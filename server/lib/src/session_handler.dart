@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -680,14 +682,14 @@ class SessionHandler {
   void _handleDeviceUpdate(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    final requestedDeviceId = _sessionRole == 'pet'
-        ? deviceId
-        : _requiredString(message, 'deviceId');
+    final requestedDeviceId =
+        _sessionRole == 'pet' ? deviceId : _requiredString(message, 'deviceId');
     if (requestedDeviceId == null) return;
     if (_sessionRole == 'pet' && message.payload.containsKey('deviceId')) {
       final explicitDeviceId = _optionalString(message.payload['deviceId']);
       if (explicitDeviceId != null && explicitDeviceId != deviceId) {
-        _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
+        _send(
+            SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
         return;
       }
     } else if (_sessionRole != 'owner' && _sessionRole != 'pet') {
@@ -819,6 +821,7 @@ class SessionHandler {
       payload: eventPayload,
     );
     household.syncEvents[syncId] = event;
+    _enforceSyncEventRetention(household);
     return event;
   }
 
@@ -968,13 +971,59 @@ class SessionHandler {
   }
 
   void _pruneReceivedSyncEvents(Household household) {
-    final deviceIds = household.devices.keys.toSet();
+    final deviceIds = _activeReceiptTargetIds(household);
     household.syncEvents.removeWhere((_, event) {
       final receiptTargets = {...deviceIds}..remove(event.originDeviceId);
       final shouldPrune =
           receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
       return shouldPrune;
     });
+    _enforceSyncEventRetention(household);
+  }
+
+  Set<String> _activeReceiptTargetIds(Household household) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final cutoffMs = nowMs - app.syncEventActiveDeviceTtl.inMilliseconds;
+    return household.devices.values
+        .where((device) =>
+            app.hub.isOnline(household.id, device.deviceId) ||
+            ((device.lastSeenMs ?? -1) >= cutoffMs))
+        .map((device) => device.deviceId)
+        .toSet();
+  }
+
+  void _enforceSyncEventRetention(Household household) {
+    final maxEvents = app.maxRetainedSyncEvents;
+    final maxBytes = app.maxRetainedSyncEventBytes;
+    var removedCount = 0;
+    while (maxEvents > 0 && household.syncEvents.length > maxEvents) {
+      final oldestSyncId = household.syncEvents.keys.first;
+      household.syncEvents.remove(oldestSyncId);
+      removedCount += 1;
+    }
+    var payloadBytes = _syncEventPayloadBytes(household);
+    while (maxBytes > 0 &&
+        household.syncEvents.isNotEmpty &&
+        payloadBytes > maxBytes) {
+      final oldestSyncId = household.syncEvents.keys.first;
+      household.syncEvents.remove(oldestSyncId);
+      removedCount += 1;
+      payloadBytes = _syncEventPayloadBytes(household);
+    }
+    if (removedCount > 0) {
+      stderr.writeln(
+        '[PetNoteSyncServer] pruned $removedCount sync events '
+        'for household=${household.id} remaining=${household.syncEvents.length} '
+        'bytes=$payloadBytes',
+      );
+    }
+  }
+
+  int _syncEventPayloadBytes(Household household) {
+    final payload = household.syncEvents.map(
+      (syncId, event) => MapEntry(syncId, event.toJson()),
+    );
+    return utf8.encode(jsonEncode(payload)).length;
   }
 
   Household? _registeredHousehold() {

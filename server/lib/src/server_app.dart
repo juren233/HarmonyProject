@@ -16,6 +16,9 @@ class SyncServerApp {
   SyncServerApp({
     required Directory dataDirectory,
     RtcTokenService? rtcTokenService,
+    this.syncEventActiveDeviceTtl = const Duration(days: 30),
+    this.maxRetainedSyncEvents = 1000,
+    this.maxRetainedSyncEventBytes = 8 * 1024 * 1024,
   })  : store = HouseholdStore(dataDirectory),
         hub = WsHub(),
         rtcTokenService = rtcTokenService ??
@@ -26,6 +29,9 @@ class SyncServerApp {
   final HouseholdStore store;
   final WsHub hub;
   final RtcTokenService rtcTokenService;
+  final Duration syncEventActiveDeviceTtl;
+  final int maxRetainedSyncEvents;
+  final int maxRetainedSyncEventBytes;
   late final PairingService pairing;
 
   Future<HttpServer> serve(
