@@ -9,7 +9,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'flutter-state.ps1')
 
 function Resolve-ExistingPath {
   param(
@@ -137,18 +136,13 @@ function Get-TargetPlatformArg {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $androidDir = Join-Path $repoRoot 'android'
 $localPropertiesPath = Join-Path $androidDir 'local.properties'
-
-if (-not (Test-Path $localPropertiesPath)) {
-  throw "Android local.properties was not found at $localPropertiesPath"
-}
+$sdkRepoRoot = Join-Path $repoRoot '.flutter_ohos_sdk_gitcode'
+$resolvedSdkRepoRoot = (Resolve-Path $sdkRepoRoot).Path
 
 $localProperties = Get-PropertiesMap -Path $localPropertiesPath
 $flutterSdk = Resolve-ExistingPath -Candidates @(
-  $(if ($localProperties.ContainsKey('flutter.sdk')) { Join-Path $localProperties['flutter.sdk'] 'bin\flutter.bat' }),
-  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter.bat'),
-  'flutter.bat',
-  'flutter'
-) -Label 'Flutter SDK'
+  (Join-Path $resolvedSdkRepoRoot 'bin\flutter.bat')
+) -Label 'Flutter OHOS SDK'
 $androidSdk = Resolve-ExistingPath -Candidates @(
   $localProperties['sdk.dir'],
   $env:ANDROID_SDK_ROOT,
@@ -171,11 +165,15 @@ $activityName = Get-LaunchActivityName `
 $env:ANDROID_SDK_ROOT = $androidSdk
 $env:ANDROID_HOME = $androidSdk
 
+$localPropertiesContent = @(
+  "sdk.dir=$(($androidSdk).Replace('\', '\\'))"
+  "flutter.sdk=$(($resolvedSdkRepoRoot).Replace('\', '\\'))"
+) -join "`r`n"
+Set-Content -Path $localPropertiesPath -Value ($localPropertiesContent + "`r`n") -Encoding ascii
+
 Push-Location $repoRoot
 try {
-  Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos' | Out-Null
   Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
-  Save-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
 
   if ($BuildMode -eq 'release') {
     $prepareAndroidSigningScript = Join-Path $PSScriptRoot 'prepare-android-signing.ps1'

@@ -7,7 +7,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'flutter-state.ps1')
 
 function Resolve-ExistingPath {
   param(
@@ -66,7 +65,7 @@ function Assert-MacOS {
     [System.Runtime.InteropServices.OSPlatform]::OSX
   )
   if (-not $isMacOS) {
-    throw 'iOS build and run require macOS with Xcode installed. Use -Mode prepare on Windows to sync the official Flutter state only.'
+    throw 'iOS build and run require macOS with Xcode installed. Use -Mode prepare on Windows to sync the project OHOS Flutter state only.'
   }
 }
 
@@ -75,32 +74,17 @@ function Resolve-CocoaPods {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$androidLocalPropertiesPath = Join-Path $repoRoot 'android\local.properties'
+$sdkRepoRoot = Join-Path $repoRoot '.flutter_ohos_sdk_gitcode'
+$resolvedSdkRepoRoot = (Resolve-Path $sdkRepoRoot).Path
 $flutterSdkCandidates = @(
-  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter.bat'),
-  (Join-Path $repoRoot '.flutter_ohos_sdk_gitcode\bin\flutter')
+  (Join-Path $resolvedSdkRepoRoot 'bin\flutter.bat'),
+  (Join-Path $resolvedSdkRepoRoot 'bin\flutter')
 )
-
-if (Test-Path $androidLocalPropertiesPath) {
-  $androidFlutterSdk = Select-String -Path $androidLocalPropertiesPath -Pattern '^flutter\.sdk=(.+)$' | Select-Object -First 1
-  if ($androidFlutterSdk) {
-    $flutterRoot = $androidFlutterSdk.Matches[0].Groups[1].Value.Trim().Replace('\\', '\')
-    $flutterSdkCandidates += @(
-      (Join-Path $flutterRoot 'bin\flutter.bat'),
-      (Join-Path $flutterRoot 'bin\flutter')
-    )
-  }
-}
-
-$flutterSdkCandidates += 'flutter.bat'
-$flutterSdkCandidates += 'flutter'
 $flutterSdk = Resolve-ExistingPath -Candidates $flutterSdkCandidates -Label 'Flutter SDK'
 
 Push-Location $repoRoot
 try {
-  Restore-PlatformState -RepoRoot $repoRoot -StateName 'ohos' | Out-Null
   Invoke-Checked -Executable $flutterSdk -Arguments @('pub', 'get')
-  Save-PlatformState -RepoRoot $repoRoot -StateName 'ohos'
 
   if ($Mode -eq 'prepare') {
     return

@@ -82,7 +82,6 @@ debug_intro_output.txt
 
 # Local Harmony build/cache
 .hvigor/
-.tooling/flutter-state/
 
 # Local legacy backup project
 .legacy_arkui_disabled/

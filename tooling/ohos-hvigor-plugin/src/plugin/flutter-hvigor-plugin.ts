@@ -41,111 +41,14 @@ const localEngineSrcPath = getParameter('FLUTTER_ENGINE') // /xxx/engine/src
 const localEngine = getParameter('LOCAL_ENGINE') // /xxx/engine/src/out/ohos_debug_unopt_arm64
 
 const FLUTTER_ASSETS_PATH = 'flutter_assets'
-const MANAGED_FLUTTER_STATE_FILES = [
-  'pubspec.lock',
-  '.flutter-plugins',
-  '.flutter-plugins-dependencies',
-  '.dart_tool/package_config.json',
-  '.dart_tool/package_config_subset',
-  '.dart_tool/package_graph.json',
-  '.dart_tool/version',
-  'android/local.properties',
-]
-
-function ensureParentDirectory(targetPath: string) {
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-}
-
 function removePathIfExists(targetPath: string) {
   if (fs.existsSync(targetPath)) {
     fs.rmSync(targetPath, { recursive: true, force: true })
   }
 }
 
-const LOCKFILE_HOSTED_URL = 'https://pub.flutter-io.cn'
-
-function normalizePubspecLockHostedUrl(targetPath: string) {
-  if (path.basename(targetPath) !== 'pubspec.lock' || !fs.existsSync(targetPath)) {
-    return
-  }
-
-  const content = fs.readFileSync(targetPath, 'utf-8')
-  const normalizedContent = content.replace(/https:\/\/pub\.dev/g, LOCKFILE_HOSTED_URL)
-  if (normalizedContent === content) {
-    return
-  }
-
-  fs.writeFileSync(targetPath, normalizedContent, 'utf-8')
-}
-
-function copyFilePreservingParent(sourcePath: string, destinationPath: string) {
-  ensureParentDirectory(destinationPath)
-  fs.copyFileSync(sourcePath, destinationPath)
-  normalizePubspecLockHostedUrl(destinationPath)
-}
-
-function getFlutterStateRoot(flutterProjectPath: string, stateName: string): string {
-  return path.join(flutterProjectPath, '.tooling', 'flutter-state', stateName)
-}
-
 function getFlutterPluginsDependenciesPath(flutterProjectPath: string): string {
-  const defaultPath = path.join(flutterProjectPath, '.flutter-plugins-dependencies')
-  const ohosStatePath = path.join(getFlutterStateRoot(flutterProjectPath, 'ohos'), '.flutter-plugins-dependencies')
-  if (
-    normalizeComparablePath(ohosStatePath) !== normalizeComparablePath(defaultPath) &&
-    fs.existsSync(ohosStatePath)
-  ) {
-    return ohosStatePath
-  }
-
-  return defaultPath
-}
-
-function backupManagedFlutterState(flutterProjectPath: string): string {
-  const backupRoot = path.join(
-    flutterProjectPath,
-    '.tooling',
-    'flutter-state',
-    '.session-backups',
-    `deveco-${Date.now()}`
-  )
-  fs.mkdirSync(backupRoot, { recursive: true })
-
-  MANAGED_FLUTTER_STATE_FILES.forEach(relativePath => {
-    const sourcePath = path.join(flutterProjectPath, relativePath)
-    if (!fs.existsSync(sourcePath)) {
-      return
-    }
-    copyFilePreservingParent(sourcePath, path.join(backupRoot, relativePath))
-  })
-
-  return backupRoot
-}
-
-function restoreManagedFlutterState(flutterProjectPath: string, restoreRoot: string): boolean {
-  if (!fs.existsSync(restoreRoot)) {
-    return false
-  }
-
-  MANAGED_FLUTTER_STATE_FILES.forEach(relativePath => {
-    const sourcePath = path.join(restoreRoot, relativePath)
-    const targetPath = path.join(flutterProjectPath, relativePath)
-    if (fs.existsSync(sourcePath)) {
-      copyFilePreservingParent(sourcePath, targetPath)
-    } else {
-      removePathIfExists(targetPath)
-    }
-  })
-
-  return true
-}
-
-function cleanupManagedFlutterStateBackup(backupRoot: string) {
-  removePathIfExists(backupRoot)
-}
-
-function restoreNamedFlutterState(flutterProjectPath: string, stateName: string): boolean {
-  return restoreManagedFlutterState(flutterProjectPath, getFlutterStateRoot(flutterProjectPath, stateName))
+  return path.join(flutterProjectPath, '.flutter-plugins-dependencies')
 }
 
 function normalizeComparablePath(filePath: string): string {
@@ -336,35 +239,6 @@ function ensureFlutterPackages(flutterExecutablePath: string, flutterProjectPath
   )
   console.info('Refresh Flutter package config for OHOS IDE run end')
   ensureRepoOwnedHvigorPlugin(flutterProjectPath)
-}
-
-function switchToOhosFlutterState(
-  flutterExecutablePath: string,
-  flutterProjectPath: string,
-  sdkPath: string,
-): string {
-  console.info('Backup Flutter shared state start')
-  const sessionStateBackupRoot = backupManagedFlutterState(flutterProjectPath)
-  console.info('Backup Flutter shared state end')
-
-  console.info('Switch to OHOS Flutter state start')
-  if (!restoreNamedFlutterState(flutterProjectPath, 'ohos')) {
-    console.warn('OHOS Flutter state snapshot was not found; refresh package config directly.')
-  }
-  ensureFlutterPackages(flutterExecutablePath, flutterProjectPath, sdkPath)
-  console.info('Switch to OHOS Flutter state end')
-
-  return sessionStateBackupRoot
-}
-
-function restoreFlutterSharedState(flutterProjectPath: string, sessionStateBackupRoot: string) {
-  console.info('Restore Flutter shared state start')
-  const restoredSession = restoreManagedFlutterState(flutterProjectPath, sessionStateBackupRoot)
-  if (!restoredSession) {
-    restoreNamedFlutterState(flutterProjectPath, 'official')
-  }
-  cleanupManagedFlutterStateBackup(sessionStateBackupRoot)
-  console.info('Restore Flutter shared state end')
 }
 
 function getOhosRoot(flutterProjectPath: string): string {
@@ -854,17 +728,12 @@ function registerFlutterTask(node: HvigorNode, sdkPath: string, buildMode: strin
         'bin',
         flutterExecutableName
       )
-      const sessionStateBackupRoot = switchToOhosFlutterState(
-        flutterExecutablePath,
-        flutterProjectPath,
-        sdkPath,
-      )
+      ensureFlutterPackages(flutterExecutablePath, flutterProjectPath, sdkPath)
       const flutterOhosStorePath = getFlutterOhosStorePath(flutterProjectPath)
       if (patchFlutterOhosFlutterViewAvoidAreaHandling(flutterProjectPath, flutterOhosStorePath)) {
         clearFlutterOhosArkTsBuildOutputs(flutterProjectPath)
       }
       clearStaleFlutterOhosArkTsCache(flutterProjectPath, flutterOhosStorePath)
-      try {
         let targetNames: string[]
         if (buildMode === 'debug') {
           targetNames = ['debug_ohos_application']
@@ -1036,9 +905,6 @@ function registerFlutterTask(node: HvigorNode, sdkPath: string, buildMode: strin
         )
 
         copyConfigsFile(srcFlutterConfigsDir, destFlutterConfigsDir)
-      } finally {
-        restoreFlutterSharedState(flutterProjectPath, sessionStateBackupRoot)
-      }
     },
   })
 }

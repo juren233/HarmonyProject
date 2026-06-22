@@ -41,10 +41,7 @@ PetNote 面向多宠家庭的日常照护场景，核心目标是把“今天要
 - iOS
 - HarmonyOS / OpenHarmony
 
-这三个端共用同一套 Flutter 业务代码，但不共用同一套 Flutter SDK：
-
-- Android + iOS 固定使用官方 Flutter
-- HarmonyOS 固定使用项目内 OHOS Flutter
+这三个端共用同一套 Flutter 业务代码；本地开发和新设备初始化统一使用项目内 OHOS Flutter SDK。
 
 README 前半部分用于 GitHub 首页展示，后半部分保留工程协作手册，说明“怎么开工程、怎么跑三端、哪些文件该提交、哪些不要提交”。
 
@@ -57,7 +54,7 @@ README 前半部分用于 GitHub 首页展示，后半部分保留工程协作�
 - **AI 总览**：基于最近 7 天到 1 年或自定义时间范围生成照护评分、风险候选、重点证据和行动建议。
 - **自带 AI 配置入口**：支持 OpenAI、Anthropic、Cloudflare Workers AI 和兼容 OpenAI 的服务；API Key 走平台安全存储，PetNote 不托管密钥。
 - **数据备份**：宠物、待办、提醒、记录和 AI 配置可通过数据包导入导出，便于换机、联调和样本复现。
-- **三端同仓维护**：Android / iOS 走官方 Flutter，HarmonyOS 走项目内 OHOS Flutter 与 `ohos` 工程，工程边界在 README 中明确约束。
+- **三端同仓维护**：Android / iOS / HarmonyOS 本地开发共用项目内 OHOS Flutter SDK，工程边界在 README 中明确约束。
 
 ## 界面预览
 
@@ -94,8 +91,8 @@ README 前半部分用于 GitHub 首页展示，后半部分保留工程协作�
 | 模块                      | 技术与职责                                                  |
 | ----------------------- | ------------------------------------------------------ |
 | 共享业务层                   | Flutter / Dart，集中在 `lib` 与 `test`                      |
-| Android / iOS           | 官方 Flutter SDK，平台壳位于 `android` 与 `ios`                 |
-| HarmonyOS / OpenHarmony | 项目内 OHOS Flutter 子模块，平台工程位于 `ohos`                     |
+| Android / iOS           | 本地使用项目内 OHOS Flutter SDK，平台壳位于 `android` 与 `ios`      |
+| HarmonyOS / OpenHarmony | 项目内 OHOS Flutter SDK，平台工程位于 `ohos`                     |
 | 本地数据                    | `sembast`、`shared_preferences` 与平台文件访问桥接               |
 | AI 能力                   | 可配置 provider、平台安全密钥存储、结构化照护总览                          |
 | 通知能力                    | Flutter 业务层协调，平台 MethodChannel 适配通知状态                  |
@@ -106,10 +103,10 @@ README 前半部分用于 GitHub 首页展示，后半部分保留工程协作�
 ```bash
 git clone --recursive https://github.com/juren233/PetNote.git
 cd PetNote
-flutter pub get
+./.flutter_ohos_sdk_gitcode/bin/flutter pub get
 ```
 
-Android / iOS 日常开发使用官方 Flutter；HarmonyOS / OpenHarmony 开发请打开 `ohos` 并按下方工程协作说明使用项目内 OHOS Flutter。
+Android / iOS / HarmonyOS 日常开发统一使用项目内 OHOS Flutter；GitHub Actions 只构建 Android / iOS 发布产物，作为 CI 例外使用官方 Flutter。HarmonyOS / OpenHarmony 开发请打开 `ohos` 并按下方工程协作说明使用项目内 OHOS Flutter。
 
 常用入口：
 
@@ -119,7 +116,7 @@ Android / iOS 日常开发使用官方 Flutter；HarmonyOS / OpenHarmony 开发�
 - Harmony 初始化：`powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
 - Harmony x64 HAP：`powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode build -TargetPlatform x64`
 
-> 完整命令、签名规则、SDK 状态切换、Release 产物和提交边界见下面的“工程协作与运行说明”。本仓库不要混用官方 Flutter 与 OHOS Flutter 状态。
+> 完整命令、签名规则、Release 产物和提交边界见下面的“工程协作与运行说明”。本仓库本地开发默认使用项目内 OHOS Flutter SDK；GitHub Actions 只在 Android / iOS 发布构建中使用官方 Flutter。
 
 ## 服务器更新
 
@@ -265,13 +262,14 @@ Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 
 - `pre_release=true` 时，工作流按已有 GitHub tags 计算同基础版本的下一个 `beta.N`；构建号按 GitHub Release 总数 + 1 计算。
 - Android 当前配置产出 `arm64-v8a` APK。
 - iOS 当前配置产出 unsigned IPA，仍需自行签名后才能安装到真机或分发。
+- GitHub Actions 不构建 HarmonyOS / OpenHarmony；Android / iOS 发布构建作为 CI 例外使用官方 Flutter，不拉取项目内 OHOS Flutter SDK 子模块。
 
 ## 项目边界
 
 - PetNote 是移动端宠物照护应用，不维护 Web / 桌面端产品目录。
-- Android / iOS 与 HarmonyOS 共用业务层，但 SDK、平台工程、签名链路分开管理。
+- Android / iOS 与 HarmonyOS 共用业务层；本地 SDK、平台工程和签名链路按下方规则分开管理。
 - AI 能力依赖用户自行配置的 provider 与 API Key；仓库不托管任何用户密钥。
-- README 后半部分是协作基线，任何会影响运行方式、签名流程、SDK 状态、目录归属或提交边界的改动都要同步检查这里。
+- README 后半部分是协作基线，任何会影响运行方式、签名流程、SDK 使用、目录归属或提交边界的改动都要同步检查这里。
 
 ## 工程协作与运行说明
 
@@ -292,7 +290,7 @@ Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 
   - [pubspec.yaml](./pubspec.yaml)
   - [lib](./lib)
   - [test](./test)
-- 官方 Flutter 平台层：
+- Android / iOS 平台层：
   - [android](./android)
   - [ios](./ios)
 - Harmony 平台层：
@@ -305,22 +303,22 @@ Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 
   - [scripts/flutter-android.ps1](./scripts/flutter-android.ps1)
   - [scripts/flutter-ios.ps1](./scripts/flutter-ios.ps1)
   - [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1)
-  - [scripts/flutter-state.ps1](./scripts/flutter-state.ps1)
   - [scripts/post-build-macos.sh](./scripts/post-build-macos.sh)
 
-## SDK 分流规则
+## SDK 使用规则
 
-- Android 默认读 [android/local.properties](./android/local.properties) 里的官方 Flutter 路径。
-- iOS 默认复用 Android 同一套官方 Flutter。
+- Android / iOS / HarmonyOS 默认统一使用项目内 OHOS Flutter SDK。
+- Android / iOS 脚本优先使用 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode)，不再以官方 Flutter 作为主路径。
 - Harmony 默认读 [ohos/local.properties](./ohos/local.properties) 里的项目内 OHOS Flutter 路径。
-- 根目录工作区默认以“官方 Flutter 状态”为准。
-- Harmony 脚本运行前会临时切换到 OHOS Flutter 状态，结束后再恢复成官方 Flutter 状态。
-- DevEco Studio 直接运行会使用仓库内自管的 OHOS hvigor 插件副本，并在构建前后自动切换 / 恢复根目录共享 Flutter 状态。
+- 根目录工作区默认以项目内 OHOS Flutter 状态为准。
+- DevEco Studio 直接运行会使用仓库内自管的 OHOS hvigor 插件副本。
+- GitHub Actions 是唯一例外：当前 workflow 只构建 Android / iOS 发布产物，使用 `subosito/flutter-action` 安装官方 Flutter，不拉取 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 子模块，也不构建 HarmonyOS / OpenHarmony。
 
 这意味着：
 
-- 日常开发 Android / iOS 时，根目录应该保持官方 Flutter。
+- 日常开发 Android / iOS 时，也应使用项目内 OHOS Flutter。
 - 需要跑 Harmony 时，不要手动切 SDK，直接走 Harmony 脚本或 DevEco 的 Harmony 工程。
+- 不要把 GitHub Actions 的官方 Flutter 例外反推到本地开发流程。
 
 ## 首次拉取
 
@@ -340,8 +338,7 @@ git submodule update --init --recursive
 
 - [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 是正式子模块，不是普通目录。
 - 不要把 OHOS Flutter 整套源码直接复制进主仓库历史。
-- Harmony 相关兼容修复通过仓库内自管插件副本、补丁文件和脚本自动应用，不依赖子模块里的本地脏改动。
-- 对应补丁文件是 [tooling/ohos-flutter/flutter-hvigor-plugin.patch](./tooling/ohos-flutter/flutter-hvigor-plugin.patch)。
+- Harmony 相关兼容修复通过仓库内自管插件副本和脚本入口生效，不依赖子模块里的本地脏改动。
 - 仓库内自管插件副本位于 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)。
 - 当前受控入口是 [ohos/hvigorfile.ts](./ohos/hvigorfile.ts) 和 [ohos/hvigorconfig.ts](./ohos/hvigorconfig.ts) 的相对导入，不依赖 `ohos/package.json` 这种本地生成物长期保持某个值。
 
@@ -352,7 +349,7 @@ git submodule update --init --recursive
 ### Android / iOS
 
 - 打开项目根目录 `.`
-- 使用官方 Flutter
+- 使用项目内 OHOS Flutter
 - 在 Android Studio / IntelliJ / VS Code 里调试 Android 和 iOS
 
 你在根工程里稳定会看到：
@@ -362,7 +359,7 @@ git submodule update --init --recursive
 
 如果你的本机另外启用了 Flutter 的 Web / 桌面端支持，IDE 里也**可能**额外显示 Web、macOS、Windows 或 Linux 设备；这不代表仓库当前维护了这些平台目录。
 
-你在根工程里通常**看不到**鸿蒙虚拟机，这是正常的。
+你在根工程里通常**看不到**鸿蒙虚拟机，这是正常的；HarmonyOS / OpenHarmony 仍在 DevEco Studio 的 `ohos` 子工程里调试。
 
 ### HarmonyOS
 
@@ -425,20 +422,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter-android.ps1 -Mode ins
 macOS 终端：
 
 ```bash
-# 先同步官方 Flutter 依赖
-flutter pub get
+# 先同步项目内 OHOS Flutter 依赖
+./.flutter_ohos_sdk_gitcode/bin/flutter pub get
 
 # 构建 Android release arm64 安装包
-flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
+./.flutter_ohos_sdk_gitcode/bin/flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 
 # 构建同时兼容 32 位和 64 位真机的 release 安装包
-flutter build apk --release --target-platform android-arm,android-arm64 --no-tree-shake-icons
+./.flutter_ohos_sdk_gitcode/bin/flutter build apk --release --target-platform android-arm,android-arm64 --no-tree-shake-icons
 
 # 安装 arm64 release 包到指定 Android 设备
 adb -s <adb-device-id> install -r build/app/outputs/flutter-apk/app-release.apk
 
 # 调试 Android 真机 / 模拟器
-flutter run --debug -d <adb-device-id>
+./.flutter_ohos_sdk_gitcode/bin/flutter run --debug -d <adb-device-id>
 ```
 
 说明：
@@ -452,7 +449,7 @@ flutter run --debug -d <adb-device-id>
 - 上面的 macOS `flutter build apk` 默认产物是 `build/app/outputs/flutter-apk/app-release.apk`
 - 如果你要单独产出 `app-arm64-v8a-release.apk` 这类按 ABI 拆分的包，请执行 `flutter build apk --release --target-platform android-arm64 --split-per-abi`
 - macOS 上默认按上面的终端命令执行
-- 直接走原生命令时，不会自动帮你切换 / 恢复共享 Flutter 状态；执行前请确认仓库根目录当前处于 `official` 状态
+- 直接走原生命令时，使用项目内 OHOS Flutter，不要改用系统 PATH 里的其他 Flutter。
 
 #### Android release 签名统一方案
 
@@ -571,30 +568,30 @@ GitHub Actions 的发布配置由根目录 [release.yml](./release.yml) 控制�
 Windows PowerShell：
 
 ```powershell
-# 仅同步官方 Flutter 依赖状态
+# 仅同步项目内 OHOS Flutter 依赖状态
 powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ios.ps1 -Mode prepare
 ```
 
 macOS 终端：
 
 ```bash
-# 先同步官方 Flutter 依赖
-flutter pub get
+# 先同步项目内 OHOS Flutter 依赖
+./.flutter_ohos_sdk_gitcode/bin/flutter pub get
 
 # 安装 / 刷新 Pods
 cd ios && pod install && cd ..
 
 # 构建 iOS debug 包（不签名）
-flutter build ios --debug --no-codesign --no-tree-shake-icons
+./.flutter_ohos_sdk_gitcode/bin/flutter build ios --debug --no-codesign --no-tree-shake-icons
 
 # 构建 iOS 模拟器 debug 包
-flutter build ios --simulator --debug
+./.flutter_ohos_sdk_gitcode/bin/flutter build ios --simulator --debug
 
 # 安装到当前已启动的 iOS 模拟器
 xcrun simctl install booted build/ios/iphonesimulator/Runner.app
 
 # 构建未签名 release App
-flutter build ios --release --no-codesign
+./.flutter_ohos_sdk_gitcode/bin/flutter build ios --release --no-codesign
 
 # 直接运行到指定 iPhone / 模拟器
 flutter run --debug -d <device-id>
@@ -610,7 +607,7 @@ flutter run --debug -d <device-id>
 - 如果你想串行完成“模拟器构建并安装 + 未签名 IPA + arm64-v8a APK”，可以在仓库根目录执行 [scripts/post-build-macos.sh](./scripts/post-build-macos.sh)
 - 这个脚本会严格串行跑 `ios simulator debug -> simctl install -> ios release --no-codesign -> unsigned ipa -> android arm64-v8a apk`，避免多个 Flutter / Xcode build 互相抢锁
 - 当前仓库生成的 `.ipa` 是未签名包，默认产物路径是 `build/ios/Runner-unsigned.ipa`
-- 直接走原生命令时，不会自动帮你切换 / 恢复共享 Flutter 状态；执行前请确认仓库根目录当前处于 `official` 状态
+- 直接走原生命令时，使用项目内 OHOS Flutter，不要改用系统 PATH 里的其他 Flutter。
 
 ### HarmonyOS
 
@@ -743,7 +740,7 @@ open -a "DevEco Studio" .
 
 - 这套 macOS 场景依赖 DevEco Studio 自带的 `ohpm`、`hvigorw`、`node` 和 `hdc`
 - `hvigorw assembleHap` 是当前 OHOS Flutter 工具链实际使用的构建入口；这里补的是默认终端等价命令，不是把 Windows PowerShell 脚本直接搬到 mac 上
-- 如果你要复用仓库内那套自动签名、自动切 Flutter 状态、自动恢复状态的完整流程，仍然优先使用 Windows + [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1)
+- 如果你要复用仓库内那套自动签名和本机配置校正流程，仍然优先使用 Windows + [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1)
 
 说明：
 
@@ -754,21 +751,18 @@ open -a "DevEco Studio" .
 - Windows 新机器第一次使用 Harmony / DevEco 前，先执行一次 `powershell -ExecutionPolicy Bypass -File .\scripts\flutter-ohos.ps1 -Mode init`
 - 脚本会自动处理本地调试签名
 - Harmony 安装包的版本号和构建号默认跟随根目录 [pubspec.yaml](./pubspec.yaml) 的 `version`
-- `-Mode init` 会自动生成 / 校正本机的 [ohos/local.properties](./ohos/local.properties)，并固定让 Harmony 继续使用项目内 OHOS Flutter，不会把 Android / iOS 切到 OHOS Flutter，同时会把根目录 `pubspec.yaml` 的 `version` 同步成 `flutter.versionName` / `flutter.versionCode`
-- 脚本也会自动校验仓库内 hvigor 插件副本，避免 IDE / hvigor 误读根目录的官方 Flutter `package_config`
+- `-Mode init` 会自动生成 / 校正本机的 [ohos/local.properties](./ohos/local.properties)，并固定使用项目内 OHOS Flutter，同时会把根目录 `pubspec.yaml` 的 `version` 同步成 `flutter.versionName` / `flutter.versionCode`
+- 脚本也会自动校验仓库内 hvigor 插件副本，避免 IDE / hvigor 误读根目录的 `package_config`
 - DevEco 一键编译 / 运行也会优先读取根目录 `pubspec.yaml` 的 `version`，在构建期覆盖 Harmony 包的版本号和构建号，不需要额外手动改 [ohos/AppScope/app.json5](./ohos/AppScope/app.json5) 或 [ohos/local.properties](./ohos/local.properties)
 - 如果 OHPM 重新生成了 `@ohos/flutter_ohos` 的 storePath，脚本和 DevEco 直跑会自动清理过期的 ArkTS / loader 构建缓存，避免首次启动还去引用旧的 `pkg_modules/.ohpm/...` 哈希路径
 - 如果要修改 Harmony 安装包版本号或构建号，只改根目录 [pubspec.yaml](./pubspec.yaml) 即可
-- DevEco 直跑链路也会做同样的状态隔离，不需要额外手动切 Flutter SDK
+- DevEco 直跑链路也会使用项目内 OHOS Flutter，不需要额外手动切 Flutter SDK
 
-## 依赖状态管理
+## 依赖状态约定
 
-仓库里有两套本地状态快照：
+当前仓库不再维护多套 Flutter 状态快照，也不再在构建前后切换 / 恢复共享 Flutter 状态。本地三端统一使用项目内 OHOS Flutter SDK；GitHub Actions 只在 Android / iOS 发布构建中使用官方 Flutter。
 
-- `official`：给 Android + iOS
-- `ohos`：给 HarmonyOS
-
-状态管理脚本是 [scripts/flutter-state.ps1](./scripts/flutter-state.ps1)，它会维护这些文件：
+这些文件仍可能被 Flutter / IDE 按本机环境重新生成：
 
 - [pubspec.lock](./pubspec.lock)
 - `.flutter-plugins`
@@ -781,12 +775,12 @@ open -a "DevEco Studio" .
 
 结论很简单：
 
-- 不要在 `official` 和 `ohos` 两套 SDK 状态之间混用裸 `flutter pub get`
-- 需要哪一端，就走哪一端脚本
-- 如果你在 macOS 上按 README 直接执行 Android / iOS 原生命令，这属于“明确留在 official 状态下”的例外场景
-- Harmony 构建完后，根目录会恢复成官方 Flutter 状态，这是设计如此，不是状态错乱
-- [ohos/local.properties](./ohos/local.properties) 是 Harmony 本地配置，不属于 `official` / `ohos` 共享 Flutter 状态快照；`-Mode init` 校正后的版本号和 OHOS Flutter 路径会保留在当前机器上
-- DevEco 直跑 Harmony 时，也会先备份根目录共享生成物，再切到 OHOS 状态，结束后恢复
+- 当前本地三端统一使用项目内 OHOS Flutter SDK，不要再切回旧的官方 Flutter 状态。
+- 需要哪一端，就走哪一端脚本。
+- macOS 上按 README 直接执行 Android / iOS 原生命令时，也使用项目内 OHOS Flutter。
+- GitHub Actions 是 Android / iOS 发布构建例外，使用官方 Flutter 且不构建 HarmonyOS。
+- [ohos/local.properties](./ohos/local.properties) 是 Harmony 本地配置；`-Mode init` 校正后的版本号和 OHOS Flutter 路径会保留在当前机器上。
+- DevEco 直跑 Harmony 时，也会使用项目内 OHOS Flutter 状态。
 
 ## OHOS Hvigor 插件归属
 
@@ -810,12 +804,12 @@ open -a "DevEco Studio" .
 
 Harmony / ArkTS 运行时问题警醒：
 
-- 任何共享 Dart 层代码只要会被 Android / iOS 官方 Flutter 编译解析，就不能直接静态引用 OHOS Flutter 独有符号，例如 `TargetPlatform.ohos`、`OhosView`、`PlatformViewsService.initOhosView`、`OhosViewController`、`OhosViewSurface` 等。即使运行时只在 Harmony 分支进入，官方 Flutter 的编译期仍会解析同一个 Dart 文件并直接报未定义。
-- Harmony 专属原生视图如果必须从共享层承载，优先使用官方 Flutter 与 OHOS Flutter 都存在的公共抽象，例如 `PlatformViewLink`、`PlatformViewController`、`SystemChannels.platform_views`、`Texture`，或者拆到明确只由 OHOS Flutter 状态解析的隔离入口。不要把“运行时平台判断”当成“编译期符号隔离”。
-- 判断 Harmony 平台时，不要在共享代码里写 `TargetPlatform.ohos`，因为官方 Flutter 的 `TargetPlatform` 没有这个枚举值。需要判断当前目标平台时，可在确认两套 SDK 都能解析的前提下使用 `platform.name == 'ohos'` 这类字符串判断，并同时保留测试环境兜底。
-- Dart 条件导入只支持 SDK 已定义的条件键，不要幻想用 `--dart-define` 自造 `if (petnote.hasOhosView)` 之类条件来隔离 OHOS 专属 API；这类写法不能阻止官方 Flutter 编译期解析错误。
-- 处理 Harmony 专属平台视图时，先同时对照官方 Flutter SDK 和项目内 OHOS Flutter SDK 的源码，不要只照着 OHOS SDK 抄类型。像 `PlatformViewHitTestBehavior` 这类类型虽然存在于 Flutter 内部源码，但当前官方 Flutter 可能没有从本项目可用入口导出，直接写进共享层会导致 Android release 在 `kernel_snapshot` 阶段失败。
-- 修改 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接这类跨 SDK 共享入口后，最低验证必须同时跑 Android 官方 Flutter 构建和 Harmony 构建。只验证 Harmony 端显示正常不算闭环，因为同一个共享 Dart 文件可能已经把 Android / iOS 编译打爆；只验证 Android 也不算闭环，因为低层平台视图协议可能让 Harmony 端再次不显示。
+- 共享 Dart 层代码会被 Android / iOS / HarmonyOS 三端共同编译解析，不能把 Harmony 专属平台视图、平台判断或桥接 API 随意写进所有入口。
+- Harmony 专属原生视图如果必须从共享层承载，优先使用项目内 OHOS Flutter 与三端构建都能接受的公共抽象，例如 `PlatformViewLink`、`PlatformViewController`、`SystemChannels.platform_views`、`Texture`，或者拆到明确只由 Harmony 状态解析的隔离入口。不要把“运行时平台判断”当成“编译期符号隔离”。
+- 判断 Harmony 平台时，仍要确认相关符号能被三端构建解析。需要判断当前目标平台时，可使用 `platform.name == 'ohos'` 这类字符串判断，并同时保留测试环境兜底。
+- Dart 条件导入只支持 SDK 已定义的条件键，不要幻想用 `--dart-define` 自造 `if (petnote.hasOhosView)` 之类条件来隔离 OHOS 专属 API；这类写法不能阻止共享入口的编译期解析错误。
+- 处理 Harmony 专属平台视图时，先对照项目内 OHOS Flutter SDK 的可用入口，不要只照着某个内部源码类型抄进共享层。像 `PlatformViewHitTestBehavior` 这类类型即使存在于 Flutter 内部源码，也要确认本项目三端构建入口都能解析。
+- 修改 Harmony 原生底栏、平台视图、Flutter / ArkTS 桥接这类共享入口后，最低验证必须同时覆盖 Android、iOS 和 Harmony。只验证 Harmony 端显示正常不算闭环；只验证 Android / iOS 也不算闭环，因为低层平台视图协议可能让 Harmony 端再次不显示。
 - 跑 Android / Harmony 构建后，必须检查 [pubspec.lock](./pubspec.lock) 是否被工具链改成 `https://pub.dev`，这属于本地依赖源噪音，应恢复为 README 约定的 `https://pub.flutter-io.cn`，不要把构建副作用混进修复提交。
 - 如果安装后启动闪退，且栈落在 `ohos/oh_modules` 下的 `@ohos/flutter_ohos/src/main/ets/view/FlutterView.ets`，不要先把问题归因到新业务插件或用户环境。先按栈行号读取实际生成文件上下文，再回查负责改写该文件的仓库自管逻辑，通常应优先检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)。
 - `ohos/oh_modules` 和 `ohos/entry/build` 都是本地生成物，不要直接把修复写进生成物后结束。正确做法是修改仓库内自管补丁或源码入口，重新跑 Harmony 构建，再反查生成物确认补丁确实进入实际打包链路。
@@ -834,12 +828,10 @@ Harmony / ArkTS 运行时问题警醒：
 - [`.gitmodules`](./.gitmodules)
 - [README.md](./README.md)
 - [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)
-- [tooling/ohos-flutter/flutter-hvigor-plugin.patch](./tooling/ohos-flutter/flutter-hvigor-plugin.patch)
 - 子模块指针 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 的版本更新
 
 不要提交：
 
-- `.tooling/flutter-state/`
 - `.dart_tool/`
 - `.flutter-plugins`
 - `.flutter-plugins-dependencies`
@@ -858,12 +850,12 @@ Harmony / ArkTS 运行时问题警醒：
 特别注意：
 
 - 如果 [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode) 在主仓库里显示为 `dirty`，先清掉子模块内部的本地改动再提主仓库。
-- 根目录 [pubspec.lock](./pubspec.lock) 提交前应保持“官方 Flutter 默认状态”。
+- 根目录 [pubspec.lock](./pubspec.lock) 提交前应保持项目内 OHOS Flutter 状态。
 - 跑 Android / Harmony 脚本后，如果 [pubspec.lock](./pubspec.lock) 只出现 `https://pub.flutter-io.cn` 与 `https://pub.dev` 的来回变化，默认视为依赖源环境噪音，不要和业务修复一起提交。
-- 除依赖源 URL 外，两套 SDK 还会让 [pubspec.lock](./pubspec.lock) 的锁定版本来回翻转：OHOS Flutter 的 `flutter` / `flutter_test` 包精确锁定一组较旧版本（`characters 1.4.0`、`material_color_utilities 0.11.1`、`meta 1.16.0`、`test_api 0.7.6`、`matcher 0.12.17`），官方 Flutter 则锁定更新版本，`synchronized` 等个别传递依赖也会随 Dart SDK 上界小幅变化。在哪套 SDK 状态下跑 `pub get`，lock 就会被解析成哪组版本——这是各自构建期的必然结果，不是依赖损坏。按上一条同样处理：提交前恢复"官方 Flutter 默认状态"，不要把这类翻转和业务修复一起提交。
+- 旧的官方 Flutter 状态可能让 [pubspec.lock](./pubspec.lock) 锁定版本来回翻转；当前提交前应恢复到项目内 OHOS Flutter 解析结果，不要把旧 SDK 状态噪音和业务修复一起提交。
 - 如果需要改 DevEco 直跑逻辑，请优先改 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin)，不要去改子模块里的 upstream hvigor 插件源码。
 - 如果 Harmony 运行时错误栈落在 `@ohos/flutter_ohos/.../FlutterView.ets`、`MethodChannel`、`StandardMessageCodec` 等 SDK / 桥接层，不要先入为主地怀疑业务插件本身；先检查 [tooling/ohos-hvigor-plugin](./tooling/ohos-hvigor-plugin) 对 upstream FlutterView 的补丁是否仍然成立，再决定是否要改业务代码。
-- 如果共享 Dart 层为了 Harmony 特性引用了平台视图或平台判断相关 API，先确认这些符号在官方 Flutter 和 OHOS Flutter 下都能解析。不能把 `OhosView`、`TargetPlatform.ohos` 或只在某一套 SDK 暴露的类型直接留在共享入口里；官方 Flutter 不会因为运行时分支不进入就跳过编译期解析。
+- 如果共享 Dart 层为了 Harmony 特性引用了平台视图或平台判断相关 API，先确认这些符号在 Android / iOS / Harmony 三端构建入口下都能解析。不能把只在某一端可用的类型直接留在共享入口里；编译期不会因为运行时分支不进入就跳过解析。
 - ArkTS 不是完整 TypeScript。写 Harmony 原生插件时，不要使用 `in`、`for..in`、依赖动态对象结构的写法，也不要假设 TS 风格对象探测在 ArkTS 下仍然可用；优先用显式类型、`typeof`、`instanceof` 和固定字段结构。
 - Harmony / ArkUI / 系统 API 返回的对象，尤其是 `window.AvoidArea`、`window.Rect` 这类原生对象，不要把嵌套字段整体替换成对象字面量；要么先克隆成普通对象再使用，要么只更新标量字段。把原生对象的子对象整体改写成字面量，可能在运行时触发 `Obj is not a Valid object` 这类崩溃。
 - 新增 Harmony 原生插件实现文件前，先检查它是否会被仓库忽略规则拦住。当前 `ohos/entry/src/main/ets/plugins/*` 可能出现“本地文件存在、构建能过、但 Git 默认不跟踪”的情况；新增插件时必须同时确认 [ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets](./ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets) 和对应实现文件都已经进入版本控制。
@@ -873,21 +865,9 @@ Harmony / ArkTS 运行时问题警醒：
 
 ## 团队协作建议
 
-三个人协作时，推荐按“两条工具链 + 共享层”分工，而不是按三个平台硬切。
-
-- 1 人主看共享业务层：
-  - [lib](./lib)
-  - [test](./test)
-- 1 人主看官方 Flutter 平台层：
-  - [android](./android)
-  - [ios](./ios)
-- 1 人主看 Harmony 平台层：
-  - [ohos](./ohos)
-  - [`.flutter_ohos_sdk_gitcode`](./.flutter_ohos_sdk_gitcode)
-
 提交前最低验证建议：
 
-- 共享层改动：至少验证 Android 和 Harmony
+- 共享层改动：至少验证 Android、iOS 和 Harmony
 - Android 平台改动：跑一次 [scripts/flutter-android.ps1](./scripts/flutter-android.ps1)
 - iOS 平台改动：在 macOS 上跑一次 [scripts/post-build-macos.sh](./scripts/post-build-macos.sh) 或至少完成一遍 iOS 原生命令链
 - Harmony 平台改动：跑一次 [scripts/flutter-ohos.ps1](./scripts/flutter-ohos.ps1)
@@ -895,11 +875,11 @@ Harmony / ArkTS 运行时问题警醒：
 ## 常见误区
 
 - “为什么根工程设备列表里没有鸿蒙虚拟机？”
-  因为根工程走的是官方 Flutter，不会列出 OHOS 设备。
-- “为什么跑完 Harmony 脚本后，根目录又变回官方 Flutter 了？”
-  因为这正是分流设计，避免影响 Android / iOS。
+  因为 HarmonyOS / OpenHarmony 设备主要由 DevEco Studio 的 `ohos` 子工程识别和调试。
+- “为什么不要再切回官方 Flutter？”
+  因为当前本地三端统一使用项目内 OHOS Flutter，切回旧的官方 Flutter 状态会让依赖锁定和编译入口重新分叉。GitHub Actions 的 Android / iOS 发布构建是 CI 例外，不代表本地开发要切回官方 Flutter。
 - “为什么 DevEco 现在可以直接运行了？”
-  因为 hvigor 插件会在构建前自动备份共享状态、切换到 OHOS Flutter、必要时刷新 `package_config`，构建后再恢复。
+  因为 hvigor 插件会使用仓库内自管插件副本，并在必要时刷新 `package_config`。
 - “为什么 DevEco 运行前有时仍然建议先跑一次 Harmony 脚本？”
   因为脚本会顺手完成子模块初始化、本机 `ohos/local.properties` 校正、签名修复和 hvigor 补丁兜底，适合首次拉仓库或本地环境刚变化之后使用。
 - “为什么我只加了一个 Harmony 原生插件，结果先是 ArkTS 编译报错、再是安装后启动闪退？”
