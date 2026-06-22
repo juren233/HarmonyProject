@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 横屏宠物选择页左侧卡片图标排版优化
+
+- [x] 在横屏选择页左侧状态卡加入深浅色自适应 App 图标 → 验证: widget 测试覆盖 light/dark logo 样式
+- [x] 下移标题和连接状态并收紧卡片内部边界 → 验证: 多尺寸横屏几何测试无溢出
+- [x] 保持右侧列表和宠物选择交互不变 → 验证: 点击宠物卡片仍回调选择
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡新增 App 图标，复用“我的”页项目介绍卡片的白/黑图标盒、边框、阴影和深色模式白色 SVG 过滤逻辑。
+- 状态卡改为上方图标、下方标题和连接状态胶囊的结构，标题与状态整体下移，`LayoutBuilder` 按卡片高度调整图标尺寸与间距，避免横屏小尺寸越界。
+- 右侧宠物列表和点击选择回调保持不变；新增测试覆盖 `720x390`、`900x520`、`1180x620` 横屏几何边界和深浅色图标样式。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`。
+
 ## 2026-06-23 主人端头像 emoji fallback 与宠物类型预设扩展
 
 - [x] 主人端无图片宠物头像改用类型 emoji fallback，其他类型保持原缩写 → 验证: 主人端宠物列表 widget 测试

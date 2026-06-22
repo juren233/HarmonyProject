@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_pages.dart';
@@ -348,35 +349,108 @@ class _PetSelectorSidePanel extends StatelessWidget {
           child: _SelectorSurface(
             key: const ValueKey('pet_selector_status_card'),
             padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '这台设备照顾谁？',
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: tokens.primaryText,
-                      fontSize: 34,
-                      height: 1.18,
-                      letterSpacing: 0,
-                      fontWeight: FontWeight.w900,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final logoSize =
+                    (constraints.maxHeight * 0.29).clamp(72.0, 88.0).toDouble();
+                final topGap =
+                    (constraints.maxHeight * 0.06).clamp(8.0, 18.0).toDouble();
+                final logoBottomGap =
+                    (constraints.maxHeight * 0.06).clamp(8.0, 18.0).toDouble();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: topGap),
+                    Center(child: _SelectorAppLogo(size: logoSize)),
+                    SizedBox(height: logoBottomGap),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '这台设备照顾谁？',
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: tokens.primaryText,
+                                  fontSize: 32,
+                                  height: 1.18,
+                                  letterSpacing: 0,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                  maxWidth: double.infinity),
+                              child: _ConnectionPill(label: syncStatusLabel),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: double.infinity),
-                  child: _ConnectionPill(label: syncStatusLabel),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SelectorAppLogo extends StatelessWidget {
+  const _SelectorAppLogo({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final logoBoxBackground = isDark ? const Color(0xFF111111) : Colors.white;
+    final logoBoxBorderColor =
+        isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFEAE6E0);
+    final logoShadowColor =
+        isDark ? Colors.black.withValues(alpha: 0.28) : const Color(0x0D000000);
+    final logoColorFilter =
+        isDark ? const ColorFilter.mode(Colors.white, BlendMode.srcIn) : null;
+
+    return Container(
+      key: const ValueKey('pet_selector_app_logo_box'),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: logoBoxBackground,
+        borderRadius: BorderRadius.circular(size * 0.27),
+        border: Border.all(color: logoBoxBorderColor, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: logoShadowColor,
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: size - 2,
+            maxHeight: size - 2,
+          ),
+          child: SvgPicture.asset(
+            'assets/images/intro/first_page_hero.svg',
+            fit: BoxFit.contain,
+            colorFilter: logoColorFilter,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_device_dashboard.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
@@ -179,6 +180,8 @@ void main() {
         find.byKey(const ValueKey('pet_selector_side_panel')), findsOneWidget);
     expect(
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_app_logo_box')),
+        findsOneWidget);
     expect(find.text('选择服务宠物'), findsNothing);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
     expect(
@@ -245,20 +248,33 @@ void main() {
       final listPanelRect = tester.getRect(
         find.byKey(const ValueKey('pet_selector_list_panel')),
       );
+      final statusCardRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_status_card')),
+      );
+      final logoRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_app_logo_box')),
+      );
       expect(sidePanelRect.left, greaterThanOrEqualTo(0));
       expect(listPanelRect.right, lessThanOrEqualTo(size.width));
       expect(sidePanelRect.right, lessThan(listPanelRect.left));
+      expect(logoRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(logoRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
+      expect(logoRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(logoRect.bottom, lessThanOrEqualTo(statusCardRect.bottom - 8));
       final syncPillRect = tester.getRect(find.text('同步中...'));
-      expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
-      expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      expect(syncPillRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(syncPillRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(syncPillRect.bottom, lessThanOrEqualTo(statusCardRect.bottom - 8));
       final titleRect = tester.getRect(
         find.descendant(
           of: find.byKey(const ValueKey('pet_selector_status_card')),
           matching: find.text('这台设备照顾谁？'),
         ),
       );
-      expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
-      expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      expect(titleRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(titleRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(logoRect.bottom, lessThan(titleRect.top));
+      expect(titleRect.bottom, lessThan(syncPillRect.top));
       expect(find.text('选择服务宠物'), findsNothing);
       expect(find.text('${store.pets.length} 只可服务'), findsNothing);
       expect(
@@ -276,6 +292,66 @@ void main() {
     }
 
     addTearDown(() => tester.binding.setSurfaceSize(null));
+  });
+
+  testWidgets('横屏选择页左侧 App 图标跟随深浅色模式', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    Future<void> pumpDashboard(Brightness brightness) async {
+      final store = PetNoteStore.seeded();
+      await tester.pumpWidget(
+        _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: null,
+            syncStatusLabel: '已连接',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (_) {},
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+          brightness: brightness,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await pumpDashboard(Brightness.light);
+    final lightLogo = tester.widget<Container>(
+      find.byKey(const ValueKey('pet_selector_app_logo_box')),
+    );
+    final lightDecoration = lightLogo.decoration as BoxDecoration;
+    expect(lightDecoration.color, Colors.white);
+    expect(
+      tester
+          .widget<SvgPicture>(
+            find.descendant(
+              of: find.byKey(const ValueKey('pet_selector_app_logo_box')),
+              matching: find.byType(SvgPicture),
+            ),
+          )
+          .colorFilter,
+      isNull,
+    );
+
+    await pumpDashboard(Brightness.dark);
+    final darkLogo = tester.widget<Container>(
+      find.byKey(const ValueKey('pet_selector_app_logo_box')),
+    );
+    final darkDecoration = darkLogo.decoration as BoxDecoration;
+    expect(darkDecoration.color, const Color(0xFF111111));
+    expect(
+      tester
+          .widget<SvgPicture>(
+            find.descendant(
+              of: find.byKey(const ValueKey('pet_selector_app_logo_box')),
+              matching: find.byType(SvgPicture),
+            ),
+          )
+          .colorFilter,
+      const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+    );
   });
 
   testWidgets('横屏选择页长文案不破坏布局', (tester) async {
