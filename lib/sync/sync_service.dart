@@ -13,19 +13,51 @@ import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 typedef SyncTransportFactory = SyncTransport Function(String url);
 
+enum SyncSessionState {
+  disconnected,
+  connecting,
+  handshaking,
+  authenticated,
+  backingOff,
+  blocked,
+}
+
+class SyncStatusSnapshot {
+  const SyncStatusSnapshot({
+    required this.connectionState,
+    required this.sessionState,
+    required this.pendingOutboxCount,
+    required this.pendingMutationCount,
+    required this.lastSyncedAt,
+    required this.lastPullAt,
+    required this.lastError,
+    required this.nextRetryAt,
+  });
+
+  final SyncConnectionState connectionState;
+  final SyncSessionState sessionState;
+  final int pendingOutboxCount;
+  final int pendingMutationCount;
+  final DateTime? lastSyncedAt;
+  final DateTime? lastPullAt;
+  final Object? lastError;
+  final DateTime? nextRetryAt;
+}
+
 class SyncService extends ChangeNotifier {
   SyncService({
     required this.settings,
     SyncSecretStore? secretStore,
     OfficialSyncServerResolver? officialServerResolver,
     SyncTransportFactory? transportFactory,
+    this.handshakeTimeout = const Duration(seconds: 12),
     this.resolveMergeConflict,
   })  : _secretStore = secretStore ?? MethodChannelSyncSecretStore(),
         _officialServerResolver =
             officialServerResolver ?? OfficialSyncServerResolver(),
         _transportFactory =
             transportFactory ?? ((url) => SyncClient(url: url)) {
-    settings.addListener(_refreshFailedSyncCount);
+    settings.addListener(_handleSettingsChanged);
     _refreshFailedSyncCount();
   }
 
@@ -35,6 +67,7 @@ class SyncService extends ChangeNotifier {
   final SyncSecretStore _secretStore;
   final OfficialSyncServerResolver _officialServerResolver;
   final SyncTransportFactory _transportFactory;
+  final Duration handshakeTimeout;
   SyncMergeConflictResolver? resolveMergeConflict;
 
   SyncTransport? _transport;
@@ -50,10 +83,49 @@ class SyncService extends ChangeNotifier {
   bool _handshakeFailed = false;
   String? _lastReportedServedPetId;
   StreamSubscription<SyncMessage>? _helloAckSubscription;
+  Timer? _handshakeTimer;
+  SyncSessionState _sessionState = SyncSessionState.disconnected;
+  PetNoteStore? _activeStore;
+  DateTime? _lastPullAt;
+  Object? _lastSessionError;
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
   ValueListenable<int>? get failedSyncCount => _failedSyncCount;
+  SyncSessionState get sessionState => _sessionState;
+  SyncStatusSnapshot get statusSnapshot => SyncStatusSnapshot(
+        connectionState:
+            _transport?.state.value ?? SyncConnectionState.disconnected,
+        sessionState: _sessionState,
+        pendingOutboxCount: ownerEngine?.pendingOutboxCount ??
+            petController?.pendingOutboxCount ??
+            0,
+        pendingMutationCount: _activeStore?.pendingLocalMutations.length ?? 0,
+        lastSyncedAt: ownerEngine?.lastSyncedAt.value ??
+            petController?.lastSyncedAt.value,
+        lastPullAt: _lastPullAt,
+        lastError: _lastSessionError ??
+            ownerEngine?.lastError.value ??
+            petController?.lastError.value,
+        nextRetryAt:
+            ownerEngine?.nextOutboxRetryAt ?? petController?.nextOutboxRetryAt,
+      );
+  SyncIssueKind get currentIssueKind {
+    final baseCount = ownerEngine?.failedSyncCount.value ??
+        petController?.failedSyncCount.value ??
+        0;
+    if ((_handshakeFailed || _sessionState == SyncSessionState.blocked) &&
+        settings.householdId != null) {
+      return SyncIssueKind.handshakeFailed;
+    }
+    if (settings.pendingResetSnapshotSyncId != null) {
+      return SyncIssueKind.pendingResetConfirmation;
+    }
+    if (baseCount > 0) {
+      return SyncIssueKind.failedQueue;
+    }
+    return SyncIssueKind.none;
+  }
 
   Future<void> pushLocalSnapshotToAllDevices({
     required PetNoteStore store,
@@ -82,6 +154,16 @@ class SyncService extends ChangeNotifier {
       case DeviceRole.undecided:
       case null:
         break;
+    }
+    _refreshFailedSyncCount();
+  }
+
+  void retrySyncIssues() {
+    ownerEngine?.retryFailedSync();
+    petController?.retryFailedSync();
+    final role = _activeRole;
+    if (settings.pendingResetSnapshotSyncId != null && role != null) {
+      unawaited(_pushPendingResetSnapshotIfAny(role));
     }
     _refreshFailedSyncCount();
   }
@@ -126,6 +208,8 @@ class SyncService extends ChangeNotifier {
     }
     if (isActive) {
       if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
+        _activeStore = store;
+        await recoverSync();
         return;
       }
       await stop();
@@ -133,6 +217,7 @@ class SyncService extends ChangeNotifier {
     final transport = _transportFactory(config.url);
     _transport = transport;
     _activeConfig = config;
+    _activeStore = store;
     final engine = OwnerSyncEngine(
       store: store,
       transport: transport,
@@ -140,6 +225,7 @@ class SyncService extends ChangeNotifier {
       resolveMergeConflict: resolveMergeConflict,
       settings: settings,
       onRemoved: _stopAfterRemoval,
+      canSend: _canSendBusinessMessages,
     );
     ownerEngine = engine;
     await engine.start(
@@ -150,17 +236,14 @@ class SyncService extends ChangeNotifier {
     _activeRole = DeviceRole.owner;
     notifyListeners();
 
-    await transport.connect();
     _attachHelloAckHandler(transport, config);
-    _sendHello(
-      transport: transport,
-      config: config,
-      role: DeviceRole.owner,
-    );
     _attachHelloOnConnect(
       transport: transport,
       config: config,
       role: DeviceRole.owner,
+    );
+    await _connectTransport(
+      transport: transport,
     );
 
     if (pendingPolicy == null) {
@@ -170,7 +253,6 @@ class SyncService extends ChangeNotifier {
         return;
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-      await ownerEngine?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
       ownerEngine?.requestSnapshot();
       _initialConnectionCompleted = true;
       return;
@@ -216,6 +298,8 @@ class SyncService extends ChangeNotifier {
     }
     if (isActive) {
       if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
+        _activeStore = store;
+        await recoverSync();
         return;
       }
       await stop();
@@ -223,6 +307,7 @@ class SyncService extends ChangeNotifier {
     final transport = _transportFactory(config.url);
     _transport = transport;
     _activeConfig = config;
+    _activeStore = store;
     final controller = PetReplicaController(
       store: store,
       transport: transport,
@@ -230,6 +315,7 @@ class SyncService extends ChangeNotifier {
       resolveMergeConflict: resolveMergeConflict,
       settings: settings,
       onRemoved: _stopAfterRemoval,
+      canSend: _canSendBusinessMessages,
     );
     petController = controller;
     await controller.start(
@@ -240,19 +326,16 @@ class SyncService extends ChangeNotifier {
     _activeRole = DeviceRole.pet;
     notifyListeners();
 
-    await transport.connect();
     _attachHelloAckHandler(transport, config);
-    _sendHello(
+    _attachHelloOnConnect(
       transport: transport,
       config: config,
       role: DeviceRole.pet,
     );
     _lastReportedServedPetId = settings.servedPetId;
     settings.addListener(_handlePetSettingsChanged);
-    _attachHelloOnConnect(
+    await _connectTransport(
       transport: transport,
-      config: config,
-      role: DeviceRole.pet,
     );
 
     if (pendingPolicy == null) {
@@ -263,7 +346,6 @@ class SyncService extends ChangeNotifier {
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
       petController?.requestSnapshot();
-      await petController?.pushSnapshotNow(dataPolicy: SyncDataPolicy.merge);
       _initialConnectionCompleted = true;
       return;
     }
@@ -312,12 +394,83 @@ class SyncService extends ChangeNotifier {
     _transport = null;
     _activeConfig = null;
     _activeRole = null;
+    _activeStore = null;
     _initialConnectionCompleted = false;
     _lastReportedServedPetId = null;
+    _handshakeTimer?.cancel();
+    _handshakeTimer = null;
+    _handshakeFailed = false;
+    _lastSessionError = null;
+    _setSessionState(SyncSessionState.disconnected);
     settings.removeListener(_handlePetSettingsChanged);
     if (shouldNotify) {
       _refreshFailedSyncCount();
       notifyListeners();
+    }
+  }
+
+  Future<void> recoverSync() async {
+    final role = _activeRole;
+    if (role == null || _transport == null) {
+      return;
+    }
+    if (_transport?.state.value == SyncConnectionState.disconnected) {
+      await _connectTransport(transport: _transport!);
+      return;
+    }
+    if (_sessionState == SyncSessionState.authenticated) {
+      _retryActiveEngine();
+      _requestSnapshotWithCooldown(role, force: true);
+    }
+  }
+
+  Future<void> _connectTransport({required SyncTransport transport}) async {
+    _setSessionState(SyncSessionState.connecting);
+    try {
+      await transport.connect();
+    } on Object catch (error) {
+      _handshakeFailed = true;
+      _lastSessionError = error;
+      _setSessionState(SyncSessionState.backingOff);
+      _refreshFailedSyncCount();
+      debugPrint('SyncClient connect failed during startup: $error');
+    }
+  }
+
+  bool _canSendBusinessMessages() {
+    return _sessionState == SyncSessionState.authenticated;
+  }
+
+  void _setSessionState(SyncSessionState state) {
+    if (_sessionState == state) {
+      return;
+    }
+    _sessionState = state;
+    notifyListeners();
+  }
+
+  void _retryActiveEngine() {
+    ownerEngine?.retryFailedSync();
+    petController?.retryFailedSync();
+    _refreshFailedSyncCount();
+  }
+
+  void _requestSnapshotWithCooldown(DeviceRole role, {bool force = false}) {
+    final now = DateTime.now();
+    final lastPullAt = _lastPullAt;
+    if (!force &&
+        lastPullAt != null &&
+        now.difference(lastPullAt) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastPullAt = now;
+    switch (role) {
+      case DeviceRole.owner:
+        ownerEngine?.requestSnapshot();
+      case DeviceRole.pet:
+        petController?.requestSnapshot();
+      case DeviceRole.undecided:
+        break;
     }
   }
 
@@ -395,6 +548,7 @@ class SyncService extends ChangeNotifier {
     final syncId =
         'reset-${DateTime.now().toUtc().microsecondsSinceEpoch}-${await settings.ensureDeviceId()}';
     await settings.setPendingResetSnapshotSyncId(syncId);
+    debugPrint('[PetNoteSync] pending reset snapshot registered: $syncId');
     _refreshFailedSyncCount();
     return syncId;
   }
@@ -406,12 +560,15 @@ class SyncService extends ChangeNotifier {
     }
     switch (role) {
       case DeviceRole.owner:
+        debugPrint(
+            '[PetNoteSync] push pending reset snapshot as owner: $syncId');
         await ownerEngine?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.remoteWins,
           force: true,
           syncId: syncId,
         );
       case DeviceRole.pet:
+        debugPrint('[PetNoteSync] push pending reset snapshot as pet: $syncId');
         await petController?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.remoteWins,
           force: true,
@@ -442,15 +599,21 @@ class SyncService extends ChangeNotifier {
   }
 
   void _refreshFailedSyncCount() {
-    final baseCount = ownerEngine?.failedSyncCount.value ??
-        petController?.failedSyncCount.value ??
-        0;
-    final nextCount = baseCount > 0
-        ? baseCount
-        : (_handshakeFailed && settings.householdId != null) ||
-                settings.pendingResetSnapshotSyncId != null
-            ? 1
-            : 0;
+    if (settings.householdId == null) {
+      if (_failedSyncCount.value != 0) {
+        _failedSyncCount.value = 0;
+      }
+      return;
+    }
+    final nextCount = switch (currentIssueKind) {
+      SyncIssueKind.failedQueue => ownerEngine?.failedSyncCount.value ??
+          petController?.failedSyncCount.value ??
+          0,
+      SyncIssueKind.handshakeFailed ||
+      SyncIssueKind.pendingResetConfirmation =>
+        1,
+      SyncIssueKind.none => 0,
+    };
     if (_failedSyncCount.value != nextCount) {
       _failedSyncCount.value = nextCount;
     }
@@ -462,30 +625,32 @@ class SyncService extends ChangeNotifier {
     required DeviceRole role,
   }) {
     void listener() {
-      if (transport.state.value != SyncConnectionState.connected) {
+      final state = transport.state.value;
+      if (state == SyncConnectionState.connecting) {
+        _setSessionState(SyncSessionState.connecting);
         return;
       }
+      if (state == SyncConnectionState.disconnected) {
+        if (_activeRole != null) {
+          _setSessionState(SyncSessionState.backingOff);
+        }
+        return;
+      }
+      _setSessionState(SyncSessionState.handshaking);
       _sendHello(
         transport: transport,
         config: _activeConfig ?? config,
         role: role,
       );
+      _startHandshakeTimer();
       if (settings.pendingResetSnapshotSyncId != null) {
         unawaited(_pushPendingResetSnapshotIfAny(role));
       }
 
       // 只在重连时（非首次连接）主动请求快照
       if (_initialConnectionCompleted) {
-        switch (role) {
-          case DeviceRole.owner:
-            ownerEngine?.retryFailedSync();
-            ownerEngine?.requestSnapshot();
-          case DeviceRole.pet:
-            petController?.retryFailedSync();
-            petController?.requestSnapshot();
-          case DeviceRole.undecided:
-            break;
-        }
+        _retryActiveEngine();
+        _requestSnapshotWithCooldown(role);
       }
     }
 
@@ -498,13 +663,26 @@ class SyncService extends ChangeNotifier {
     _helloAckSubscription = transport.messages.listen((message) {
       if (message.type != SyncMessageTypes.helloAck) {
         if (message.type == SyncMessageTypes.pairError) {
+          debugPrint(
+              '[PetNoteSync] hello failed: ${message.payload['message']}');
           _handshakeFailed = true;
+          _lastSessionError =
+              message.payload['message'] ?? 'sync handshake failed';
+          _handshakeTimer?.cancel();
+          _setSessionState(SyncSessionState.blocked);
           _refreshFailedSyncCount();
-          unawaited(stop());
         }
         return;
       }
+      _handshakeTimer?.cancel();
       _handshakeFailed = false;
+      _lastSessionError = null;
+      _setSessionState(SyncSessionState.authenticated);
+      debugPrint(
+        '[PetNoteSync] hello acknowledged: '
+        'snapshotVersion=${message.payload['snapshotVersion']} '
+        'restoredHousehold=${message.payload['restoredHousehold'] == true}',
+      );
       _refreshFailedSyncCount();
       final restoredToken = message.payload['authToken'];
       if (config.authToken == null &&
@@ -530,6 +708,7 @@ class SyncService extends ChangeNotifier {
             break;
         }
       }
+      _retryActiveEngine();
     }, onError: (Object error, StackTrace stackTrace) {
       FlutterError.reportError(FlutterErrorDetails(
         exception: error,
@@ -540,12 +719,30 @@ class SyncService extends ChangeNotifier {
     });
   }
 
+  void _startHandshakeTimer() {
+    _handshakeTimer?.cancel();
+    _handshakeTimer = Timer(handshakeTimeout, () {
+      if (_sessionState != SyncSessionState.handshaking) {
+        return;
+      }
+      _handshakeFailed = true;
+      _lastSessionError = TimeoutException('sync handshake timed out');
+      _setSessionState(SyncSessionState.blocked);
+      _refreshFailedSyncCount();
+    });
+  }
+
   void _sendHello({
     required SyncTransport transport,
     required _SyncConfig config,
     required DeviceRole role,
   }) {
     final isOwner = role == DeviceRole.owner;
+    debugPrint(
+      '[PetNoteSync] send hello: role=${isOwner ? 'owner' : 'pet'} '
+      'household=${config.householdId} device=${config.deviceId} '
+      'hasAuth=${config.authToken != null}',
+    );
     transport.send(
       SyncMessage(SyncMessageTypes.hello, {
         'householdId': config.householdId,
@@ -570,15 +767,46 @@ class SyncService extends ChangeNotifier {
     petController?.updateServedPetId(servedPetId);
   }
 
+  void _handleSettingsChanged() {
+    if (settings.householdId == null) {
+      _handshakeFailed = false;
+      _lastSessionError = null;
+      unawaited(_clearDurableOutboxIfAny());
+      if (_sessionState == SyncSessionState.blocked) {
+        _setSessionState(SyncSessionState.disconnected);
+      }
+    }
+    _refreshFailedSyncCount();
+  }
+
+  Future<void> _clearDurableOutboxIfAny() async {
+    final owner = ownerEngine;
+    final pet = petController;
+    owner?.clearDurableOutbox();
+    pet?.clearDurableOutbox();
+    await owner?.outboxPersistIdle;
+    await pet?.outboxPersistIdle;
+    _refreshFailedSyncCount();
+  }
+
   @override
   void dispose() {
-    settings.removeListener(_refreshFailedSyncCount);
+    settings.removeListener(_handleSettingsChanged);
     settings.removeListener(_handlePetSettingsChanged);
     _attachEngineFailedCount(null);
+    _handshakeTimer?.cancel();
+    _handshakeTimer = null;
     _handshakeFailed = false;
     _failedSyncCount.dispose();
     super.dispose();
   }
+}
+
+enum SyncIssueKind {
+  none,
+  failedQueue,
+  handshakeFailed,
+  pendingResetConfirmation,
 }
 
 class _SyncConfig {

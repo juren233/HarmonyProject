@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
@@ -5,7 +7,7 @@ import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
-class PetDeviceDashboard extends StatelessWidget {
+class PetDeviceDashboard extends StatefulWidget {
   const PetDeviceDashboard({
     super.key,
     required this.store,
@@ -15,6 +17,7 @@ class PetDeviceDashboard extends StatelessWidget {
     required this.onSelectServedPet,
     required this.onMarkDone,
     required this.onOpenSettings,
+    this.nowProvider,
   });
 
   final PetNoteStore store;
@@ -24,11 +27,91 @@ class PetDeviceDashboard extends StatelessWidget {
   final ValueChanged<String> onSelectServedPet;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
+  final DateTime Function()? nowProvider;
+
+  @override
+  State<PetDeviceDashboard> createState() => _PetDeviceDashboardState();
+}
+
+class _PetDeviceDashboardState extends State<PetDeviceDashboard>
+    with WidgetsBindingObserver {
+  Timer? _clockTimer;
+  late DateTime _now;
+
+  DateTime get _currentNow => (widget.nowProvider ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _now = _currentNow;
+    _scheduleNextClockRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant PetDeviceDashboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.nowProvider, widget.nowProvider)) {
+      _now = _currentNow;
+      _scheduleNextClockRefresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshClockNow();
+      return;
+    }
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _clockTimer?.cancel();
+      _clockTimer = null;
+    }
+  }
+
+  void _scheduleNextClockRefresh() {
+    _clockTimer?.cancel();
+    final now = _currentNow;
+    final nextMinute = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute + 1,
+    );
+    final delay = nextMinute.difference(now);
+    _clockTimer = Timer(
+      delay > Duration.zero ? delay : const Duration(seconds: 1),
+      _handleClockRefresh,
+    );
+  }
+
+  void _handleClockRefresh() {
+    if (!mounted) {
+      return;
+    }
+    _refreshClockNow();
+  }
+
+  void _refreshClockNow() {
+    setState(() {
+      _now = _currentNow;
+    });
+    _scheduleNextClockRefresh();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pets = store.pets;
-    final selectedPet = _findPet(pets, servedPetId);
+    final pets = widget.store.pets;
+    final selectedPet = _findPet(pets, widget.servedPetId);
     final tokens = context.petNoteTokens;
     return Scaffold(
       backgroundColor: tokens.pageGradientTop,
@@ -45,18 +128,20 @@ class PetDeviceDashboard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
             child: selectedPet == null
                 ? _PetSelector(
+                    now: _now,
                     pets: pets,
-                    syncStatusLabel: syncStatusLabel,
-                    onSelectServedPet: onSelectServedPet,
-                    onOpenSettings: onOpenSettings,
+                    syncStatusLabel: widget.syncStatusLabel,
+                    onSelectServedPet: widget.onSelectServedPet,
+                    onOpenSettings: widget.onOpenSettings,
                   )
                 : _DashboardContent(
-                    store: store,
+                    now: _now,
+                    store: widget.store,
                     pet: selectedPet,
-                    syncStatusLabel: syncStatusLabel,
-                    pendingItemKeys: pendingItemKeys,
-                    onMarkDone: onMarkDone,
-                    onOpenSettings: onOpenSettings,
+                    syncStatusLabel: widget.syncStatusLabel,
+                    pendingItemKeys: widget.pendingItemKeys,
+                    onMarkDone: widget.onMarkDone,
+                    onOpenSettings: widget.onOpenSettings,
                   ),
           ),
         ),
@@ -76,12 +161,14 @@ Pet? _findPet(List<Pet> pets, String? petId) {
 
 class _PetSelector extends StatelessWidget {
   const _PetSelector({
+    required this.now,
     required this.pets,
     required this.syncStatusLabel,
     required this.onSelectServedPet,
     required this.onOpenSettings,
   });
 
+  final DateTime now;
   final List<Pet> pets;
   final String syncStatusLabel;
   final ValueChanged<String> onSelectServedPet;
@@ -99,6 +186,7 @@ class _PetSelector extends StatelessWidget {
               Expanded(
                 flex: 35,
                 child: _PetSelectorSidePanel(
+                  now: now,
                   syncStatusLabel: syncStatusLabel,
                   onOpenSettings: onOpenSettings,
                 ),
@@ -118,6 +206,7 @@ class _PetSelector extends StatelessWidget {
         return Column(
           children: [
             _PetSelectorTopBar(
+              now: now,
               syncStatusLabel: syncStatusLabel,
               onOpenSettings: onOpenSettings,
             ),
@@ -139,17 +228,18 @@ class _PetSelector extends StatelessWidget {
 
 class _PetSelectorTopBar extends StatelessWidget {
   const _PetSelectorTopBar({
+    required this.now,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
+  final DateTime now;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return Row(
       children: [
         Expanded(
@@ -234,17 +324,18 @@ class _PetSelectorHero extends StatelessWidget {
 
 class _PetSelectorSidePanel extends StatelessWidget {
   const _PetSelectorSidePanel({
+    required this.now,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
+  final DateTime now;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return _SelectorSurface(
       key: const ValueKey('pet_selector_side_panel'),
       padding: const EdgeInsets.all(12),
@@ -633,6 +724,7 @@ class _SelectorSurface extends StatelessWidget {
 
 class _DashboardContent extends StatelessWidget {
   const _DashboardContent({
+    required this.now,
     required this.store,
     required this.pet,
     required this.syncStatusLabel,
@@ -641,6 +733,7 @@ class _DashboardContent extends StatelessWidget {
     required this.onOpenSettings,
   });
 
+  final DateTime now;
   final PetNoteStore store;
   final Pet pet;
   final String syncStatusLabel;
@@ -662,6 +755,7 @@ class _DashboardContent extends StatelessWidget {
         return Column(
           children: [
             _DashboardTopBar(
+              now: now,
               onOpenSettings: onOpenSettings,
               isLandscape: isLandscape,
               syncStatusLabel: syncStatusLabel,
@@ -720,11 +814,13 @@ class _DashboardContent extends StatelessWidget {
 
 class _DashboardTopBar extends StatelessWidget {
   const _DashboardTopBar({
+    required this.now,
     required this.onOpenSettings,
     required this.isLandscape,
     required this.syncStatusLabel,
   });
 
+  final DateTime now;
   final VoidCallback onOpenSettings;
   final bool isLandscape;
   final String syncStatusLabel;
@@ -732,7 +828,6 @@ class _DashboardTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final now = DateTime.now();
     return Row(
       children: [
         Expanded(

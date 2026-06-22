@@ -420,6 +420,27 @@ class SessionHandler {
       _sendCompletedActionReceiptIfPossible(completedAction);
       return;
     }
+    final outgoingPayload = <String, dynamic>{
+      'actionId': actionId,
+      'ciphertext': ciphertext,
+      'kind': kind,
+      'sourceType': sourceType,
+      'itemId': itemId,
+    };
+    final occurredAtMs = (message.payload['occurredAtMs'] as num?)?.toInt();
+    if (occurredAtMs != null) {
+      outgoingPayload['occurredAtMs'] = occurredAtMs;
+    }
+    if (occurredAtMs != null &&
+        household.isOlderChecklistAction(itemKey, outgoingPayload)) {
+      final latestAction = household.latestAppliedChecklistActionForItem(
+        itemKey,
+      );
+      if (latestAction != null) {
+        _sendAppliedActionReceipt(latestAction);
+        return;
+      }
+    }
     final existingAppliedAction = household.appliedChecklistAction(
       sourceType: sourceType,
       itemId: itemId,
@@ -452,26 +473,6 @@ class SessionHandler {
         receiptPayload,
       ));
       return;
-    }
-    final outgoingPayload = <String, dynamic>{
-      'actionId': actionId,
-      'ciphertext': ciphertext,
-      'kind': kind,
-      'sourceType': sourceType,
-      'itemId': itemId,
-    };
-    final occurredAtMs = (message.payload['occurredAtMs'] as num?)?.toInt();
-    if (occurredAtMs != null) {
-      outgoingPayload['occurredAtMs'] = occurredAtMs;
-    }
-    if (household.isOlderChecklistAction(itemKey, outgoingPayload)) {
-      final latestAction = household.latestAppliedChecklistActionForItem(
-        itemKey,
-      );
-      if (latestAction != null) {
-        _sendAppliedActionReceipt(latestAction);
-        return;
-      }
     }
     if (kind == PetActionKind.markDone.name) {
       final event = _registerSyncEvent(

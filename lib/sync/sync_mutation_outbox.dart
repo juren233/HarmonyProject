@@ -174,14 +174,16 @@ class SyncMutationOutbox {
   void dispose() {
     unawaited(_subscription?.cancel());
     _subscription = null;
-    clearRuntimeState();
+    clearRuntimeState(clearFailureQueue: false);
   }
 
-  void clearRuntimeState() {
+  void clearRuntimeState({bool clearFailureQueue = true}) {
     _runtimeGeneration += 1;
     _pendingActionKeys.clear();
     pendingItemKeys?.value = const <String>{};
-    failureQueue.clear();
+    if (clearFailureQueue) {
+      failureQueue.clear();
+    }
   }
 
   Future<void> _pushChecklistAction(PetNoteMutation mutation) async {

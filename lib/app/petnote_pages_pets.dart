@@ -9,6 +9,7 @@ class PetsPage extends StatefulWidget {
     this.aiInsightsService,
     this.remoteVideoPermissionCoordinator,
     this.interactionHapticsDriver,
+    this.nowProvider,
   });
 
   final PetNoteStore store;
@@ -17,6 +18,7 @@ class PetsPage extends StatefulWidget {
   final AiInsightsService? aiInsightsService;
   final RtcMediaPermissionCoordinator? remoteVideoPermissionCoordinator;
   final InteractionHapticsDriver? interactionHapticsDriver;
+  final DateTime Function()? nowProvider;
 
   @override
   State<PetsPage> createState() => _PetsPageState();
@@ -27,6 +29,58 @@ class _PetsPageState extends State<PetsPage> {
       MethodChannelNativePetPhotoPicker();
   late final InteractionHapticsDriver _interactionHapticsDriver =
       widget.interactionHapticsDriver ?? MethodChannelInteractionHaptics();
+  Timer? _clockTimer;
+  late DateTime _now;
+
+  DateTime get _currentNow => (widget.nowProvider ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    _now = _currentNow;
+    _scheduleClockRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant PetsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.nowProvider, widget.nowProvider)) {
+      _now = _currentNow;
+      _scheduleClockRefresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleClockRefresh() {
+    _clockTimer?.cancel();
+    final nextMinute = DateTime(
+      _now.year,
+      _now.month,
+      _now.day,
+      _now.hour,
+      _now.minute + 1,
+    );
+    final delay = nextMinute.difference(_now);
+    _clockTimer = Timer(
+      delay > Duration.zero ? delay : const Duration(seconds: 1),
+      _handleClockRefresh,
+    );
+  }
+
+  void _handleClockRefresh() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _now = _currentNow;
+    });
+    _scheduleClockRefresh();
+  }
 
   Future<void> _confirmDeletePet(Pet pet) async {
     final photoPath = pet.photoPath;
@@ -181,6 +235,7 @@ class _PetsPageState extends State<PetsPage> {
               return _PetSelectorCard(
                 pet: item,
                 selected: selected,
+                now: _now,
                 onTap: () => widget.store.selectPet(item.id),
                 onLongPressCompleted: () => _confirmDeletePet(item),
                 interactionHapticsDriver: _interactionHapticsDriver,
@@ -200,7 +255,7 @@ class _PetsPageState extends State<PetsPage> {
           HeroPanel(
             title: pet.name,
             subtitle:
-                '${petTypeLabel(pet.type)} · ${pet.breed} · ${pet.ageLabel} · 当前体重 ${pet.weightKg} kg',
+                '${petTypeLabel(pet.type)} · ${pet.breed} · ${petAgeLabel(pet, _now)} · 当前体重 ${pet.weightKg} kg',
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final availableWidth = constraints.maxWidth;
@@ -288,6 +343,7 @@ class _PetSelectorCard extends StatefulWidget {
   const _PetSelectorCard({
     required this.pet,
     required this.selected,
+    required this.now,
     required this.onTap,
     required this.onLongPressCompleted,
     required this.interactionHapticsDriver,
@@ -295,6 +351,7 @@ class _PetSelectorCard extends StatefulWidget {
 
   final Pet pet;
   final bool selected;
+  final DateTime now;
   final VoidCallback onTap;
   final Future<void> Function() onLongPressCompleted;
   final InteractionHapticsDriver interactionHapticsDriver;
@@ -474,7 +531,7 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              pet.ageLabel,
+                              petAgeLabel(pet, widget.now),
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall

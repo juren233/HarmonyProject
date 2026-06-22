@@ -612,6 +612,33 @@ void main() {
     );
   });
 
+  test('hello 会更新设备 lastSeenMs', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final before = DateTime.now().millisecondsSinceEpoch;
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final lastSeenMs =
+        app.store.household(householdId)?.devices['owner-1']?.lastSeenMs;
+    expect(lastSeenMs, isNotNull);
+    expect(lastSeenMs! >= before, isTrue);
+  });
+
   test('匿名连接不能为已有家庭组生成配对码', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {

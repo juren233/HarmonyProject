@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petnote/app/app_theme.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/pet_device_home.dart';
 import 'package:petnote/app/petnote_pages.dart';
 import 'package:petnote/app/remote_video_call_page.dart';
@@ -35,6 +37,8 @@ void main() {
 
   tearDown(() {
     SyncService.instance = null;
+    debugHasPetPhotoOverride = null;
+    debugPetPhotoImageBuilder = null;
   });
 
   test('RTC Token 地址从同步服务器地址推导', () {
@@ -566,6 +570,153 @@ void main() {
                 'SystemUiMode.edgeToEdge'),
       ),
     );
+  });
+
+  testWidgets('通话页顶部优先显示宠物真实头像', (tester) async {
+    final photoFile = File(
+      '${Directory.systemTemp.path}/petnote-remote-video-photo-${DateTime.now().microsecondsSinceEpoch}.jpg',
+    )..writeAsBytesSync([1, 2, 3]);
+    addTearDown(() {
+      if (photoFile.existsSync()) {
+        photoFile.deleteSync();
+      }
+    });
+    debugHasPetPhotoOverride = (path) => path == photoFile.path;
+    debugPetPhotoImageBuilder = ({
+      required String photoPath,
+      required BoxFit fit,
+      required Widget fallback,
+    }) {
+      return SizedBox(
+        key: ValueKey('remote-video-real-photo-$photoPath'),
+      );
+    };
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final seedPet = store.pets.first;
+    final pet = Pet(
+      id: seedPet.id,
+      name: seedPet.name,
+      avatarText: seedPet.avatarText,
+      photoPath: photoFile.path,
+      type: seedPet.type,
+      breed: seedPet.breed,
+      sex: seedPet.sex,
+      birthday: seedPet.birthday,
+      ageLabel: seedPet.ageLabel,
+      weightKg: seedPet.weightKg,
+      neuterStatus: seedPet.neuterStatus,
+      feedingPreferences: seedPet.feedingPreferences,
+      allergies: seedPet.allergies,
+      note: seedPet.note,
+    );
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: _fakeRtcTokenClient(),
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_pet_avatar')),
+        matching:
+            find.byKey(ValueKey('remote-video-real-photo-${photoFile.path}')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_pet_avatar')),
+        matching: find.byIcon(Icons.pets_rounded),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('通话页无头像时保留默认爪子图标', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: _fakeRtcTokenClient(),
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('remote_video_pet_avatar')),
+        matching: find.byIcon(Icons.pets_rounded),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('通话成功后不显示阿里云连接成功文案', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    final adapter = _FakeRtcAdapter();
+    final transport = _FakeSyncTransport();
+    final signaling = RtcSignalingController(transport: transport);
+    addTearDown(signaling.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: RemoteVideoCallPage(
+          mode: RemoteVideoMode.call,
+          pet: pet,
+          callId: 'call-1',
+          targetDeviceId: 'pet-device',
+          userId: 'owner-device',
+          signalingController: signaling,
+          tokenClient: _fakeRtcTokenClient(),
+          rtcAdapter: adapter,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('阿里云视频通话已连接'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('remote_video_call_state_label')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('remote_video_elapsed_label')),
+        findsOneWidget);
   });
 
   testWidgets('本地关闭摄像头遮罩会跟随本地画面切换', (tester) async {

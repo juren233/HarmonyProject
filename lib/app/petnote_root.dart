@@ -816,6 +816,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     if (stateChanged && coordinator.hasGrantedPermission) {
       await _flushNotificationSync(store, verifyPlatformState: true);
     }
+    await SyncService.instance?.recoverSync();
     await _consumeForegroundNotificationTap(store);
   }
 

@@ -15,6 +15,7 @@ void main() {
   Widget host(
     PetNoteStore store, {
     InteractionHapticsDriver? interactionHapticsDriver,
+    DateTime Function()? nowProvider,
   }) =>
       MaterialApp(
         theme: buildPetNoteTheme(Brightness.light),
@@ -27,6 +28,7 @@ void main() {
                 onAddFirstPet: () {},
                 onEditPet: (_) {},
                 interactionHapticsDriver: interactionHapticsDriver,
+                nowProvider: nowProvider,
               ),
             );
           },
@@ -74,6 +76,74 @@ void main() {
     await tester.pumpWidget(host(store));
 
     expect(find.text('它们的照护档案'), findsOneWidget);
+  });
+
+  testWidgets('宠物列表页保持打开时按分钟刷新年龄显示', (tester) async {
+    var now = DateTime.parse('2026-01-01T23:59:30');
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+      nowProvider: () => now,
+    );
+    addTearDown(store.dispose);
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '妹妹',
+      birthday: '2025-01-02',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: '活泼',
+    );
+
+    await tester.pumpWidget(host(store, nowProvider: () => now));
+
+    expect(find.textContaining('11个月'), findsWidgets);
+    expect(find.textContaining('1岁'), findsNothing);
+
+    now = DateTime.parse('2026-01-02T00:00:01');
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.textContaining('1岁'), findsWidgets);
+  });
+
+  testWidgets('宠物详情页保持打开时按分钟刷新年龄显示', (tester) async {
+    var now = DateTime.parse('2026-01-01T23:59:30');
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(),
+      nowProvider: () => now,
+    );
+    addTearDown(store.dispose);
+    await store.addPet(
+      name: 'Mochi',
+      type: PetType.cat,
+      breed: '英短',
+      sex: '妹妹',
+      birthday: '2025-01-02',
+      weightKg: 4.2,
+      neuterStatus: PetNeuterStatus.neutered,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: '活泼',
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildPetNoteTheme(Brightness.light),
+      home: PetDetailsPage(
+        store: store,
+        pet: store.pets.single,
+        nowProvider: () => now,
+      ),
+    ));
+
+    expect(find.textContaining('11个月'), findsOneWidget);
+
+    now = DateTime.parse('2026-01-02T00:00:01');
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.textContaining('1岁'), findsOneWidget);
   });
 
   testWidgets('长按宠物卡片二次确认后删除爱宠', (tester) async {

@@ -5,10 +5,12 @@ class PetDetailsPage extends StatefulWidget {
     super.key,
     required this.store,
     required this.pet,
+    this.nowProvider,
   });
 
   final PetNoteStore store;
   final Pet pet;
+  final DateTime Function()? nowProvider;
 
   @override
   State<PetDetailsPage> createState() => _PetDetailsPageState();
@@ -16,6 +18,58 @@ class PetDetailsPage extends StatefulWidget {
 
 class _PetDetailsPageState extends State<PetDetailsPage> {
   final Set<String> _selectedRecordIds = <String>{};
+  Timer? _clockTimer;
+  late DateTime _now;
+
+  DateTime get _currentNow => (widget.nowProvider ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    _now = _currentNow;
+    _scheduleClockRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant PetDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.nowProvider, widget.nowProvider)) {
+      _now = _currentNow;
+      _scheduleClockRefresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleClockRefresh() {
+    _clockTimer?.cancel();
+    final nextMinute = DateTime(
+      _now.year,
+      _now.month,
+      _now.day,
+      _now.hour,
+      _now.minute + 1,
+    );
+    final delay = nextMinute.difference(_now);
+    _clockTimer = Timer(
+      delay > Duration.zero ? delay : const Duration(seconds: 1),
+      _handleClockRefresh,
+    );
+  }
+
+  void _handleClockRefresh() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _now = _currentNow;
+    });
+    _scheduleClockRefresh();
+  }
 
   bool get _isSelecting => _selectedRecordIds.isNotEmpty;
 
@@ -173,7 +227,7 @@ class _PetDetailsPageState extends State<PetDetailsPage> {
                     PageHeader(
                       title: widget.pet.name,
                       subtitle:
-                          '${petTypeLabel(widget.pet.type)} · ${widget.pet.breed} · ${widget.pet.ageLabel}',
+                          '${petTypeLabel(widget.pet.type)} · ${widget.pet.breed} · ${petAgeLabel(widget.pet, _now)}',
                       trailing: _isSelecting
                           ? _PetRecordBatchActions(
                               allSelected: allSelected,

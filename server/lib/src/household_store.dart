@@ -386,6 +386,7 @@ class HouseholdStore {
 
   final Directory dataDirectory;
   final Map<String, Household> _households = <String, Household>{};
+  Future<void> _flushQueue = Future<void>.value();
 
   File get _file => File('${dataDirectory.path}/households.json');
 
@@ -431,16 +432,55 @@ class HouseholdStore {
     }
   }
 
-  Future<void> flush() async {
+  Future<void> flush() {
+    final nextFlush = _flushQueue.then((_) => _flushNow());
+    _flushQueue = nextFlush.catchError((_) {});
+    return nextFlush;
+  }
+
+  Future<void> _flushNow() async {
     if (!await dataDirectory.exists()) {
       await dataDirectory.create(recursive: true);
     }
-    await _file.writeAsString(
-      jsonEncode({
-        'households': _households.map(
-          (id, household) => MapEntry(id, household.toJson()),
-        ),
-      }),
-    );
+    final payload = jsonEncode({
+      'households': _households.map(
+        (id, household) => MapEntry(id, household.toJson()),
+      ),
+    });
+    final tempFile = File('${_file.path}.tmp');
+    final backupFile = File('${_file.path}.bak');
+    await tempFile.writeAsString(payload, flush: true);
+    if (await backupFile.exists()) {
+      await _deleteIfExists(backupFile);
+    }
+    var oldFileMoved = false;
+    try {
+      if (await _file.exists()) {
+        await _file.rename(backupFile.path);
+        oldFileMoved = true;
+      }
+      await tempFile.rename(_file.path);
+      if (await backupFile.exists()) {
+        await _deleteIfExists(backupFile);
+      }
+    } on Object {
+      if (oldFileMoved && !await _file.exists() && await backupFile.exists()) {
+        await backupFile.rename(_file.path);
+      }
+      if (await tempFile.exists()) {
+        await _deleteIfExists(tempFile);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteIfExists(File file) async {
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on PathNotFoundException {
+      // Another filesystem actor already removed it. The desired state holds.
+    }
   }
 }

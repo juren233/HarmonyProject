@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/remote_video_entry.dart';
 import 'package:petnote/app/system_ui_policy.dart';
 import 'package:petnote/rtc/method_channel_rtc_adapter.dart';
@@ -150,7 +151,8 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
         ? '未配对宠物端'
         : '${connectedDevice.name} ${connectedDevice.online ? '在线' : '离线'}';
     final title = widget.mode == RemoteVideoMode.call ? '视频通话' : '先看看它';
-    final callStateLabel = _statusOverride ?? '发起中';
+    final callStateLabel =
+        _rtcJoined ? _statusOverride : _statusOverride ?? '发起中';
     final surfaceStatus = _statusOverride ?? statusLabel;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -189,6 +191,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
                   left: 18,
                   right: 18,
                   child: _CallHeader(
+                    pet: widget.pet,
                     title: title,
                     statusLabel: callStateLabel,
                     elapsedLabel: _connectedAt == null
@@ -483,7 +486,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
       _sendMediaState();
       if (mounted) {
         setState(() {
-          _statusOverride = '阿里云视频通话已连接';
+          _statusOverride = null;
         });
       }
     } catch (error, stackTrace) {
@@ -867,24 +870,23 @@ class _RemoteVideoSurface extends StatelessWidget {
 
 class _CallHeader extends StatelessWidget {
   const _CallHeader({
+    required this.pet,
     required this.title,
     required this.statusLabel,
     required this.elapsedLabel,
   });
 
+  final Pet pet;
   final String title;
-  final String statusLabel;
+  final String? statusLabel;
   final String? elapsedLabel;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveStatusLabel = statusLabel?.trim();
     return Row(
       children: [
-        const CircleAvatar(
-          radius: 20,
-          backgroundColor: Color(0xFF313641),
-          child: Icon(Icons.pets_rounded, color: Colors.white, size: 20),
-        ),
+        _CallHeaderAvatar(pet: pet),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -898,17 +900,20 @@ class _CallHeader extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                statusLabel,
-                key: const ValueKey('remote_video_call_state_label'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFFC8CDD6),
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
+              if (effectiveStatusLabel != null &&
+                  effectiveStatusLabel.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  effectiveStatusLabel,
+                  key: const ValueKey('remote_video_call_state_label'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFC8CDD6),
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
               if (elapsedLabel != null) ...[
                 const SizedBox(height: 2),
                 Text(
@@ -924,6 +929,35 @@ class _CallHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CallHeaderAvatar extends StatelessWidget {
+  const _CallHeaderAvatar({required this.pet});
+
+  final Pet pet;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 20.0;
+    return SizedBox(
+      key: const ValueKey('remote_video_pet_avatar'),
+      width: radius * 2,
+      height: radius * 2,
+      child: hasPetPhoto(pet.photoPath)
+          ? PetPhotoAvatar(
+              photoPath: pet.photoPath,
+              fallbackText: petAvatarFallbackForPet(pet),
+              radius: radius,
+              backgroundColor: const Color(0xFF313641),
+              foregroundColor: Colors.white,
+            )
+          : const CircleAvatar(
+              radius: radius,
+              backgroundColor: Color(0xFF313641),
+              child: Icon(Icons.pets_rounded, color: Colors.white, size: 20),
+            ),
     );
   }
 }

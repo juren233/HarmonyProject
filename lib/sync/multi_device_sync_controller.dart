@@ -22,10 +22,12 @@ class MultiDeviceSyncController {
     this.throttle = const Duration(seconds: 2),
     SyncPhotoAttachmentCodec? photoAttachmentCodec,
     int? initialVersion,
+    bool Function()? canSend,
   })  : _photoAttachmentCodec =
             photoAttachmentCodec ?? const SyncPhotoAttachmentCodec(),
         _version =
-            initialVersion ?? DateTime.now().toUtc().microsecondsSinceEpoch;
+            initialVersion ?? DateTime.now().toUtc().microsecondsSinceEpoch,
+        _canSend = canSend;
 
   final PetNoteStore store;
   final SyncTransport transport;
@@ -35,6 +37,7 @@ class MultiDeviceSyncController {
   final VoidCallback? onRemoved;
   final Duration throttle;
   final SyncPhotoAttachmentCodec _photoAttachmentCodec;
+  final bool Function()? _canSend;
 
   final ValueNotifier<List<SyncedDeviceInfo>> devices =
       ValueNotifier<List<SyncedDeviceInfo>>(const <SyncedDeviceInfo>[]);
@@ -52,6 +55,10 @@ class MultiDeviceSyncController {
     transport: transport,
     failedCount: failedSyncCount,
     lastError: lastError,
+    canSend: _canSend,
+    loadOutbox: store.readSyncOutboxRows,
+    saveOutbox: store.writeSyncOutboxRows,
+    scopeKey: settings?.householdId,
   );
   late final SyncMutationOutbox _mutationOutbox = SyncMutationOutbox(
     store: store,
@@ -72,6 +79,11 @@ class MultiDeviceSyncController {
   var _resolveNextMergeSnapshotConflict = false;
   var _pairingRemoved = false;
 
+  int get pendingOutboxCount => _failureQueue.pendingCount;
+  DateTime? get nextOutboxRetryAt => _failureQueue.nextRetryAt;
+  Future<void> get debugOutboxPersisted => _failureQueue.persistIdle;
+  Future<void> get outboxPersistIdle => _failureQueue.persistIdle;
+
   Future<void> start({
     bool pushInitialSnapshot = true,
     bool requestInitialSnapshot = true,
@@ -82,6 +94,7 @@ class MultiDeviceSyncController {
     _started = true;
     _observedDataResetVersion = store.dataResetVersion;
     store.addListener(_handleStoreChanged);
+    _failureQueue.restore();
     _mutationOutbox.start();
     _subscription = transport.messages.listen((message) {
       unawaited(_onMessage(message));
@@ -470,6 +483,14 @@ class MultiDeviceSyncController {
       return;
     }
     _failureQueue.retry();
+  }
+
+  void clearFailedSyncQueue() {
+    _failureQueue.clear();
+  }
+
+  void clearDurableOutbox() {
+    _failureQueue.clear();
   }
 
   Future<void> _markResetSnapshotReceived(SyncMessage message) async {

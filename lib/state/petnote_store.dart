@@ -2739,6 +2739,36 @@ class PetNoteStore extends ChangeNotifier {
     await _savePendingLocalMutations();
   }
 
+  List<Map<String, dynamic>> readSyncOutboxRows() {
+    final raw = _storage?.readTable(PetNoteLocalTable.syncOutbox);
+    if (raw == null || raw.trim().isEmpty) {
+      return const <Map<String, dynamic>>[];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return const <Map<String, dynamic>>[];
+      }
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    } on Object {
+      return const <Map<String, dynamic>>[];
+    }
+  }
+
+  Future<void> writeSyncOutboxRows(List<Map<String, dynamic>> rows) async {
+    final storage = _storage;
+    if (storage == null) {
+      return;
+    }
+    await storage.writeTable(
+      PetNoteLocalTable.syncOutbox,
+      jsonEncode(rows),
+    );
+  }
+
   Future<void> markChecklistActionSynced({
     required String sourceType,
     required String itemId,

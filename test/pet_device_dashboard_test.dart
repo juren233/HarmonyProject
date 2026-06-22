@@ -72,6 +72,79 @@ void main() {
     expect(openedSettings, isTrue);
   });
 
+  testWidgets('宠物端选择列表页时钟保持分钟刷新', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    var now = DateTime(2026, 6, 22, 9, 58);
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: null,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          nowProvider: () => now,
+        ),
+      ),
+    );
+
+    expect(find.text('09:58'), findsOneWidget);
+
+    now = DateTime(2026, 6, 22, 9, 59, 1);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('09:59'), findsOneWidget);
+    expect(find.text('09:58'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('宠物端选择列表页恢复前台时立即刷新时钟', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    var now = DateTime(2026, 6, 22, 9, 58);
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: null,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          nowProvider: () => now,
+        ),
+      ),
+    );
+
+    expect(find.text('09:58'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    now = DateTime(2026, 6, 22, 10, 2, 15);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.text('10:02'), findsOneWidget);
+    expect(find.text('09:58'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('横屏下服务宠物选择页使用中枢式分栏', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 520));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -346,6 +419,75 @@ void main() {
     expect(action?.sourceType, firstItem.sourceType);
   });
 
+  testWidgets('宠物端看板详情页时钟保持分钟刷新', (tester) async {
+    var now = DateTime(2026, 6, 22, 21, 5);
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          nowProvider: () => now,
+        ),
+      ),
+    );
+
+    expect(find.text('21:05'), findsOneWidget);
+
+    now = DateTime(2026, 6, 22, 21, 6, 1);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('21:06'), findsOneWidget);
+    expect(find.text('21:05'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('宠物端看板详情页恢复前台时立即刷新时钟', (tester) async {
+    var now = DateTime(2026, 6, 22, 21, 5);
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          nowProvider: () => now,
+        ),
+      ),
+    );
+
+    expect(find.text('21:05'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    now = DateTime(2026, 6, 22, 21, 9, 30);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.text('21:09'), findsOneWidget);
+    expect(find.text('21:05'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('深色模式下宠物端看板使用主题文字和监控面板', (tester) async {
     final store = PetNoteStore.seeded();
     final pet = store.pets.first;
@@ -483,7 +625,7 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('同步失败时宠物端在设置旁显示胶囊', (tester) async {
+  testWidgets('等待同步确认时宠物端在设置旁显示胶囊', (tester) async {
     final store = PetNoteStore.seeded();
     final pet = store.pets.first;
     final transport = _FakeSyncTransport();
@@ -525,7 +667,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('sync_failure_chip')));
     await tester.pumpAndSettle();
 
-    expect(find.text('同步失败'), findsWidgets);
+    expect(find.text('同步确认中'), findsWidgets);
+    expect(find.text('数据已发出，正在等待另一台设备确认收到。'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('sync_failure_retry_button')),
       findsOneWidget,

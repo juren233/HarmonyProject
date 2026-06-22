@@ -1,5 +1,68 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-22 main 同步稳定性加固
+
+- [x] 启用 PUA always-on 模式 → 验证: `~/.pua/config.json` 保留未知字段且 `always_on=true`
+- [x] 新增同步会话状态机和握手门禁 → 验证: 业务消息在 `hello_ack` 后才 flush
+- [x] 新增 durable sync outbox 覆盖非 mutation 出站消息 → 验证: 重启后 `syncReceived/deviceUpdate/snapshotRequest` 仍可重发
+- [x] 优化启动、后台恢复和重连拉取 → 验证: 恢复时 flush pending 并主动 request snapshot，且带冷却
+- [x] 增强同步状态监控 → 验证: 状态快照包含连接/握手/outbox/mutation/error/next retry
+- [x] 加固服务端文件写入和设备在线时间 → 验证: atomic flush 与 `hello` 更新 `lastSeenMs`
+- [x] 跑聚焦测试、analyze 和 Android/iOS 构建 → 验证: README 认可命令通过并清理构建残留
+
+### Review 2026-06-22
+
+- 客户端同步链路新增 `SyncSessionState` 与 `SyncStatusSnapshot`，业务消息通过 `canSend` 门禁限制在 `hello_ack` 后 flush；`pair_error` / 握手超时进入可解释的 blocked/handshakeFailed 状态，不再直接 stop。
+- 非 mutation 出站消息接入 `sync_outbox_v1` durable outbox；`dispose()` 不再清持久队列，真正的数据重置/解绑仍会清理，pending reset snapshot 通过同一 `syncId` 去重重推。
+- 启动、前台恢复、重连恢复改为认证后重试 outbox / pending mutation 并主动拉取快照；既有配对冷启动不再无条件推 full merge snapshot，降低重复宠物风险。
+- 服务端 `households.json` 写入改为串行 flush + tmp/bak rename 恢复；`hello` 更新 `lastSeenMs` 由 sync flow 覆盖。
+- 验证通过：`flutter test test/sync_client_test.dart test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`cd server && dart test test/household_store_test.dart test/sync_flow_test.dart`；客户端与服务端改动文件 analyze。
+- 构建通过：Android arm64 APK `build/app/outputs/flutter-apk/app-release.apk` SHA256 `dc9078c9e220ef335313259563e6bf364d6ea9cfb2266e8e1ca1e530ea6f23f0`；iOS unsigned IPA `build/ios/Runner-unsigned.ipa` SHA256 `d8df04cc5c3e7f7d66624013a47bb1926b78caadfb8c78639e0241775798d9d6`。
+- 构建后清理：已删除 unsigned IPA 临时 staging 目录，`./gradlew --stop` 停止 Gradle daemon；复查无 Gradle/Kotlin/Flutter test/build 残留，仅剩常驻 `xcodebuildmcp` 工具服务。
+
+### Confidence Review 2026-06-22
+
+- 继续审查后修复两个真实漏洞：`SyncFailureQueue` 持久化写入改为串行队列，避免连续 enqueue/clear 时旧写入覆盖新状态；durable outbox 增加 `scopeKey=householdId` 并在 restore 时过滤/剪除其他家庭的旧消息，避免杀进程后新配对复活旧家庭消息。
+- 补强状态与弱网覆盖：状态快照的 `pendingOutboxCount` 读取真实 durable outbox 数；握手失败/超时写入 `lastError`；新增测试覆盖握手超时后底层重连会重新 hello 并恢复 authenticated。
+- 新增/更新回归测试：`test/sync_failure_queue_test.dart` 覆盖串行持久化与 household scope 过滤；`test/sync_service_test.dart` 覆盖真实 outbox 数、清配对清 outbox、新配对进程重启过滤旧 outbox、握手错误可诊断、握手超时后重连恢复。
+- 最新验证通过：`flutter test test/sync_client_test.dart test/sync_failure_queue_test.dart test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`cd server && dart test test/household_store_test.dart test/sync_flow_test.dart`；客户端同步相关 `flutter analyze`；服务端同步相关 `dart analyze`。
+- 最新构建通过：Android arm64 APK `build/app/outputs/flutter-apk/app-release.apk` SHA256 `1ee95004c319f16ee0252aa01d7e4a8916a95cc9bc5c4647fca82012c320e2e2`；iOS unsigned IPA `build/ios/Runner-unsigned.ipa` SHA256 `f4f1499120eff8db5790ecb229819545ab84ac1ea26b4b447729529fe4dfd8d7`。
+- 构建后清理：已删除 IPA 临时 staging 目录，`./gradlew --stop` 后复查无 Gradle/Kotlin/Flutter test/build 残留；仅剩常驻 `xcodebuildmcp` 工具服务。
+- 剩余边界：本地自动化已覆盖弱网断线、握手门禁、后台/恢复触发、进程重启 outbox 恢复与去旧家庭消息；“事实上的 100%”仍不能替代双 Android 真机弱网/退后台/杀进程验收，因为真实系统调度、网络切换和 release 设备日志不完全可由单元测试模拟。
+
+## 2026-06-22 同步异常状态拆分与诊断日志
+
+- [x] 复核双端 Android 当前安装状态和线上同步服务健康状态 → 验证: 两端均为 `versionCode=44`，公网 `/healthz` 返回 `ok`
+- [x] 区分真正同步失败、握手失败和等待覆盖快照确认三类状态 → 验证: `SyncService.currentIssueKind` 聚焦测试
+- [x] 将等待对端回执的 UI 从“同步失败”改为“同步确认中” → 验证: 宠物端看板 widget 测试
+- [x] 让“重新同步”能重推待确认覆盖快照，而不是只重试失败队列 → 验证: `retrySyncIssues()` 聚焦测试
+- [x] 补充低噪声 `PetNoteSync` 诊断日志 → 验证: 测试日志出现 hello 和 pending reset snapshot 关键点
+- [x] 验证服务端 legacy relay 回执账本未被破坏 → 验证: `cd server && dart test test/sync_flow_test.dart`
+- [x] 构建 Android release APK → 验证: `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`
+- [x] 安装到两台 Android 设备复测 → 验证: 用户接受清数据后双端卸载重装成功，重新配对并添加宠物后宠物端显示“已连接主人端”和 1 只可服务宠物
+
+### Review 2026-06-22
+
+- 本轮没有发现设备历史 logcat 中残留有效 PetNote 同步异常栈；两台设备 App 均在前台，线上同步服务健康，现有包签名一致但与本机新构建 APK 签名不一致。
+- 根因候选收敛到状态展示口径：此前 `pendingResetSnapshotSyncId != null` 会把“等待覆盖快照回执”伪装成“同步失败 / 1 条数据同步失败”。现在 UI 显示为“同步确认中”，弹窗说明“数据已发出，正在等待另一台设备确认收到”。
+- “重新同步”按钮现在通过 `SyncService.retrySyncIssues()` 同时覆盖失败队列重试和待确认覆盖快照重推，避免 pending reset 状态只能被动等待。
+- 本机验证通过：`flutter analyze lib/sync/sync_service.dart lib/app/petnote_pages.dart test/sync_service_test.dart test/pet_device_dashboard_test.dart`；聚焦同步状态/重试/widget 测试；`cd server && dart test test/sync_flow_test.dart`；Android release APK 构建成功，SHA256 `95e03bfb66dcc6fbcbd6aa1933b04fbc3817b85d7b35423f111f4e16e33f1fc7`。
+- 真机复测更新：用户接受清数据后，两台 Android 均已卸载旧包并安装新 APK；重新配对和添加宠物后，`127.0.0.1:5575` 宠物端 UI 显示“已连接主人端”“1 只可服务”以及同步过来的宠物“对对对 / 安哥拉兔”。当前 logcat 未发现 PetNote 崩溃、WebSocket 失败或同步异常栈；release 包的 Dart `debugPrint` 未落到应用进程 logcat，因此本轮只能用 UI 状态证明数据已同步，不能从 logcat 取得细粒度 `PetNoteSync` 握手行。
+
+## 2026-06-22 宠物时间刷新与同步稳定性审查
+
+- [x] 定位列表页和详情页时间派生数据不自动刷新的根因 → 验证: 找到页面生命周期和 store 刷新链路证据
+- [x] 修复页面常驻时的时间刷新租约，不改动同步业务代码 → 验证: 清单列表页和详情页 widget 测试
+- [x] 审阅当前同步协议、客户端、服务端、outbox 和测试覆盖 → 验证: 源码路径与风险点可追溯
+- [x] 调研成熟同步方案和最佳实践 → 验证: 使用官方文档/仓库资料形成对比
+- [x] 输出同步稳定性报告 → 验证: 报告包含问题分析、优化建议、第三方方案评估
+
+### Review 2026-06-22
+
+- 宠物端中枢页此前只在 build 时读取 `DateTime.now()`，页面常驻时没有自身定时刷新；主人端 `PetNoteStore` 已有分钟级派生数据刷新，因此本轮只给 `PetDeviceDashboard` 增加页面级分钟时钟租约，并覆盖“未选择宠物列表页”和“已进入服务宠物详情页”两种状态。
+- 同步稳定性本轮只做审阅与调研，未修改同步业务代码；报告已落盘到 `docs/sync-stability-review-2026-06-22.md`，核心风险集中在内存失败队列、三套同步链路并存、服务端单 JSON 文件持久化、离线设备拖住回执剪枝、附件/队列缺少背压和握手门禁不足。
+- 第三方方案调研使用官方文档为依据，建议短期加固现有协议，中期引入 durable operation log/server sequence，长期优先 spike PowerSync，其次评估 Couchbase Lite + Sync Gateway。
+
 - [x] 复核 README 中同步服务、RTC Token、三端 SDK 和验证边界
 - [x] 梳理 App 更新后数据同步链路：启动、服务器发现、配对身份、outbox、WebSocket、服务端持久化和回执清理
 - [x] 梳理远程视频链路：入口、呼叫信令、RTC Token、平台桥接、权限、频道加入、远端音视频订阅和渲染
@@ -358,3 +421,17 @@
 - 横屏选择页左右区域改为 `35:65`，左侧卡片统一 12px 内边距；时间和“选择服务宠物”使用单行缩放，状态胶囊支持收缩和省略，避免在窄横屏中越界。
 - 宠物选择卡片不再显示 `>` / chevron，整张卡片仍作为点击区域；删除箭头后的空间用于宠物名称和品种/年龄文案。
 - HTML 原型已同步删除旧文案和箭头，并更新横屏比例与排版参数。
+
+## 2026-06-22 时间实时刷新与 legacy 同步回放修正
+
+- [x] 核实 PowerSync 试验分支是否影响当前 main → 验证: 确认 PowerSync 仍在独立 worktree/分支，main 使用 legacy 同步链路
+- [x] 修复宠物列表页与详情页年龄/时间相关文案不实时刷新 → 验证: 页面保持打开时跨分钟 widget 测试
+- [x] 修复服务端旧 action 重放可能返回旧状态的问题 → 验证: `server/test/sync_flow_test.dart` 覆盖同一事项新旧操作收敛
+- [x] 跑聚焦测试和静态检查 → 验证: Flutter 同步/时间测试、服务端同步流测试、受影响文件 analyze
+
+### Review
+
+- 这次同步变严重的可复现问题在 legacy 服务端 action 去重顺序：旧动作重放时先命中同 kind 已应用动作，绕过了同一事项最新动作判断，可能把 receipt 指回旧 action。
+- 服务端现在先构造本次 action payload；只有本次带 `occurredAtMs` 时，才按同一事项最新动作判断是否过期，避免误伤历史无时间戳兼容动作。
+- 宠物列表页和宠物详情页新增页面级分钟刷新，并用生日动态计算展示年龄；旧数据生日无法解析或未来日期时仍回退 `pet.ageLabel`。
+- 验证通过：`cd server && dart test test/sync_flow_test.dart`；`flutter test test/pets_page_subtitle_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`dart analyze lib/src/session_handler.dart`；`flutter analyze lib/app/petnote_pages.dart lib/app/petnote_pages_pets.dart lib/app/petnote_pages_pets_details.dart lib/sync/multi_device_sync_controller.dart test/pets_page_subtitle_test.dart test/owner_sync_engine_test.dart`。

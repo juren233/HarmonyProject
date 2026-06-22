@@ -584,14 +584,7 @@ void main() {
       const SyncMessage(SyncMessageTypes.helloAck, {'snapshotVersion': 7}),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    await store.addTodo(
-      petId: store.pets.first.id,
-      title: '补水',
-      dueAt: DateTime.now().add(const Duration(hours: 1)),
-      notificationLeadTime: NotificationLeadTime.none,
-      note: '',
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await engine.pushSnapshotNow(force: true);
 
     final push = transport.sent
         .lastWhere((message) => message.type == SyncMessageTypes.snapshotPush);

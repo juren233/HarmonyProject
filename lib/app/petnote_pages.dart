@@ -268,25 +268,37 @@ class _SyncFailureCountChip extends StatelessWidget {
         if (count <= 0) {
           return const SizedBox.shrink();
         }
+        final service = SyncService.instance;
+        final issueKind =
+            service?.currentIssueKind ?? SyncIssueKind.failedQueue;
+        final label = _syncIssueChipLabel(issueKind);
         return Padding(
           padding: const EdgeInsets.only(left: 12),
           child: ActionChip(
             key: const ValueKey('sync_failure_chip'),
             avatar: const Icon(Icons.sync_problem_rounded, size: 18),
-            label: const Text('同步失败'),
-            onPressed: () => _showSyncFailureDialog(context, count),
+            label: Text(label),
+            onPressed: () => _showSyncFailureDialog(
+              context,
+              count,
+              issueKind,
+            ),
           ),
         );
       },
     );
   }
 
-  Future<void> _showSyncFailureDialog(BuildContext context, int count) {
+  Future<void> _showSyncFailureDialog(
+    BuildContext context,
+    int count,
+    SyncIssueKind issueKind,
+  ) {
     return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('同步失败'),
-        content: Text('$count 条数据同步失败'),
+        title: Text(_syncIssueDialogTitle(issueKind)),
+        content: Text(_syncIssueDialogMessage(issueKind, count)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -296,8 +308,7 @@ class _SyncFailureCountChip extends StatelessWidget {
             key: const ValueKey('sync_failure_retry_button'),
             onPressed: () {
               final service = SyncService.instance;
-              service?.ownerEngine?.retryFailedSync();
-              service?.petController?.retryFailedSync();
+              service?.retrySyncIssues();
               Navigator.of(context).pop();
             },
             child: const Text('重新同步'),
@@ -306,6 +317,31 @@ class _SyncFailureCountChip extends StatelessWidget {
       ),
     );
   }
+}
+
+String _syncIssueChipLabel(SyncIssueKind issueKind) {
+  return switch (issueKind) {
+    SyncIssueKind.pendingResetConfirmation => '同步确认中',
+    SyncIssueKind.handshakeFailed || SyncIssueKind.failedQueue => '同步失败',
+    SyncIssueKind.none => '同步',
+  };
+}
+
+String _syncIssueDialogTitle(SyncIssueKind issueKind) {
+  return switch (issueKind) {
+    SyncIssueKind.pendingResetConfirmation => '同步确认中',
+    SyncIssueKind.handshakeFailed || SyncIssueKind.failedQueue => '同步失败',
+    SyncIssueKind.none => '同步状态',
+  };
+}
+
+String _syncIssueDialogMessage(SyncIssueKind issueKind, int count) {
+  return switch (issueKind) {
+    SyncIssueKind.pendingResetConfirmation => '数据已发出，正在等待另一台设备确认收到。',
+    SyncIssueKind.handshakeFailed => '同步服务器握手失败，请检查配对状态或重新同步。',
+    SyncIssueKind.failedQueue => '$count 条数据同步失败',
+    SyncIssueKind.none => '当前没有待处理的同步问题。',
+  };
 }
 
 ChecklistSection _sectionByKey(
@@ -321,6 +357,39 @@ ChecklistSection _sectionByKey(
       items: const [],
     ),
   );
+}
+
+String petAgeLabel(Pet pet, DateTime now) {
+  final birthday = DateTime.tryParse(pet.birthday);
+  if (birthday == null) {
+    return pet.ageLabel;
+  }
+  final today = DateTime(now.year, now.month, now.day);
+  final birthDate = DateTime(birthday.year, birthday.month, birthday.day);
+  if (birthDate.isAfter(today)) {
+    return pet.ageLabel;
+  }
+  var years = today.year - birthDate.year;
+  final birthdayThisYear = DateTime(today.year, birthDate.month, birthDate.day);
+  if (today.isBefore(birthdayThisYear)) {
+    years -= 1;
+  }
+  if (years > 0) {
+    return '$years岁';
+  }
+  var months =
+      (today.year - birthDate.year) * 12 + today.month - birthDate.month;
+  if (today.day < birthDate.day) {
+    months -= 1;
+  }
+  if (months > 0) {
+    return '$months个月';
+  }
+  final days = today.difference(birthDate).inDays;
+  if (days > 0) {
+    return '$days天';
+  }
+  return '新加入';
 }
 
 String formatDate(DateTime value, {bool withTime = true}) {

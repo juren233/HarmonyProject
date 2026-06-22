@@ -37,7 +37,8 @@ class PetDeviceHome extends StatefulWidget {
   State<PetDeviceHome> createState() => _PetDeviceHomeState();
 }
 
-class _PetDeviceHomeState extends State<PetDeviceHome> {
+class _PetDeviceHomeState extends State<PetDeviceHome>
+    with WidgetsBindingObserver {
   PetNoteStore? _store;
   SyncService? _syncService;
   late final DeviceKeepAlive _keepAlive;
@@ -50,6 +51,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _keepAlive = widget.keepAlive ?? DeviceKeepAlive();
     widget.settingsController.addListener(_handleSettingsChanged);
     unawaited(_loadStore());
@@ -67,11 +69,19 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.settingsController.removeListener(_handleSettingsChanged);
     unawaited(_disposeIncomingCallController());
     _store?.dispose();
     unawaited(_stopKeepAlive());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_restartSync());
+    }
   }
 
   Future<void> _loadStore() async {
@@ -186,17 +196,31 @@ class _PetDeviceHomeState extends State<PetDeviceHome> {
   String _syncStatusLabel(SyncService? service) {
     final transport = service?.transport;
     final controller = service?.petController;
+    final sessionState = service?.sessionState;
+
+    if (sessionState == SyncSessionState.handshaking) {
+      return '同步中...';
+    }
+    if (sessionState == SyncSessionState.blocked) {
+      return '同步异常';
+    }
 
     // 首次同步判断：连接成功但还没有收到过数据
-    if (transport?.state.value == SyncConnectionState.connected &&
+    if (sessionState == SyncSessionState.authenticated &&
+        transport?.state.value == SyncConnectionState.connected &&
         controller?.lastSyncedAt.value == null) {
       return '同步中...';
     }
 
-    return switch (transport?.state.value) {
-      SyncConnectionState.connected => '已连接',
+    return switch (sessionState) {
+      SyncSessionState.authenticated => '已连接',
+      SyncSessionState.connecting => '连接中',
+      SyncSessionState.backingOff => '重连中',
+      _ => switch (transport?.state.value) {
+          SyncConnectionState.connected => '同步中...',
       SyncConnectionState.connecting => '连接中',
-      _ => '重连中',
+          _ => '重连中',
+        },
     };
   }
 

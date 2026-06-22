@@ -10,6 +10,7 @@ class OwnerSyncEngine extends MultiDeviceSyncController {
     super.onRemoved,
     super.throttle,
     super.initialVersion,
+    super.canSend,
   });
 
   @override
