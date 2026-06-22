@@ -1,5 +1,33 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 主人端头像 emoji fallback 与宠物类型预设扩展
+
+- [x] 主人端无图片宠物头像改用类型 emoji fallback，其他类型保持原缩写 → 验证: 主人端宠物列表 widget 测试
+- [x] 扩展宠物类型枚举、标签和头像映射 → 验证: store 序列化/反序列化与 fallback 测试
+- [x] 按联网取证结果更新建档预设类型与品种/常见饲养类型 → 验证: taxonomy 测试覆盖新增类型和每类数量
+- [x] 落盘预设来源审阅文档 → 验证: docs 中包含来源、边界和不纳入猴类说明
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: Flutter tests、`flutter analyze`、`git diff --check`
+
+### Review 2026-06-23
+
+- 主人端宠物列表无图片头像现在复用 `petAvatarFallbackForPet`，猫狗兔鸟及新增类型显示对应 emoji；`other` 继续显示原 `avatarText` 缩写。
+- `PetType` 新增仓鼠、鱼、龟、蛇、马、猪、鸡、牛、羊、山羊、啮齿类；旧未知 `type` 仍降级为 `other`，不做数据迁移。
+- 添加宠物引导页预设已按联网取证结果扩展：猫狗提供更多大众品种；鸟、鱼、龟、蛇、仓鼠、啮齿类按常见饲养类型处理；猴类未纳入预设。
+- 来源审阅已落盘到 `docs/pet-breed-preset-source-review-2026-06-23.md`，记录来源、预设口径和维护边界。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_care_store_test.dart test/pet_onboarding_taxonomy_test.dart test/pets_page_subtitle_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter test test/widget_test.dart test/pet_replica_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter test test/ai_insights_widget_test.dart --plain-name "overview page prefers pet photo and uses emoji or abbreviation fallback"`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/state/petnote_store.dart lib/app/petnote_pages_pets.dart lib/app/pet_onboarding_taxonomy.dart test/pet_care_store_test.dart test/pet_onboarding_taxonomy_test.dart test/pets_page_subtitle_test.dart test/widget_test.dart`；`git diff --check`。完整 `test/ai_insights_widget_test.dart` 曾卡在既有浮动按钮布局用例，已终止并改跑本轮相关聚焦用例；复查无 Flutter 测试残留进程。
+
+## 2026-06-23 宠物端头像返回选择页
+
+- [x] 为宠物待办页头像添加返回选择列表交互 → 验证: 点击头像回调清空服务宠物
+- [x] 保持界面无新增提示文案 → 验证: 仅增加语义按钮与 widget 测试
+- [x] 运行聚焦测试和静态检查 → 验证: dashboard 测试、analyze、diff check 通过
+
+### Review 2026-06-23
+
+- 宠物待办页头像现在是可点击语义按钮，点击后复用现有 `servedPetId = null` 路径返回宠物选择列表，不新增任何可见指引文案。
+- 新增 widget 测试覆盖点击头像后回调清空服务宠物并重新展示 `pet_selector_list_panel`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_device_home.dart test/pet_device_dashboard_test.dart`；`git diff --check`。
+
 ## 2026-06-22 宠物端 UI 与首次配对同步修复
 
 - [x] 修复首启角色页深色模式图标背景 → 验证: 浅色/深色 widget 测试覆盖 hero 颜色

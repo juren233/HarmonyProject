@@ -25,7 +25,7 @@ class PetDeviceDashboard extends StatefulWidget {
   final String? servedPetId;
   final String syncStatusLabel;
   final Set<String> pendingItemKeys;
-  final ValueChanged<String> onSelectServedPet;
+  final ValueChanged<String?> onSelectServedPet;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
   final DateTime Function()? nowProvider;
@@ -141,6 +141,8 @@ class _PetDeviceDashboardState extends State<PetDeviceDashboard>
                     pet: selectedPet,
                     syncStatusLabel: widget.syncStatusLabel,
                     pendingItemKeys: widget.pendingItemKeys,
+                    onReturnToPetSelection: () =>
+                        widget.onSelectServedPet(null),
                     onMarkDone: widget.onMarkDone,
                     onOpenSettings: widget.onOpenSettings,
                   ),
@@ -717,6 +719,7 @@ class _DashboardContent extends StatelessWidget {
     required this.pet,
     required this.syncStatusLabel,
     required this.pendingItemKeys,
+    required this.onReturnToPetSelection,
     required this.onMarkDone,
     required this.onOpenSettings,
   });
@@ -726,6 +729,7 @@ class _DashboardContent extends StatelessWidget {
   final Pet pet;
   final String syncStatusLabel;
   final Set<String> pendingItemKeys;
+  final VoidCallback onReturnToPetSelection;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
 
@@ -760,6 +764,7 @@ class _DashboardContent extends StatelessWidget {
                         pet: pet,
                         compact: true,
                         syncStatusLabel: syncStatusLabel,
+                        onReturnToPetSelection: onReturnToPetSelection,
                       ),
                     ),
                   ],
@@ -795,6 +800,7 @@ class _DashboardContent extends StatelessWidget {
                     child: _PetStatusPanel(
                       pet: pet,
                       compact: true,
+                      onReturnToPetSelection: onReturnToPetSelection,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -891,11 +897,13 @@ class _PetStatusPanel extends StatelessWidget {
   const _PetStatusPanel({
     required this.pet,
     required this.compact,
+    required this.onReturnToPetSelection,
     this.syncStatusLabel,
   });
 
   final Pet pet;
   final bool compact;
+  final VoidCallback onReturnToPetSelection;
   final String? syncStatusLabel;
 
   @override
@@ -915,18 +923,29 @@ class _PetStatusPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: PetPhotoAvatar(
-                      photoPath: pet.photoPath,
-                      fallbackText: petAvatarFallbackForPet(pet),
-                      radius: compact ? 45 : 54,
-                      backgroundColor: tokens.segmentedSelectedBackground,
-                      foregroundColor: Colors.white,
-                      fallbackTextStyle: TextStyle(
-                        color: Colors.white,
-                        fontSize: compact ? 36 : 44,
-                        fontWeight: FontWeight.w900,
+                  child: Semantics(
+                    button: true,
+                    label: '返回宠物选择',
+                    child: GestureDetector(
+                      key: const ValueKey(
+                        'pet_dashboard_avatar_return_selection',
+                      ),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onReturnToPetSelection,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: PetPhotoAvatar(
+                          photoPath: pet.photoPath,
+                          fallbackText: petAvatarFallbackForPet(pet),
+                          radius: compact ? 45 : 54,
+                          backgroundColor: tokens.segmentedSelectedBackground,
+                          foregroundColor: Colors.white,
+                          fallbackTextStyle: TextStyle(
+                            color: Colors.white,
+                            fontSize: compact ? 36 : 44,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ),
                   ),

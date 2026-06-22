@@ -78,6 +78,43 @@ void main() {
     expect(find.text('它们的照护档案'), findsOneWidget);
   });
 
+  testWidgets('主人端无图片宠物头像按类型显示 emoji', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    addTearDown(store.dispose);
+    await store.addPet(
+      name: 'Nori',
+      type: PetType.hamster,
+      breed: '叙利亚仓鼠',
+      sex: '妹妹',
+      birthday: '2025-01-01',
+      weightKg: 0.1,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少量多餐',
+      allergies: '无',
+      note: '活泼',
+    );
+    await store.addPet(
+      name: 'Custom',
+      type: PetType.other,
+      breed: '其他',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      weightKg: 1.0,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '未填写',
+      allergies: '未填写',
+      note: '未填写',
+    );
+
+    await tester.pumpWidget(host(store));
+
+    expect(find.text('🐹'), findsOneWidget);
+    expect(find.text('CU'), findsOneWidget);
+    expect(find.text('NO'), findsNothing);
+  });
+
   testWidgets('宠物列表页保持打开时按分钟刷新年龄显示', (tester) async {
     var now = DateTime.parse('2026-01-01T23:59:30');
     final store = await PetNoteStore.load(

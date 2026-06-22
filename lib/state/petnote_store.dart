@@ -74,7 +74,24 @@ enum OverviewRange {
 
 enum AppTab { checklist, overview, pets, me }
 
-enum PetType { cat, dog, rabbit, bird, other }
+enum PetType {
+  cat,
+  dog,
+  rabbit,
+  bird,
+  hamster,
+  fish,
+  turtle,
+  snake,
+  horse,
+  pig,
+  chicken,
+  cow,
+  sheep,
+  goat,
+  rodent,
+  other,
+}
 
 enum PetNeuterStatus { neutered, notNeutered, unknown }
 
@@ -519,6 +536,17 @@ String petAvatarFallbackForPet(Pet pet) => switch (pet.type) {
       PetType.dog => '🐶',
       PetType.rabbit => '🐰',
       PetType.bird => '🐦',
+      PetType.hamster => '🐹',
+      PetType.fish => '🐟',
+      PetType.turtle => '🐢',
+      PetType.snake => '🐍',
+      PetType.horse => '🐴',
+      PetType.pig => '🐷',
+      PetType.chicken => '🐔',
+      PetType.cow => '🐮',
+      PetType.sheep => '🐑',
+      PetType.goat => '🐐',
+      PetType.rodent => '🐭',
       PetType.other => pet.avatarText,
     };
 
@@ -4282,6 +4310,17 @@ PetType _petTypeFromName(String? value) => switch (value) {
       'dog' => PetType.dog,
       'rabbit' => PetType.rabbit,
       'bird' => PetType.bird,
+      'hamster' => PetType.hamster,
+      'fish' => PetType.fish,
+      'turtle' => PetType.turtle,
+      'snake' => PetType.snake,
+      'horse' => PetType.horse,
+      'pig' => PetType.pig,
+      'chicken' => PetType.chicken,
+      'cow' => PetType.cow,
+      'sheep' => PetType.sheep,
+      'goat' => PetType.goat,
+      'rodent' => PetType.rodent,
       _ => PetType.other,
     };
 
@@ -4296,6 +4335,17 @@ String petTypeLabel(PetType type) => switch (type) {
       PetType.dog => '狗',
       PetType.rabbit => '兔',
       PetType.bird => '鸟',
+      PetType.hamster => '仓鼠',
+      PetType.fish => '鱼',
+      PetType.turtle => '龟',
+      PetType.snake => '蛇',
+      PetType.horse => '马',
+      PetType.pig => '猪',
+      PetType.chicken => '鸡',
+      PetType.cow => '牛',
+      PetType.sheep => '羊',
+      PetType.goat => '山羊',
+      PetType.rodent => '啮齿类',
       PetType.other => '其他',
     };
 

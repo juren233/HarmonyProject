@@ -503,7 +503,7 @@ void main() {
     expect(driver.events, <String>['button-tap']);
 
     driver.events.clear();
-    await _tapVisibleText(tester, '英短');
+    await _tapVisibleText(tester, '英国短毛猫');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -2276,7 +2276,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await _tapVisibleText(tester, '英短');
+    await _tapVisibleText(tester, '英国短毛猫');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -2517,7 +2517,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await _tapVisibleText(tester, '英短');
+    await _tapVisibleText(tester, '英国短毛猫');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -2553,7 +2553,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
-    await _tapVisibleText(tester, '英短');
+    await _tapVisibleText(tester, '英国短毛猫');
     await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
     await tester.pumpAndSettle();
 
@@ -4960,7 +4960,7 @@ Future<void> _enterBirthdayStepInCurrentFlow(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
   await tester.pumpAndSettle();
 
-  await _tapVisibleText(tester, '英短');
+  await _tapVisibleText(tester, '英国短毛猫');
   await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
   await tester.pumpAndSettle();
 

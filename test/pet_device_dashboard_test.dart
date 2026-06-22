@@ -460,6 +460,39 @@ void main() {
     expect(action?.sourceType, firstItem.sourceType);
   });
 
+  testWidgets('点击宠物待办页头像返回宠物选择列表', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    String? selectedPetId = pet.id;
+
+    Widget dashboard() => _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: selectedPetId,
+            syncStatusLabel: '已连接',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (value) => selectedPetId = value,
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+        );
+
+    await tester.pumpWidget(dashboard());
+    expect(
+        find.byKey(const ValueKey('pet_dashboard_pet_card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_list_panel')), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('pet_dashboard_avatar_return_selection')),
+    );
+    await tester.pumpWidget(dashboard());
+
+    expect(selectedPetId, isNull);
+    expect(
+        find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
+  });
+
   testWidgets('宠物端看板详情页时钟保持分钟刷新', (tester) async {
     var now = DateTime(2026, 6, 22, 21, 5);
     final store = PetNoteStore.seeded();
