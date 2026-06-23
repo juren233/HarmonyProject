@@ -1403,6 +1403,68 @@ void main() {
     controller.dispose();
   });
 
+  test('收到其他设备延后 action 后同步延后后的日期', () async {
+    final replicaStore = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    final controller = PetReplicaController(
+      store: replicaStore,
+      transport: transport,
+      crypto: crypto,
+    )..start(requestInitialSnapshot: false);
+    final todo =
+        replicaStore.todos.firstWhere((item) => item.status == TodoStatus.open);
+    final reminder = replicaStore.reminderById('reminder-2')!;
+    final remoteTodoTargetAt = DateTime.parse('2026-04-02T18:00:00+08:00');
+    final remoteReminderTargetAt = DateTime.parse('2026-04-03T21:00:00+08:00');
+    todo.dueAt = DateTime.parse('2026-03-25T18:00:00+08:00');
+    reminder.scheduledAt = DateTime.parse('2026-03-26T21:00:00+08:00');
+
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.action, {
+        'actionId': 'postpone-todo-1',
+        'ciphertext': await crypto.encryptString(jsonEncode(
+          PetAction(
+            kind: PetActionKind.postpone,
+            sourceType: 'todo',
+            itemId: todo.id,
+            targetAt: remoteTodoTargetAt,
+          ).toJson(),
+        )),
+      }),
+    );
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.action, {
+        'actionId': 'postpone-reminder-1',
+        'ciphertext': await crypto.encryptString(jsonEncode(
+          PetAction(
+            kind: PetActionKind.postpone,
+            sourceType: 'reminder',
+            itemId: reminder.id,
+            targetAt: remoteReminderTargetAt,
+          ).toJson(),
+        )),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(replicaStore.todoById(todo.id)?.status, TodoStatus.postponed);
+    expect(replicaStore.todoById(todo.id)?.dueAt, remoteTodoTargetAt);
+    expect(
+      replicaStore.reminderById(reminder.id)?.status,
+      ReminderStatus.postponed,
+    );
+    expect(
+      replicaStore.reminderById(reminder.id)?.scheduledAt,
+      remoteReminderTargetAt,
+    );
+
+    controller.dispose();
+  });
+
   test('device_config 更新 servedPetId，removed 时清除配对', () async {
     final settings = await AppSettingsController.load();
     await settings.setSyncServerUrl('wss://example.com/ws');

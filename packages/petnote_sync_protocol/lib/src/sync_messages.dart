@@ -94,6 +94,7 @@ class PetAction {
     required this.sourceType,
     required this.itemId,
     this.occurredAtMs,
+    this.targetAt,
   });
 
   final PetActionKind kind;
@@ -101,6 +102,7 @@ class PetAction {
       sourceType; // 'todo' | 'reminder'，与 PetNoteStore.markChecklistDone 一致
   final String itemId;
   final int? occurredAtMs;
+  final DateTime? targetAt;
 
   String get dedupeKey => '$sourceType:$itemId:${kind.name}';
 
@@ -109,6 +111,7 @@ class PetAction {
         'sourceType': sourceType,
         'itemId': itemId,
         if (occurredAtMs != null) 'occurredAtMs': occurredAtMs,
+        if (targetAt != null) 'targetAt': targetAt!.toIso8601String(),
       };
 
   factory PetAction.fromJson(Map<String, dynamic> json) {
@@ -125,6 +128,7 @@ class PetAction {
       sourceType: sourceType,
       itemId: itemId,
       occurredAtMs: (json['occurredAtMs'] as num?)?.toInt(),
+      targetAt: DateTime.tryParse(json['targetAt'] as String? ?? ''),
     );
   }
 }
@@ -138,6 +142,7 @@ class PetNoteMutation {
     this.data,
     this.actionKind,
     this.occurredAtMs,
+    this.targetAt,
   });
 
   final String id;
@@ -147,6 +152,7 @@ class PetNoteMutation {
   final Map<String, dynamic>? data;
   final PetActionKind? actionKind;
   final int? occurredAtMs;
+  final DateTime? targetAt;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -156,6 +162,7 @@ class PetNoteMutation {
         if (data != null) 'data': data,
         if (actionKind != null) 'actionKind': actionKind!.name,
         if (occurredAtMs != null) 'occurredAtMs': occurredAtMs,
+        if (targetAt != null) 'targetAt': targetAt!.toIso8601String(),
       };
 
   factory PetNoteMutation.fromJson(Map<String, dynamic> json) {
@@ -187,6 +194,7 @@ class PetNoteMutation {
               orElse: () => throw const FormatException('unknown action kind'),
             ),
       occurredAtMs: (json['occurredAtMs'] as num?)?.toInt(),
+      targetAt: DateTime.tryParse(json['targetAt'] as String? ?? ''),
     );
   }
 }

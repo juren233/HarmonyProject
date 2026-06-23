@@ -201,6 +201,7 @@ class SyncMutationOutbox {
       sourceType: sourceType,
       itemId: mutation.entityId,
       occurredAtMs: mutation.occurredAtMs,
+      targetAt: mutation.targetAt,
     );
     final message = SyncMessage(SyncMessageTypes.actionPush, {
       'actionId': mutation.id,
@@ -209,6 +210,8 @@ class SyncMutationOutbox {
       'sourceType': action.sourceType,
       'itemId': action.itemId,
       if (action.occurredAtMs != null) 'occurredAtMs': action.occurredAtMs,
+      if (action.targetAt != null)
+        'targetAt': action.targetAt!.toIso8601String(),
     });
     if (generation != _runtimeGeneration) {
       return;

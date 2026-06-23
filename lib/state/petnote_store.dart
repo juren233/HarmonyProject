@@ -1516,15 +1516,23 @@ class PetNoteStore extends ChangeNotifier {
     await _emitChecklistMutation(sourceType, itemId, PetActionKind.markDone);
   }
 
-  Future<void> postponeChecklist(String sourceType, String itemId) async {
+  Future<void> postponeChecklist(
+    String sourceType,
+    String itemId, {
+    DateTime? targetAt,
+  }) async {
+    DateTime? resolvedTargetAt;
     if (sourceType == 'todo') {
       final todo = _requireTodo(itemId);
       todo.status = TodoStatus.postponed;
-      todo.dueAt = todo.dueAt.add(const Duration(days: 1));
+      resolvedTargetAt = targetAt ?? todo.dueAt.add(const Duration(days: 1));
+      todo.dueAt = resolvedTargetAt;
     } else {
       final reminder = _requireReminder(itemId);
       reminder.status = ReminderStatus.postponed;
-      reminder.scheduledAt = reminder.scheduledAt.add(const Duration(days: 1));
+      resolvedTargetAt =
+          targetAt ?? reminder.scheduledAt.add(const Duration(days: 1));
+      reminder.scheduledAt = resolvedTargetAt;
       _invalidateSelectedPetReminders();
     }
     _invalidateChecklistDerivedData();
@@ -1534,7 +1542,12 @@ class PetNoteStore extends ChangeNotifier {
       todos: sourceType == 'todo',
       reminders: sourceType != 'todo',
     );
-    await _emitChecklistMutation(sourceType, itemId, PetActionKind.postpone);
+    await _emitChecklistMutation(
+      sourceType,
+      itemId,
+      PetActionKind.postpone,
+      targetAt: resolvedTargetAt,
+    );
   }
 
   Future<void> skipChecklist(String sourceType, String itemId) async {
@@ -1557,10 +1570,20 @@ class PetNoteStore extends ChangeNotifier {
   bool isPetActionApplied(PetAction action) {
     if (action.sourceType == 'todo') {
       final item = _todosById[action.itemId];
-      return item != null && item.status == _todoStatusForAction(action.kind);
+      if (item == null || item.status != _todoStatusForAction(action.kind)) {
+        return false;
+      }
+      return action.kind != PetActionKind.postpone ||
+          action.targetAt == null ||
+          item.dueAt.isAtSameMomentAs(action.targetAt!);
     }
     final item = _remindersById[action.itemId];
-    return item != null && item.status == _reminderStatusForAction(action.kind);
+    if (item == null || item.status != _reminderStatusForAction(action.kind)) {
+      return false;
+    }
+    return action.kind != PetActionKind.postpone ||
+        action.targetAt == null ||
+        item.scheduledAt.isAtSameMomentAs(action.targetAt!);
   }
 
   Future<void> applyPetAction(PetAction action) async {
@@ -1571,7 +1594,11 @@ class PetNoteStore extends ChangeNotifier {
       case PetActionKind.markDone:
         await markChecklistDone(action.sourceType, action.itemId);
       case PetActionKind.postpone:
-        await postponeChecklist(action.sourceType, action.itemId);
+        await postponeChecklist(
+          action.sourceType,
+          action.itemId,
+          targetAt: action.targetAt,
+        );
       case PetActionKind.skip:
         await skipChecklist(action.sourceType, action.itemId);
     }
@@ -1615,6 +1642,7 @@ class PetNoteStore extends ChangeNotifier {
       action.sourceType,
       action.itemId,
       action.kind,
+      targetAt: action.targetAt ?? _targetAtForAction(action),
     );
   }
 
@@ -1647,6 +1675,7 @@ class PetNoteStore extends ChangeNotifier {
             sourceType: _sourceTypeForEntityType(mappedMutation.entityType),
             itemId: mappedMutation.entityId,
             occurredAtMs: mappedMutation.occurredAtMs,
+            targetAt: mappedMutation.targetAt,
           ));
       }
     } finally {
@@ -2738,8 +2767,9 @@ class PetNoteStore extends ChangeNotifier {
   Future<void> _emitChecklistMutation(
     String sourceType,
     String itemId,
-    PetActionKind actionKind,
-  ) {
+    PetActionKind actionKind, {
+    DateTime? targetAt,
+  }) {
     final entityType = switch (sourceType) {
       'todo' => PetNoteEntityType.todo,
       'reminder' => PetNoteEntityType.reminder,
@@ -2752,6 +2782,7 @@ class PetNoteStore extends ChangeNotifier {
       kind: PetNoteMutationKind.checklistAction,
       actionKind: actionKind,
       occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
+      targetAt: targetAt,
     ));
   }
 
@@ -2859,6 +2890,17 @@ class PetNoteStore extends ChangeNotifier {
       PetNoteEntityType.pet ||
       PetNoteEntityType.record =>
         throw FormatException('unsupported checklist entity: $entityType'),
+    };
+  }
+
+  DateTime? _targetAtForAction(PetAction action) {
+    if (action.kind != PetActionKind.postpone) {
+      return null;
+    }
+    return switch (action.sourceType) {
+      'todo' => _todosById[action.itemId]?.dueAt,
+      'reminder' => _remindersById[action.itemId]?.scheduledAt,
+      _ => null,
     };
   }
 
@@ -3912,6 +3954,7 @@ class PetNoteStore extends ChangeNotifier {
       data: data,
       actionKind: mutation.actionKind,
       occurredAtMs: mutation.occurredAtMs,
+      targetAt: mutation.targetAt,
     );
   }
 
@@ -3969,6 +4012,7 @@ class PetNoteStore extends ChangeNotifier {
         localNamespace: localNamespace,
       ),
       occurredAtMs: action.occurredAtMs,
+      targetAt: action.targetAt,
     );
   }
 

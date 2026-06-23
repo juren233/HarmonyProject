@@ -275,6 +275,7 @@ class MultiDeviceSyncController {
       sourceType: action.sourceType,
       itemId: action.itemId,
       occurredAtMs: DateTime.now().toUtc().millisecondsSinceEpoch,
+      targetAt: action.targetAt,
     );
     await store.applyLocalSyncedPetAction(outgoing);
   }

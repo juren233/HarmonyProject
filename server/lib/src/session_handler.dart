@@ -462,6 +462,10 @@ class SessionHandler {
     if (occurredAtMs != null) {
       outgoingPayload['occurredAtMs'] = occurredAtMs;
     }
+    final targetAt = _optionalString(message.payload['targetAt']);
+    if (targetAt != null) {
+      outgoingPayload['targetAt'] = targetAt;
+    }
     if (occurredAtMs != null &&
         household.isOlderChecklistAction(itemKey, outgoingPayload)) {
       final latestAction = household.latestAppliedChecklistActionForItem(
@@ -477,7 +481,9 @@ class SessionHandler {
       itemId: itemId,
       kind: kind,
     );
-    if (existingAppliedAction != null) {
+    if (existingAppliedAction != null &&
+        (kind != PetActionKind.postpone.name ||
+            _isSamePostponeTarget(existingAppliedAction, outgoingPayload))) {
       _sendAppliedActionReceipt(existingAppliedAction);
       return;
     }
@@ -710,6 +716,8 @@ class SessionHandler {
       'version',
       'dataPolicy',
       'mergeMode',
+      'occurredAtMs',
+      'targetAt',
     ]) {
       final value = event.payload[key];
       if (value != null) {
@@ -996,6 +1004,23 @@ class SessionHandler {
     ));
   }
 
+  bool _isSamePostponeTarget(
+    Map<String, dynamic> existingAction,
+    Map<String, dynamic> incomingAction,
+  ) {
+    final existingTargetAt = _optionalString(existingAction['targetAt']);
+    final incomingTargetAt = _optionalString(incomingAction['targetAt']);
+    if (existingTargetAt == null || incomingTargetAt == null) {
+      return existingTargetAt == incomingTargetAt;
+    }
+    final existingTime = DateTime.tryParse(existingTargetAt);
+    final incomingTime = DateTime.tryParse(incomingTargetAt);
+    if (existingTime == null || incomingTime == null) {
+      return existingTargetAt == incomingTargetAt;
+    }
+    return existingTime.isAtSameMomentAs(incomingTime);
+  }
+
   Map<String, dynamic> _syncReceivedPayloadFromPayload(
     Map<String, dynamic> eventPayload, {
     required String syncId,
@@ -1018,6 +1043,7 @@ class SessionHandler {
       'dataPolicy',
       'mergeMode',
       'occurredAtMs',
+      'targetAt',
     ]) {
       final value = eventPayload[key];
       if (value != null) {

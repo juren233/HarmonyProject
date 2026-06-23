@@ -27,11 +27,18 @@ void main() {
   });
 
   test('PetAction 编解码往返', () {
-    final action = PetAction(kind: PetActionKind.markDone, sourceType: 'todo', itemId: 't1');
+    final targetAt = DateTime.parse('2026-04-02T18:00:00+08:00');
+    final action = PetAction(
+      kind: PetActionKind.postpone,
+      sourceType: 'todo',
+      itemId: 't1',
+      targetAt: targetAt,
+    );
     final decoded = PetAction.fromJson(action.toJson());
-    expect(decoded.kind, PetActionKind.markDone);
+    expect(decoded.kind, PetActionKind.postpone);
     expect(decoded.sourceType, 'todo');
     expect(decoded.itemId, 't1');
+    expect(decoded.targetAt, targetAt);
   });
 
   test('非法 JSON 抛 FormatException', () {
@@ -39,10 +46,15 @@ void main() {
   });
 
   test('PetAction 非法字段抛 FormatException', () {
-    expect(() => PetAction.fromJson({'kind': 'hackKind', 'sourceType': 'todo', 'itemId': 't1'}),
+    expect(
+        () => PetAction.fromJson(
+            {'kind': 'hackKind', 'sourceType': 'todo', 'itemId': 't1'}),
         throwsFormatException);
-    expect(() => PetAction.fromJson({'kind': 'markDone', 'sourceType': 1, 'itemId': 't1'}),
+    expect(
+        () => PetAction.fromJson(
+            {'kind': 'markDone', 'sourceType': 1, 'itemId': 't1'}),
         throwsFormatException);
-    expect(() => PetAction.fromJson({'kind': 'markDone'}), throwsFormatException);
+    expect(
+        () => PetAction.fromJson({'kind': 'markDone'}), throwsFormatException);
   });
 }

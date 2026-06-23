@@ -1454,6 +1454,121 @@ void main() {
     }
   });
 
+  test('六个主人端连续延后同一清单项按多设备广播最新目标日期', () async {
+    final firstOwner = connect();
+    firstOwner.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人端 1',
+    });
+    final created = await firstOwner.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final otherOwners = <TestClient>[];
+    for (var index = 2; index <= 5; index += 1) {
+      firstOwner.send(SyncMessageTypes.pairCreate, {
+        'householdId': householdId,
+        'deviceId': 'owner-1',
+        'authToken': authToken,
+        'deviceName': '主人端 1',
+      });
+      final ownerCode =
+          await firstOwner.expectType(SyncMessageTypes.pairCreated);
+      final otherOwner = connect();
+      otherOwner.send(SyncMessageTypes.pairJoin, {
+        'code': ownerCode.payload['code'],
+        'deviceId': 'owner-$index',
+        'deviceName': '主人端 $index',
+        'role': 'owner',
+      });
+      await otherOwner.expectType(SyncMessageTypes.pairJoined);
+      await firstOwner.expectType(SyncMessageTypes.pairPeerJoined);
+      for (final previousOwner in otherOwners) {
+        await previousOwner.expectType(SyncMessageTypes.pairPeerJoined);
+      }
+      otherOwners.add(otherOwner);
+    }
+
+    firstOwner.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'authToken': authToken,
+      'deviceName': '主人端 1',
+    });
+    final sixthCode = await firstOwner.expectType(SyncMessageTypes.pairCreated);
+    final sixthOwner = connect();
+    sixthOwner.send(SyncMessageTypes.pairJoin, {
+      'code': sixthCode.payload['code'],
+      'deviceId': 'owner-6',
+      'deviceName': '主人端 6',
+      'role': 'owner',
+    });
+    await sixthOwner.expectType(SyncMessageTypes.pairJoined);
+    await firstOwner.expectType(SyncMessageTypes.pairPeerJoined);
+    for (final previousOwner in otherOwners) {
+      await previousOwner.expectType(SyncMessageTypes.pairPeerJoined);
+    }
+    otherOwners.add(sixthOwner);
+
+    firstOwner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'first-postpone',
+      'ciphertext': 'first-postpone-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 1000,
+      'targetAt': '2026-04-02T18:00:00.000+08:00',
+    });
+    final firstReceipt =
+        await firstOwner.expectType(SyncMessageTypes.syncReceived);
+    expect(firstReceipt.payload['actionId'], 'first-postpone');
+    final firstActions = <(TestClient, SyncMessage)>[
+      for (final otherOwner in otherOwners)
+        (otherOwner, await otherOwner.expectType(SyncMessageTypes.action)),
+    ];
+    expect(firstActions, hasLength(5));
+    for (final clientAction in firstActions) {
+      expect(
+          clientAction.$2.payload['targetAt'], '2026-04-02T18:00:00.000+08:00');
+    }
+
+    for (final clientAction in firstActions) {
+      clientAction.$1.send(SyncMessageTypes.syncReceived, {
+        'syncId': clientAction.$2.payload['syncId'],
+        'originDeviceId': clientAction.$2.payload['originDeviceId'],
+      });
+    }
+    for (var index = 0; index < firstActions.length; index += 1) {
+      await firstOwner.expectType(SyncMessageTypes.syncReceived);
+    }
+
+    firstOwner.send(SyncMessageTypes.actionPush, {
+      'actionId': 'second-postpone',
+      'ciphertext': 'second-postpone-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-1',
+      'occurredAtMs': 2000,
+      'targetAt': '2026-04-03T18:00:00.000+08:00',
+    });
+    final secondReceipt =
+        await firstOwner.expectType(SyncMessageTypes.syncReceived);
+    expect(secondReceipt.payload['actionId'], 'second-postpone');
+
+    final secondActions = <SyncMessage>[
+      for (final otherOwner in otherOwners)
+        await otherOwner.expectType(SyncMessageTypes.action),
+    ];
+    expect(secondActions, hasLength(5));
+    for (final receivedAction in secondActions) {
+      expect(receivedAction.payload['actionId'], 'second-postpone');
+      expect(
+          receivedAction.payload['ciphertext'], 'second-postpone-ciphertext');
+      expect(
+          receivedAction.payload['targetAt'], '2026-04-03T18:00:00.000+08:00');
+    }
+  });
+
   test('业务同步消息只中转给其他在线设备且不限制设备角色', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
