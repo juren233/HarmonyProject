@@ -361,6 +361,50 @@ void main() {
     expect(permissionCoordinator.requestCount, 0);
   });
 
+  testWidgets('宠物端入口切换 settingsController 时重建同步服务避免复用旧配对',
+      (tester) async {
+    final oldSettings = await AppSettingsController.load();
+    await oldSettings.setDeviceRole(DeviceRole.pet);
+    await oldSettings.setHouseholdId('old-house');
+    final oldService = SyncService(
+      settings: oldSettings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => _FakeSyncTransport(),
+    );
+    SyncService.instance = oldService;
+
+    final newSettings = await AppSettingsController.load();
+    await newSettings.setDeviceRole(DeviceRole.pet);
+    final store = PetNoteStore.seeded();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      final service = SyncService.instance;
+      if (service != null) {
+        await service.stop();
+        service.dispose();
+      }
+      SyncService.instance = null;
+      oldSettings.dispose();
+      newSettings.dispose();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetDeviceHome(
+          settingsController: newSettings,
+          storeLoader: () async => store,
+          keepAlive: _NoopDeviceKeepAlive(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(SyncService.instance, isNot(same(oldService)));
+    expect(SyncService.instance?.settings, same(newSettings));
+  });
+
   testWidgets('远程视频只连当前宠物对应的宠物端设备', (tester) async {
     final store = PetNoteStore.seeded();
     addTearDown(store.dispose);

@@ -30,11 +30,16 @@ import 'package:petnote/permissions/permission_request_gate.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_secret_store.dart';
+import 'package:petnote/sync/sync_service.dart';
+import 'package:petnote/sync/sync_transport.dart';
+import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _petsStorageKey = 'pets_v1';
 const _recordsStorageKey = 'records_v1';
 const _firstLaunchIntroAutoEnabledKey = 'first_launch_intro_auto_enabled_v1';
+const _testSharedKeyBase64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 
 void main() {
   setUp(() {
@@ -50,6 +55,7 @@ void main() {
     debugDisableAndroidLiquidGlassDock = false;
     debugPetPhotoImageBuilder = null;
     debugHasPetPhotoOverride = null;
+    SyncService.instance = null;
   });
 
   testWidgets('intro shows a gray launch paw before first page content appears',
@@ -2793,6 +2799,73 @@ void main() {
         findsNothing);
   });
 
+  testWidgets('备份恢复推送会重建绑定旧 settings 的同步服务', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final rootSettings = await AppSettingsController.load();
+    await rootSettings.setSyncServerMode(SyncServerMode.custom);
+    await rootSettings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await rootSettings.setHouseholdId('root-house');
+    await rootSettings.setHouseholdAuthToken('root-auth');
+    final oldSettings = await AppSettingsController.load();
+    await oldSettings.setDeviceRole(DeviceRole.owner);
+    await oldSettings.setSyncServerMode(SyncServerMode.custom);
+    await oldSettings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await oldSettings.setHouseholdId('old-house');
+    await oldSettings.setHouseholdAuthToken('old-auth');
+    await oldSettings.setSharedKeyBase64(_testSharedKeyBase64);
+    final oldService = SyncService(
+      settings: oldSettings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => _WidgetFakeSyncTransport(),
+    );
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 64));
+      final service = SyncService.instance;
+      if (service != null) {
+        await service.stop();
+        service.dispose();
+      }
+      SyncService.instance = null;
+      rootSettings.dispose();
+      oldSettings.dispose();
+      store.dispose();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          settingsController: rootSettings,
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+        ),
+      ),
+    );
+    await tester.pump();
+    SyncService.instance = oldService;
+    await tester.tap(find.byKey(const ValueKey('tab_me')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+
+    final mePage = tester.widget<settings_page.MePage>(
+      find.byType(settings_page.MePage),
+    );
+    final package = await mePage.dataStorageCoordinator!.createBackupPackage(
+      packageName: '恢复同步回归',
+      description: '验证恢复后同步服务绑定当前设置',
+    );
+    await mePage.dataStorageCoordinator!.importPackage(package: package);
+
+    expect(SyncService.instance, isNot(same(oldService)));
+    expect(SyncService.instance?.settings, same(rootSettings));
+  });
+
   testWidgets(
       'root reflects store-managed time-derived refresh on minute boundary',
       (tester) async {
@@ -4816,6 +4889,39 @@ class _FakeIntroHapticsDriver implements IntroHapticsDriver {
   Future<void> playIntroPrimaryButtonTap() async {
     events.add('button-tap');
   }
+}
+
+class _WidgetFakeSyncTransport implements SyncTransport {
+  final StreamController<SyncMessage> _messages =
+      StreamController<SyncMessage>.broadcast();
+  final StreamController<Object> _errors = StreamController<Object>.broadcast();
+  final ValueNotifier<SyncConnectionState> _state =
+      ValueNotifier<SyncConnectionState>(SyncConnectionState.disconnected);
+
+  @override
+  Stream<Object> get errors => _errors.stream;
+
+  @override
+  Stream<SyncMessage> get messages => _messages.stream;
+
+  @override
+  ValueListenable<SyncConnectionState> get state => _state;
+
+  @override
+  Future<void> connect() async {
+    _state.value = SyncConnectionState.connected;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _state.value = SyncConnectionState.disconnected;
+    await _messages.close();
+    await _errors.close();
+    _state.dispose();
+  }
+
+  @override
+  void send(SyncMessage message) {}
 }
 
 class _GrantedNotificationPlatformAdapter

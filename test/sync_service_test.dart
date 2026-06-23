@@ -282,6 +282,124 @@ void main() {
     await service.stop();
   });
 
+  test('同配置重新绑定新 store 后后续推送使用新 store 数据', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final firstStore = PetNoteStore.seeded();
+    final secondStore = PetNoteStore.seeded();
+    await secondStore.addTodo(
+      petId: secondStore.pets.first.id,
+      title: '新 store 待办',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+
+    await service.ensureStarted(
+      store: firstStore,
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    await service.ensureStarted(
+      store: secondStore,
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    await service.ownerEngine?.pushSnapshotNow(force: true);
+
+    final snapshotPush = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    final decoded = jsonDecode(
+      await crypto.decryptString(snapshotPush.payload['ciphertext'] as String),
+    ) as Map<String, dynamic>;
+    final data = decoded['data'] as Map<String, dynamic>;
+    final todos = data['todos'] as List<dynamic>;
+    expect(
+      todos.map((todo) => (todo as Map<String, dynamic>)['title']),
+      contains('新 store 待办'),
+    );
+
+    await service.stop();
+  });
+
+  test('宠物端同配置重新绑定新 store 后后续推送使用新 store 数据', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+    final firstStore = PetNoteStore.seeded();
+    final secondStore = PetNoteStore.seeded();
+    await secondStore.addTodo(
+      petId: secondStore.pets.first.id,
+      title: '宠物端新 store 待办',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+
+    await service.ensureStarted(
+      store: firstStore,
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    await service.ensureStarted(
+      store: secondStore,
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    await service.petController?.pushSnapshotNow(force: true);
+
+    final snapshotPush = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotPush,
+    );
+    final decoded = jsonDecode(
+      await crypto.decryptString(snapshotPush.payload['ciphertext'] as String),
+    ) as Map<String, dynamic>;
+    final data = decoded['data'] as Map<String, dynamic>;
+    final todos = data['todos'] as List<dynamic>;
+    expect(
+      todos.map((todo) => (todo as Map<String, dynamic>)['title']),
+      contains('宠物端新 store 待办'),
+    );
+
+    await service.stop();
+  });
+
   test('收到 sync checkpoint 后持久推进水位并在 hasMore 时续拉', () async {
     final settings = await AppSettingsController.load();
     await settings.setDeviceRole(DeviceRole.owner);

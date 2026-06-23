@@ -348,7 +348,9 @@ class SyncService extends ChangeNotifier {
       return;
     }
     if (isActive) {
-      if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
+      if (pendingPolicy == null &&
+          _activeConfig?.matches(config) == true &&
+          identical(ownerEngine?.store, store)) {
         _activeStore = store;
         await recoverSync();
         return;
@@ -450,7 +452,9 @@ class SyncService extends ChangeNotifier {
       return;
     }
     if (isActive) {
-      if (pendingPolicy == null && _activeConfig?.matches(config) == true) {
+      if (pendingPolicy == null &&
+          _activeConfig?.matches(config) == true &&
+          identical(petController?.store, store)) {
         _activeStore = store;
         await recoverSync();
         return;

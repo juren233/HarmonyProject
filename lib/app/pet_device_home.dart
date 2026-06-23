@@ -99,9 +99,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
     if (store == null) {
       return;
     }
-    final service = widget.syncService ??
-        SyncService.instance ??
-        SyncService(settings: widget.settingsController);
+    final service = await _syncServiceForCurrentSettings();
     SyncService.instance = service;
     _syncService = service;
     service.resolveMergeConflict = (conflict) async {
@@ -122,6 +120,24 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
     if (mounted) {
       setState(() {});
     }
+  }
+
+  Future<SyncService> _syncServiceForCurrentSettings() async {
+    final injected = widget.syncService;
+    if (injected != null) {
+      return injected;
+    }
+    final existing = SyncService.instance;
+    if (existing != null &&
+        !identical(existing.settings, widget.settingsController)) {
+      if (identical(SyncService.instance, existing)) {
+        SyncService.instance = null;
+      }
+      await existing.stop();
+      existing.dispose();
+    }
+    return SyncService.instance ??=
+        SyncService(settings: widget.settingsController);
   }
 
   void _handleSettingsChanged() {

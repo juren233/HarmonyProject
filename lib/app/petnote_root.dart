@@ -276,8 +276,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
         settingsController.householdAuthToken == null) {
       return;
     }
-    final syncService =
-        SyncService.instance ??= SyncService(settings: settingsController);
+    final syncService = await _syncServiceForSettings(settingsController);
     await syncService.pushLocalSnapshotToAllDevices(store: store);
   }
 
