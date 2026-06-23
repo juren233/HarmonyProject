@@ -284,6 +284,14 @@ Release 工作流由 `.github/workflows/release.yml` 和根目录 `release.yml` 
 - 当前项目依赖锁文件固定使用 `https://pub.flutter-io.cn`
 - 非必要不要把 [pubspec.lock](./pubspec.lock) 里的这个 URL 改成 `https://pub.dev` 或其他地址，避免产生无关锁文件噪音和团队环境不一致
 
+## 同步架构约定
+
+- 同步系统只允许维护一套多设备同步链路；`owner` / `pet` 只能作为前端 UI、设备展示、设备管理权限和使用入口的角色语义，不能拆成两套业务数据同步 runtime、协议、服务端分发规则或失败恢复策略。
+- 客户端业务同步入口应统一落到 [MultiDeviceSyncController](./lib/sync/multi_device_sync_controller.dart) 及其直接调用链；历史上的 `OwnerSyncEngine`、`PetReplicaController` 只能作为兼容包装存在，不得重新加入不同的默认推拉策略、队列语义、附件处理、checkpoint 推进或补拉逻辑。
+- 服务端对 `snapshot`、`action`、`mutation`、`syncReceived`、`syncCheckpoint` 等业务同步消息必须按同一家庭内的多设备同步处理，不得按主人端 / 宠物端拆第二套数据通道。角色字段只可用于设备列表展示、设备管理权限、通话权限或类似非业务数据同步场景。
+- 任何头像、图片、附件、快照、操作或增量消息的接收失败，都不能先写入半截业务数据、不能发送已收回执、不能推进 `lastPulledServerSeq`。失败后必须由同一套多设备同步链路主动触发无 checkpoint 补拉，不能依赖重启 App、重新选择宠物、切换角色或重新配对来间接恢复。
+- 修改同步、配对、恢复、导入导出、设备角色或服务端事件回放逻辑时，必须同时验证主人端和宠物端在任意角色切换后仍走同一套同步链路；测试应覆盖至少一个 owner 场景、一个 pet 场景，以及失败恢复不会退回“提示用户手动刷新”的假闭环。
+
 ## 目录结构
 
 - Flutter 共享层：

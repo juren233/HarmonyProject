@@ -15,20 +15,33 @@ void main() async {
     saltBase64: SyncCrypto.generateSaltBase64(),
   );
 
-  test('主人端和宠物端同步入口共用同一套多设备控制器底座', () {
+  test('主人端和宠物端同步入口共用同一套多设备控制器底座', () async {
+    final ownerTransport = FakeSyncTransport();
+    final petTransport = FakeSyncTransport();
     final owner = OwnerSyncEngine(
       store: PetNoteStore.seeded(),
-      transport: FakeSyncTransport(),
+      transport: ownerTransport,
       crypto: crypto,
     );
     final pet = PetReplicaController(
       store: PetNoteStore.seeded(),
-      transport: FakeSyncTransport(),
+      transport: petTransport,
       crypto: crypto,
     );
 
     expect(owner, isA<MultiDeviceSyncController>());
     expect(pet, isA<MultiDeviceSyncController>());
+    await owner.start();
+    await pet.start();
+    final ownerStartupMessages =
+        ownerTransport.sent.map((message) => message.type).toList();
+    final petStartupMessages =
+        petTransport.sent.map((message) => message.type).toList();
+    expect(ownerStartupMessages, petStartupMessages);
+    expect(ownerStartupMessages, [
+      SyncMessageTypes.snapshotRequest,
+      SyncMessageTypes.snapshotPush,
+    ]);
 
     owner.dispose();
     pet.dispose();

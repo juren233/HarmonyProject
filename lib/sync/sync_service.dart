@@ -6,8 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
-import 'package:petnote/sync/owner_sync_engine.dart';
-import 'package:petnote/sync/pet_replica_controller.dart';
+import 'package:petnote/sync/multi_device_sync_controller.dart';
 import 'package:petnote/sync/sync_client.dart';
 import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
@@ -57,9 +56,12 @@ class SyncService extends ChangeNotifier {
     SyncTransportFactory? transportFactory,
     this.handshakeTimeout = const Duration(seconds: 12),
     this.resolveMergeConflict,
+    SyncPhotoAttachmentCodec? photoAttachmentCodec,
   })  : _secretStore = secretStore ?? MethodChannelSyncSecretStore(),
         _officialServerResolver =
             officialServerResolver ?? OfficialSyncServerResolver(),
+        _photoAttachmentCodec =
+            photoAttachmentCodec ?? const SyncPhotoAttachmentCodec(),
         _transportFactory =
             transportFactory ?? ((url) => SyncClient(url: url)) {
     settings.addListener(_handleSettingsChanged);
@@ -71,13 +73,13 @@ class SyncService extends ChangeNotifier {
   final AppSettingsController settings;
   final SyncSecretStore _secretStore;
   final OfficialSyncServerResolver _officialServerResolver;
+  final SyncPhotoAttachmentCodec _photoAttachmentCodec;
   final SyncTransportFactory _transportFactory;
   final Duration handshakeTimeout;
   SyncMergeConflictResolver? resolveMergeConflict;
 
   SyncTransport? _transport;
-  OwnerSyncEngine? ownerEngine;
-  PetReplicaController? petController;
+  MultiDeviceSyncController? _controller;
   _SyncConfig? _activeConfig;
   DeviceRole? _activeRole;
   void Function()? _transportStateListener;
@@ -96,25 +98,29 @@ class SyncService extends ChangeNotifier {
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
+  MultiDeviceSyncController? get ownerEngine =>
+      _activeRole == DeviceRole.owner ? _controller : null;
+  MultiDeviceSyncController? get petController =>
+      _activeRole == DeviceRole.pet ? _controller : null;
+  @visibleForTesting
+  set petController(MultiDeviceSyncController? controller) {
+    _controller = controller;
+    _activeRole = controller == null ? null : DeviceRole.pet;
+  }
+
   ValueListenable<int>? get failedSyncCount => _failedSyncCount;
   SyncSessionState get sessionState => _sessionState;
   SyncStatusSnapshot get statusSnapshot => SyncStatusSnapshot(
         connectionState:
             _transport?.state.value ?? SyncConnectionState.disconnected,
         sessionState: _sessionState,
-        pendingOutboxCount: ownerEngine?.pendingOutboxCount ??
-            petController?.pendingOutboxCount ??
-            0,
+        pendingOutboxCount: _controller?.pendingOutboxCount ?? 0,
         pendingMutationCount: _activeStore?.pendingLocalMutations.length ?? 0,
         lastPulledServerSeq: settings.lastPulledServerSeq,
-        lastSyncedAt: ownerEngine?.lastSyncedAt.value ??
-            petController?.lastSyncedAt.value,
+        lastSyncedAt: _controller?.lastSyncedAt.value,
         lastPullAt: _lastPullAt,
-        lastError: _lastSessionError ??
-            ownerEngine?.lastError.value ??
-            petController?.lastError.value,
-        nextRetryAt:
-            ownerEngine?.nextOutboxRetryAt ?? petController?.nextOutboxRetryAt,
+        lastError: _lastSessionError ?? _controller?.lastError.value,
+        nextRetryAt: _controller?.nextOutboxRetryAt,
       );
   Map<String, Object?> buildDiagnosticsSnapshot() {
     final snapshot = statusSnapshot;
@@ -252,9 +258,7 @@ class SyncService extends ChangeNotifier {
   }
 
   SyncIssueKind get currentIssueKind {
-    final baseCount = ownerEngine?.failedSyncCount.value ??
-        petController?.failedSyncCount.value ??
-        0;
+    final baseCount = _controller?.failedSyncCount.value ?? 0;
     if ((_handshakeFailed || _sessionState == SyncSessionState.blocked) &&
         settings.householdId != null) {
       return SyncIssueKind.handshakeFailed;
@@ -273,35 +277,19 @@ class SyncService extends ChangeNotifier {
     SyncDataPolicy dataPolicy = SyncDataPolicy.remoteWins,
   }) async {
     await ensureStarted(store: store, pushStartupSnapshot: false);
-    switch (_activeRole) {
-      case DeviceRole.owner:
-        final syncId = dataPolicy == SyncDataPolicy.remoteWins
-            ? await _ensurePendingResetSnapshotSyncId()
-            : null;
-        await ownerEngine?.pushSnapshotNow(
-          dataPolicy: dataPolicy,
-          force: true,
-          syncId: syncId,
-        );
-      case DeviceRole.pet:
-        final syncId = dataPolicy == SyncDataPolicy.remoteWins
-            ? await _ensurePendingResetSnapshotSyncId()
-            : null;
-        await petController?.pushSnapshotNow(
-          dataPolicy: dataPolicy,
-          force: true,
-          syncId: syncId,
-        );
-      case DeviceRole.undecided:
-      case null:
-        break;
-    }
+    final syncId = dataPolicy == SyncDataPolicy.remoteWins
+        ? await _ensurePendingResetSnapshotSyncId()
+        : null;
+    await _controller?.pushSnapshotNow(
+      dataPolicy: dataPolicy,
+      force: true,
+      syncId: syncId,
+    );
     _refreshFailedSyncCount();
   }
 
   void retrySyncIssues() {
-    ownerEngine?.retryFailedSync();
-    petController?.retryFailedSync();
+    _controller?.retryFailedSync();
     final role = _activeRole;
     if (settings.pendingResetSnapshotSyncId != null && role != null) {
       unawaited(_pushPendingResetSnapshotIfAny(role));
@@ -350,7 +338,7 @@ class SyncService extends ChangeNotifier {
     if (isActive) {
       if (pendingPolicy == null &&
           _activeConfig?.matches(config) == true &&
-          identical(ownerEngine?.store, store)) {
+          identical(_controller?.store, store)) {
         _activeStore = store;
         await recoverSync();
         return;
@@ -361,21 +349,16 @@ class SyncService extends ChangeNotifier {
     _transport = transport;
     _activeConfig = config;
     _activeStore = store;
-    final engine = OwnerSyncEngine(
+    final controller = _createController(
       store: store,
       transport: transport,
-      crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
-      resolveMergeConflict: resolveMergeConflict,
-      settings: settings,
-      onRemoved: _stopAfterRemoval,
-      canSend: _canSendBusinessMessages,
     );
-    ownerEngine = engine;
-    await engine.start(
+    _controller = controller;
+    await controller.start(
       pushInitialSnapshot: false,
       requestInitialSnapshot: false,
     );
-    _attachEngineFailedCount(ownerEngine?.failedSyncCount);
+    _attachEngineFailedCount(_controller?.failedSyncCount);
     _activeRole = DeviceRole.owner;
     notifyListeners();
 
@@ -398,13 +381,13 @@ class SyncService extends ChangeNotifier {
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
       if (hasPendingReset) {
-        ownerEngine?.requestSnapshot();
+        _controller?.requestSnapshot();
       } else {
-        await ownerEngine?.pushSnapshotNow(
+        await _controller?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.merge,
           preserveConflictingIds: true,
         );
-        ownerEngine?.requestSnapshot(
+        _controller?.requestSnapshot(
           dataPolicy: SyncDataPolicy.merge,
           resolveConflicts: true,
         );
@@ -419,19 +402,19 @@ class SyncService extends ChangeNotifier {
     // 首次连接完成后，根据配对时选择的策略执行同步
     if (policy == SyncDataPolicy.remoteWins) {
       // 以对方为准：请求对方数据并覆盖本机
-      ownerEngine?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
+      _controller?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
     } else if (policy == SyncDataPolicy.localWins) {
       // 以本机为准：推送本机数据覆盖对方
-      await ownerEngine?.pushSnapshotNow(
+      await _controller?.pushSnapshotNow(
         dataPolicy: SyncDataPolicy.remoteWins,
       );
     } else {
       // 合并：双向传输，对方没有的数据会被添加
-      await ownerEngine?.pushSnapshotNow(
+      await _controller?.pushSnapshotNow(
         dataPolicy: SyncDataPolicy.merge,
         preserveConflictingIds: true,
       );
-      ownerEngine?.requestSnapshot(resolveConflicts: true);
+      _controller?.requestSnapshot(resolveConflicts: true);
     }
     _initialConnectionCompleted = true;
   }
@@ -454,7 +437,7 @@ class SyncService extends ChangeNotifier {
     if (isActive) {
       if (pendingPolicy == null &&
           _activeConfig?.matches(config) == true &&
-          identical(petController?.store, store)) {
+          identical(_controller?.store, store)) {
         _activeStore = store;
         await recoverSync();
         return;
@@ -465,21 +448,16 @@ class SyncService extends ChangeNotifier {
     _transport = transport;
     _activeConfig = config;
     _activeStore = store;
-    final controller = PetReplicaController(
+    final controller = _createController(
       store: store,
       transport: transport,
-      crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
-      resolveMergeConflict: resolveMergeConflict,
-      settings: settings,
-      onRemoved: _stopAfterRemoval,
-      canSend: _canSendBusinessMessages,
     );
-    petController = controller;
+    _controller = controller;
     await controller.start(
       pushInitialSnapshot: false,
       requestInitialSnapshot: false,
     );
-    _attachEngineFailedCount(petController?.failedSyncCount);
+    _attachEngineFailedCount(_controller?.failedSyncCount);
     _activeRole = DeviceRole.pet;
     notifyListeners();
 
@@ -504,13 +482,13 @@ class SyncService extends ChangeNotifier {
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
       if (hasPendingReset) {
-        petController?.requestSnapshot();
+        _controller?.requestSnapshot();
       } else {
-        await petController?.pushSnapshotNow(
+        await _controller?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.merge,
           preserveConflictingIds: true,
         );
-        petController?.requestSnapshot(
+        _controller?.requestSnapshot(
           dataPolicy: SyncDataPolicy.merge,
           resolveConflicts: true,
         );
@@ -525,28 +503,46 @@ class SyncService extends ChangeNotifier {
     // 首次连接完成后，根据配对时选择的策略执行同步
     if (policy == SyncDataPolicy.localWins) {
       // 以本机为准：推送本机数据覆盖对方
-      await petController?.pushSnapshotNow(
-          dataPolicy: SyncDataPolicy.remoteWins);
+      await _controller?.pushSnapshotNow(dataPolicy: SyncDataPolicy.remoteWins);
     } else if (policy == SyncDataPolicy.remoteWins) {
       // 以对方为准：请求对方数据并覆盖本机
-      petController?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
+      _controller?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
     } else {
       // 合并：双向传输，对方没有的数据会被添加
-      petController?.requestSnapshot(
-        dataPolicy: SyncDataPolicy.merge,
-        resolveConflicts: true,
-      );
-      await petController?.pushSnapshotNow(
+      await _controller?.pushSnapshotNow(
         dataPolicy: SyncDataPolicy.merge,
         preserveConflictingIds: true,
+      );
+      _controller?.requestSnapshot(
+        dataPolicy: SyncDataPolicy.merge,
+        resolveConflicts: true,
       );
     }
     _initialConnectionCompleted = true;
   }
 
+  MultiDeviceSyncController _createController({
+    required PetNoteStore store,
+    required SyncTransport transport,
+  }) {
+    final config = _activeConfig;
+    if (config == null) {
+      throw StateError('同步配置未加载');
+    }
+    return MultiDeviceSyncController(
+      store: store,
+      transport: transport,
+      crypto: SyncCrypto.fromKeyBase64(config.sharedKeyBase64),
+      resolveMergeConflict: resolveMergeConflict,
+      settings: settings,
+      onRemoved: _stopAfterRemoval,
+      canSend: _canSendBusinessMessages,
+      photoAttachmentCodec: _photoAttachmentCodec,
+    );
+  }
+
   Future<void> stop() async {
-    final shouldNotify =
-        ownerEngine != null || petController != null || _transport != null;
+    final shouldNotify = _controller != null || _transport != null;
     final listener = _transportStateListener;
     if (listener != null) {
       _transport?.state.removeListener(listener);
@@ -555,10 +551,8 @@ class SyncService extends ChangeNotifier {
     await _helloAckSubscription?.cancel();
     _helloAckSubscription = null;
     _attachEngineFailedCount(null);
-    ownerEngine?.dispose();
-    petController?.dispose();
-    ownerEngine = null;
-    petController = null;
+    _controller?.dispose();
+    _controller = null;
     await _transport?.disconnect();
     _transport = null;
     _activeConfig = null;
@@ -619,8 +613,7 @@ class SyncService extends ChangeNotifier {
   }
 
   void _retryActiveEngine() {
-    ownerEngine?.retryFailedSync();
-    petController?.retryFailedSync();
+    _controller?.retryFailedSync();
     _refreshFailedSyncCount();
   }
 
@@ -635,9 +628,9 @@ class SyncService extends ChangeNotifier {
     _lastPullAt = now;
     switch (role) {
       case DeviceRole.owner:
-        ownerEngine?.requestSnapshot();
+        _controller?.requestSnapshot();
       case DeviceRole.pet:
-        petController?.requestSnapshot();
+        _controller?.requestSnapshot();
       case DeviceRole.undecided:
         break;
     }
@@ -731,14 +724,14 @@ class SyncService extends ChangeNotifier {
       case DeviceRole.owner:
         debugPrint(
             '[PetNoteSync] push pending reset snapshot as owner: $syncId');
-        await ownerEngine?.pushSnapshotNow(
+        await _controller?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.remoteWins,
           force: true,
           syncId: syncId,
         );
       case DeviceRole.pet:
         debugPrint('[PetNoteSync] push pending reset snapshot as pet: $syncId');
-        await petController?.pushSnapshotNow(
+        await _controller?.pushSnapshotNow(
           dataPolicy: SyncDataPolicy.remoteWins,
           force: true,
           syncId: syncId,
@@ -775,9 +768,7 @@ class SyncService extends ChangeNotifier {
       return;
     }
     final nextCount = switch (currentIssueKind) {
-      SyncIssueKind.failedQueue => ownerEngine?.failedSyncCount.value ??
-          petController?.failedSyncCount.value ??
-          0,
+      SyncIssueKind.failedQueue => _controller?.failedSyncCount.value ?? 0,
       SyncIssueKind.handshakeFailed ||
       SyncIssueKind.pendingResetConfirmation =>
         1,
@@ -934,7 +925,7 @@ class SyncService extends ChangeNotifier {
       return;
     }
     _lastReportedServedPetId = servedPetId;
-    petController?.updateServedPetId(servedPetId);
+    _controller?.updateServedPetId(servedPetId);
   }
 
   void _handleSettingsChanged() {
@@ -950,12 +941,9 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<void> _clearDurableOutboxIfAny() async {
-    final owner = ownerEngine;
-    final pet = petController;
-    owner?.clearDurableOutbox();
-    pet?.clearDurableOutbox();
-    await owner?.outboxPersistIdle;
-    await pet?.outboxPersistIdle;
+    final controller = _controller;
+    controller?.clearDurableOutbox();
+    await controller?.outboxPersistIdle;
     _refreshFailedSyncCount();
   }
 

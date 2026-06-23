@@ -9,18 +9,8 @@ class OwnerSyncEngine extends MultiDeviceSyncController {
     super.settings,
     super.onRemoved,
     super.throttle,
+    super.photoAttachmentCodec,
     super.initialVersion,
     super.canSend,
   });
-
-  @override
-  Future<void> start({
-    bool pushInitialSnapshot = true,
-    bool requestInitialSnapshot = false,
-  }) {
-    return super.start(
-      pushInitialSnapshot: pushInitialSnapshot,
-      requestInitialSnapshot: requestInitialSnapshot,
-    );
-  }
 }

@@ -11,6 +11,15 @@ const String petPhotoAttachmentsPayloadKey = 'petPhotoAttachments';
 const String petPhotoAttachmentPayloadKey = 'petPhotoAttachment';
 const int syncPhotoAttachmentMaxBytes = 3 * 1024 * 1024;
 
+class SyncPhotoAttachmentException implements Exception {
+  const SyncPhotoAttachmentException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'SyncPhotoAttachmentException: $message';
+}
+
 class SyncPhotoAttachment {
   const SyncPhotoAttachment({
     required this.petId,
@@ -117,6 +126,16 @@ class SyncPhotoAttachmentCodec {
       return state;
     }
     final pathByPetId = await _writeAttachments(attachments);
+    final expectedPetIds = {
+      for (final pet in state.pets)
+        if (attachments.any((attachment) => attachment.petId == pet.id)) pet.id,
+    };
+    final missingPetIds = expectedPetIds.difference(pathByPetId.keys.toSet());
+    if (missingPetIds.isNotEmpty) {
+      throw SyncPhotoAttachmentException(
+        '部分宠物头像附件未能写入本地：${missingPetIds.join(',')}',
+      );
+    }
     if (pathByPetId.isEmpty) {
       return state;
     }
@@ -139,7 +158,7 @@ class SyncPhotoAttachmentCodec {
     final baseDirectory =
         await (_directoryLoader ?? PetNoteAppDirectory.load)();
     if (baseDirectory == null || baseDirectory.trim().isEmpty) {
-      return const <String, String>{};
+      throw const SyncPhotoAttachmentException('本地应用目录不可用，无法写入同步头像');
     }
     final directory = Directory(
       _joinPath(baseDirectory.trim(), 'petnote_synced_pet_photos'),
@@ -152,7 +171,9 @@ class SyncPhotoAttachmentCodec {
       }
       final bytes = _decodeBytes(attachment.base64Data);
       if (!_isValidAttachmentBytes(attachment, bytes)) {
-        continue;
+        throw SyncPhotoAttachmentException(
+          '宠物头像附件校验失败：${attachment.petId}',
+        );
       }
       final file = File(_joinPath(
         directory.path,

@@ -82,6 +82,7 @@ class MultiDeviceSyncController {
   var _resolveNextMergeSnapshotConflict = false;
   var _pairingRemoved = false;
   var _inboundApplyFailedSinceCheckpoint = false;
+  var _requestedReplayAfterInboundFailure = false;
 
   int get pendingOutboxCount => _failureQueue.pendingCount;
   DateTime? get nextOutboxRetryAt => _failureQueue.nextRetryAt;
@@ -301,6 +302,7 @@ class MultiDeviceSyncController {
       _sendReceivedIfNeeded(message);
       await _mutationOutbox.markRemoteActionApplied(appliedAction);
       lastSyncedAt.value = DateTime.now();
+      _requestedReplayAfterInboundFailure = false;
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -331,6 +333,7 @@ class MultiDeviceSyncController {
       );
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
+      _requestedReplayAfterInboundFailure = false;
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -418,6 +421,7 @@ class MultiDeviceSyncController {
       }
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
+      _requestedReplayAfterInboundFailure = false;
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -536,7 +540,8 @@ class MultiDeviceSyncController {
   Future<void> _applySyncCheckpoint(SyncMessage message) async {
     final toServerSeq = (message.payload['toServerSeq'] as num?)?.toInt();
     final hasGap = message.payload['hasGap'] == true;
-    final canAdvanceCheckpoint = !hasGap && !_inboundApplyFailedSinceCheckpoint;
+    final hadInboundApplyFailure = _inboundApplyFailedSinceCheckpoint;
+    final canAdvanceCheckpoint = !hasGap && !hadInboundApplyFailure;
     _inboundApplyFailedSinceCheckpoint = false;
     if (canAdvanceCheckpoint &&
         toServerSeq != null &&
@@ -545,6 +550,14 @@ class MultiDeviceSyncController {
     }
     if (hasGap) {
       requestSnapshot(useCheckpoint: false);
+      return;
+    }
+    if (hadInboundApplyFailure) {
+      // 本地应用失败时不能等用户切宠物或重启来补拉，否则会出现已收到但未落盘的同步空窗。
+      if (!_requestedReplayAfterInboundFailure) {
+        _requestedReplayAfterInboundFailure = true;
+        requestSnapshot(useCheckpoint: false);
+      }
       return;
     }
     if (message.payload['hasMore'] == true) {

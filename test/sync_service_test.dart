@@ -1325,6 +1325,9 @@ void main() {
     expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(request.payload['mergeMode'], 'preserveConflictingIds');
     expect(push.payload['mergeMode'], 'preserveConflictingIds');
+    final pushIndex = transport.sent.indexOf(push);
+    final requestIndex = transport.sent.indexOf(request);
+    expect(pushIndex, lessThan(requestIndex));
 
     await service.stop();
   });
@@ -1361,6 +1364,9 @@ void main() {
     expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(request.payload['mergeMode'], 'preserveConflictingIds');
     expect(push.payload['mergeMode'], 'preserveConflictingIds');
+    final pushIndex = transport.sent.indexOf(push);
+    final requestIndex = transport.sent.indexOf(request);
+    expect(pushIndex, lessThan(requestIndex));
 
     await service.stop();
   });
@@ -2203,6 +2209,201 @@ void main() {
     expect(encoded, isNot(contains('auth-token-secret')));
     expect(encoded, isNot(contains('shared-key-secret')));
     expect(encoded, isNot(contains('ciphertext')));
+
+    await service.stop();
+  });
+
+  test('头像附件落盘失败时不应用远端宠物变更也不回执并主动补拉', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(7);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+      photoAttachmentCodec: SyncPhotoAttachmentCodec(
+        directoryLoader: () async => null,
+      ),
+    );
+
+    await service.ensureStarted(store: store, pushStartupSnapshot: false);
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    final mutation = PetNoteMutation(
+      id: 'pet-avatar-upsert-1',
+      entityType: PetNoteEntityType.pet,
+      entityId: 'pet-1',
+      kind: PetNoteMutationKind.upsert,
+      data: Pet(
+        id: 'pet-1',
+        name: '雪球',
+        avatarText: '雪',
+        photoPath: '/sender/avatar.jpg',
+        type: PetType.cat,
+        breed: '布偶',
+        sex: '妹妹',
+        birthday: '2025-01-01',
+        ageLabel: '1 岁',
+        weightKg: 4,
+        neuterStatus: PetNeuterStatus.unknown,
+        feedingPreferences: '少食多餐',
+        allergies: '无',
+        note: '带头像',
+      ).toJson(),
+      occurredAtMs: 1,
+    );
+    final payload = mutation.toJson()
+      ..[petPhotoAttachmentPayloadKey] = const SyncPhotoAttachment(
+        petId: 'pet-1',
+        fileName: 'avatar.jpg',
+        base64Data: 'AQID',
+        sha256:
+            '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+        sizeBytes: 3,
+      ).toJson();
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.mutation, {
+        'mutationId': mutation.id,
+        'syncId': 'sync-avatar-1',
+        'originDeviceId': 'device-a',
+        'ciphertext': await crypto.encryptString(jsonEncode(payload)),
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(store.pets, isEmpty);
+    expect(
+        service.statusSnapshot.lastError, isA<SyncPhotoAttachmentException>());
+    expect(
+      transport.sent.map((message) => message.type),
+      isNot(contains(SyncMessageTypes.syncReceived)),
+    );
+
+    transport.sent.clear();
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'afterServerSeq': 7,
+        'toServerSeq': 8,
+        'sentEventCount': 1,
+        'remainingEventCount': 0,
+        'hasMore': false,
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(settings.lastPulledServerSeq, 7);
+    final replayRequest = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(replayRequest.payload.containsKey('afterServerSeq'), isFalse);
+    expect(replayRequest.payload.containsKey('maxEvents'), isFalse);
+
+    await service.stop();
+  });
+
+  test('pet 角色接收头像 mutation 会落盘并更新宠物头像', () async {
+    final tempDirectory = Directory.systemTemp.createTempSync(
+      'petnote-avatar-receive-',
+    );
+    addTearDown(() {
+      if (tempDirectory.existsSync()) {
+        tempDirectory.deleteSync(recursive: true);
+      }
+    });
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+      photoAttachmentCodec: SyncPhotoAttachmentCodec(
+        directoryLoader: () async => tempDirectory.path,
+      ),
+    );
+
+    await service.ensureStarted(store: store, pushStartupSnapshot: false);
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    final mutation = PetNoteMutation(
+      id: 'pet-avatar-upsert-2',
+      entityType: PetNoteEntityType.pet,
+      entityId: 'pet-1',
+      kind: PetNoteMutationKind.upsert,
+      data: Pet(
+        id: 'pet-1',
+        name: '雪球',
+        avatarText: '雪',
+        photoPath: '/sender/avatar.jpg',
+        type: PetType.cat,
+        breed: '布偶',
+        sex: '妹妹',
+        birthday: '2025-01-01',
+        ageLabel: '1 岁',
+        weightKg: 4,
+        neuterStatus: PetNeuterStatus.unknown,
+        feedingPreferences: '少食多餐',
+        allergies: '无',
+        note: '带头像',
+      ).toJson(),
+      occurredAtMs: 2,
+    );
+    final payload = mutation.toJson()
+      ..[petPhotoAttachmentPayloadKey] = const SyncPhotoAttachment(
+        petId: 'pet-1',
+        fileName: 'avatar.jpg',
+        base64Data: 'AQID',
+        sha256:
+            '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+        sizeBytes: 3,
+      ).toJson();
+    transport.incoming.add(
+      SyncMessage(SyncMessageTypes.mutation, {
+        'mutationId': mutation.id,
+        'syncId': 'sync-avatar-2',
+        'originDeviceId': 'device-a',
+        'ciphertext': await crypto.encryptString(jsonEncode(payload)),
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(service.statusSnapshot.lastError, isNull);
+    expect(store.pets, hasLength(1));
+    final pet = store.pets.single;
+    expect(pet.photoPath, isNot('/sender/avatar.jpg'));
+    expect(File(pet.photoPath!).readAsBytesSync(), [1, 2, 3]);
+    final receipt = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.syncReceived,
+    );
+    expect(receipt.payload['syncId'], 'sync-avatar-2');
+    expect(receipt.payload['originDeviceId'], 'device-a');
 
     await service.stop();
   });

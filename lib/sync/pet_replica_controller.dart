@@ -13,15 +13,4 @@ class PetReplicaController extends MultiDeviceSyncController {
     super.initialVersion,
     super.canSend,
   });
-
-  @override
-  Future<void> start({
-    bool pushInitialSnapshot = false,
-    bool requestInitialSnapshot = true,
-  }) {
-    return super.start(
-      pushInitialSnapshot: pushInitialSnapshot,
-      requestInitialSnapshot: requestInitialSnapshot,
-    );
-  }
 }
