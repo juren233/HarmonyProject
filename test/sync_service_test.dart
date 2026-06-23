@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1820,6 +1821,61 @@ void main() {
 
     expect(service.statusSnapshot.sessionState, SyncSessionState.blocked);
     expect(service.statusSnapshot.lastError, 'auth failed');
+
+    await service.stop();
+  });
+
+  test('同步诊断导出包含状态字段且不泄露敏感配置', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://secret.example/ws?token=url-secret');
+    await settings.setHouseholdId('house-secret');
+    await settings.setHouseholdAuthToken('auth-token-secret');
+    await settings.setSharedKeyBase64('shared-key-secret');
+    await settings.setServedPetId('served-pet-secret');
+    await settings.setLastPulledServerSeq(42);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'auth failed',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final diagnostics = service.buildDiagnosticsSnapshot();
+    expect(diagnostics['connectionState'], SyncConnectionState.connected.name);
+    expect(diagnostics['sessionState'], SyncSessionState.blocked.name);
+    expect(diagnostics['issueKind'], SyncIssueKind.handshakeFailed.name);
+    expect(diagnostics['deviceRole'], DeviceRole.owner.name);
+    expect(diagnostics['syncServerMode'], SyncServerMode.custom.name);
+    expect(diagnostics['hasHouseholdId'], isTrue);
+    expect(diagnostics['hasDeviceId'], isTrue);
+    expect(diagnostics['hasServedPetId'], isTrue);
+    expect(diagnostics['lastPulledServerSeq'], 42);
+    expect(diagnostics['lastErrorKind'], 'authFailed');
+
+    final encoded = jsonEncode(diagnostics);
+    expect(encoded, isNot(contains('secret.example')));
+    expect(encoded, isNot(contains('url-secret')));
+    expect(encoded, isNot(contains('house-secret')));
+    expect(encoded, isNot(contains('auth-token-secret')));
+    expect(encoded, isNot(contains('shared-key-secret')));
+    expect(encoded, isNot(contains('served-pet-secret')));
+    expect(encoded, isNot(contains('ciphertext')));
 
     await service.stop();
   });

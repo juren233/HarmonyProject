@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 端侧同步诊断安全导出
+
+- [x] 新增端侧同步诊断结构化导出 → 验证: sync service 测试覆盖连接/session/issue/outbox/checkpoint 字段
+- [x] 诊断导出不得泄露 URL、家庭 ID、auth token、shared key、servedPetId 原值或密文 → 验证: JSON 串断言不包含敏感样本值
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明已具备安全 raw 导出，剩余为 UI/运维串联
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncService.buildDiagnosticsSnapshot()` 新增端侧结构化诊断导出，包含连接状态、session 状态、issue kind、设备角色、服务模式、outbox / mutation 计数、失败计数、last pulled 水位、同步时间和错误分类。
+- 导出只包含 `hasHouseholdId`、`hasDeviceId`、`hasServedPetId`、`hasPendingResetSnapshot` 这类布尔状态，不输出 URL、householdId、auth token、shared key、servedPetId 原值或密文 payload。
+- 新增测试用敏感样本值验证诊断 JSON 不包含 URL token、家庭 ID、auth token、shared key、servedPetId 和 `ciphertext`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart test/sync_service_test.dart`。
+
 ## 2026-06-23 端侧同步状态水位诊断
 
 - [x] `SyncStatusSnapshot` 暴露端侧 `lastPulledServerSeq` → 验证: sync service 测试覆盖状态快照字段

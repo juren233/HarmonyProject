@@ -113,6 +113,53 @@ class SyncService extends ChangeNotifier {
         nextRetryAt:
             ownerEngine?.nextOutboxRetryAt ?? petController?.nextOutboxRetryAt,
       );
+  Map<String, Object?> buildDiagnosticsSnapshot() {
+    final snapshot = statusSnapshot;
+    return <String, Object?>{
+      'connectionState': snapshot.connectionState.name,
+      'sessionState': snapshot.sessionState.name,
+      'issueKind': currentIssueKind.name,
+      'deviceRole': settings.deviceRole.name,
+      'syncServerMode': settings.syncServerMode.name,
+      'hasHouseholdId': settings.householdId != null,
+      'hasDeviceId': settings.deviceId != null,
+      'hasServedPetId': settings.servedPetId != null,
+      'hasPendingResetSnapshot': settings.pendingResetSnapshotSyncId != null,
+      'pendingOutboxCount': snapshot.pendingOutboxCount,
+      'pendingMutationCount': snapshot.pendingMutationCount,
+      'failedSyncCount': _failedSyncCount.value,
+      'lastPulledServerSeq': snapshot.lastPulledServerSeq,
+      'lastSyncedAtMs': snapshot.lastSyncedAt?.millisecondsSinceEpoch,
+      'lastPullAtMs': snapshot.lastPullAt?.millisecondsSinceEpoch,
+      'nextRetryAtMs': snapshot.nextRetryAt?.millisecondsSinceEpoch,
+      'lastErrorType': snapshot.lastError?.runtimeType.toString(),
+      'lastErrorKind': _diagnosticErrorKind(snapshot.lastError),
+    };
+  }
+
+  String? _diagnosticErrorKind(Object? error) {
+    if (error == null) {
+      return null;
+    }
+    if (error is TimeoutException) {
+      return 'timeout';
+    }
+    final text = error.toString().toLowerCase();
+    if (text.contains('auth failed')) {
+      return 'authFailed';
+    }
+    if (text.contains('unknown household')) {
+      return 'unknownHousehold';
+    }
+    if (text.contains('secure storage')) {
+      return 'secureStorage';
+    }
+    if (text.contains('outbox') && text.contains('limit')) {
+      return 'outboxCapacity';
+    }
+    return 'unknown';
+  }
+
   SyncIssueKind get currentIssueKind {
     final baseCount = ownerEngine?.failedSyncCount.value ??
         petController?.failedSyncCount.value ??
