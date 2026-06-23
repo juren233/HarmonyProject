@@ -774,6 +774,7 @@ class SyncService extends ChangeNotifier {
         'role': isOwner ? 'owner' : 'pet',
         if (config.authToken != null) 'authToken': config.authToken,
         'deviceName': settings.deviceName ?? (isOwner ? '主人设备' : '宠物端设备'),
+        'lastPulledServerSeq': settings.lastPulledServerSeq,
         if (!isOwner) 'servedPetId': settings.servedPetId,
       }),
     );

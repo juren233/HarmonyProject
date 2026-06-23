@@ -612,7 +612,7 @@ void main() {
     );
   });
 
-  test('hello 会更新设备 lastSeenMs', () async {
+  test('hello 会更新设备 lastSeenMs 和 lastPulledServerSeq', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -630,13 +630,15 @@ void main() {
       'role': 'owner',
       'authToken': authToken,
       'deviceName': '主人手机',
+      'lastPulledServerSeq': 7,
     });
     await owner.expectType(SyncMessageTypes.helloAck);
 
-    final lastSeenMs =
-        app.store.household(householdId)?.devices['owner-1']?.lastSeenMs;
+    final device = app.store.household(householdId)?.devices['owner-1'];
+    final lastSeenMs = device?.lastSeenMs;
     expect(lastSeenMs, isNotNull);
     expect(lastSeenMs! >= before, isTrue);
+    expect(device?.lastPulledServerSeq, 7);
   });
 
   test('服务端同步事件分配 serverSeq 并记录设备 ack 水位', () async {

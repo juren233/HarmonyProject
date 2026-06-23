@@ -272,7 +272,10 @@ class SessionHandler {
         restoredDevice
           ..name = requestedDeviceName
           ..role = requestedRole
-          ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+          ..lastSeenMs = DateTime.now().millisecondsSinceEpoch
+          ..lastPulledServerSeq =
+              _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
+                  restoredDevice.lastPulledServerSeq;
         app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
         _send(SyncMessage(SyncMessageTypes.helloAck, {
           'snapshotVersion': 0,
@@ -318,7 +321,10 @@ class SessionHandler {
     device
       ..name = _optionalString(message.payload['deviceName']) ?? device.name
       ..role = requestedRole
-      ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+      ..lastSeenMs = DateTime.now().millisecondsSinceEpoch
+      ..lastPulledServerSeq =
+          _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
+              device.lastPulledServerSeq;
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.helloAck, {
       'snapshotVersion': 0,
@@ -1135,6 +1141,14 @@ class SessionHandler {
       return value.toInt();
     }
     return null;
+  }
+
+  int? _optionalPositiveInt(Object? value) {
+    final parsed = _optionalInt(value);
+    if (parsed == null || parsed < 0) {
+      return null;
+    }
+    return parsed;
   }
 
   Set<String> _stringSet(Object? value) {

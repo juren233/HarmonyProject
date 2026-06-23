@@ -41,6 +41,7 @@ void main() {
     await settings.setHouseholdId('house-1');
     await settings.setHouseholdAuthToken('auth-token-1');
     await settings.setDeviceName('主人手机');
+    await settings.setLastPulledServerSeq(14);
     final secretStore = InMemorySyncSecretStore();
     final crypto = await SyncCrypto.deriveFromPairingCode(
       code: '123456',
@@ -62,6 +63,7 @@ void main() {
     expect(transport.sent.first.type, SyncMessageTypes.hello);
     expect(transport.sent.first.payload['role'], 'owner');
     expect(transport.sent.first.payload['authToken'], 'auth-token-1');
+    expect(transport.sent.first.payload['lastPulledServerSeq'], 14);
     expect(service.sessionState, SyncSessionState.handshaking);
     expect(
       transport.sent
@@ -93,7 +95,7 @@ void main() {
     );
     expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
     expect(request.payload['mergeMode'], 'preserveConflictingIds');
-    expect(request.payload['afterServerSeq'], 0);
+    expect(request.payload['afterServerSeq'], 14);
     expect(
       request.payload['maxEvents'],
       MultiDeviceSyncController.defaultSnapshotPullBatchSize,

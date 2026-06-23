@@ -60,6 +60,7 @@ void main() {
       role: 'owner',
       lastSeenMs: DateTime.now().millisecondsSinceEpoch,
       lastAckServerSeq: 2,
+      lastPulledServerSeq: 1,
     );
     household.devices['pet-stale'] = HouseholdDevice(
       deviceId: 'pet-stale',
@@ -98,6 +99,7 @@ void main() {
       'role': 'owner',
       'authToken': 'auth-token',
       'deviceName': '主人手机',
+      'lastPulledServerSeq': 3,
     }).encode());
     expect(SyncMessage.decode(await ws.stream.first as String).type,
         SyncMessageTypes.helloAck);
@@ -137,6 +139,12 @@ void main() {
         containsPair('online', true));
     expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
         containsPair('lastAckServerSeq', 2));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('lastPulledServerSeq', 3));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('pullLagServerSeq', 0));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('ackLagServerSeq', 1));
     expect(devices.firstWhere((device) => device['deviceId'] == 'pet-stale'),
         containsPair('active', false));
     expect(body, isNot(contains('auth-token')));

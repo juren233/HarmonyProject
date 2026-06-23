@@ -12,6 +12,7 @@ class HouseholdDevice {
     this.servedPetId,
     this.lastSeenMs,
     this.lastAckServerSeq,
+    this.lastPulledServerSeq,
   });
 
   final String deviceId;
@@ -20,6 +21,7 @@ class HouseholdDevice {
   String? servedPetId;
   int? lastSeenMs;
   int? lastAckServerSeq;
+  int? lastPulledServerSeq;
 
   Map<String, dynamic> toJson() => {
         'deviceId': deviceId,
@@ -28,6 +30,7 @@ class HouseholdDevice {
         'servedPetId': servedPetId,
         'lastSeenMs': lastSeenMs,
         'lastAckServerSeq': lastAckServerSeq,
+        'lastPulledServerSeq': lastPulledServerSeq,
       };
 
   factory HouseholdDevice.fromJson(Map<String, dynamic> json) =>
@@ -38,6 +41,7 @@ class HouseholdDevice {
         servedPetId: json['servedPetId'] as String?,
         lastSeenMs: json['lastSeenMs'] as int?,
         lastAckServerSeq: (json['lastAckServerSeq'] as num?)?.toInt(),
+        lastPulledServerSeq: (json['lastPulledServerSeq'] as num?)?.toInt(),
       );
 }
 

@@ -1,5 +1,21 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 同步 checkpoint 诊断可观测性
+
+- [x] 客户端 hello 上报 `lastPulledServerSeq` → 验证: sync service 测试断言 hello payload
+- [x] 服务端持久记录设备 `lastPulledServerSeq` → 验证: sync flow 测试断言 hello 后设备水位
+- [x] 诊断接口输出 last pulled / pull lag / ack lag → 验证: server app 诊断测试覆盖字段且不泄露敏感内容
+- [x] 更新协议注释与同步评估文档 → 验证: 文档描述不再把 last pulled 诊断列为缺口
+- [x] 跑客户端/服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 客户端 hello 现在随握手上报本地 `lastPulledServerSeq`，服务端可看到每台设备当前已拉取到的服务端序号。
+- 服务端 `HouseholdDevice` 持久化 `lastPulledServerSeq`，hello 恢复旧设备或普通重连时都会刷新该水位，非法负数输入会被忽略并保留原值。
+- `/diagnostics/sync` 的每设备信息新增 `lastPulledServerSeq`、`pullLagServerSeq` 与 `ackLagServerSeq`，诊断接口仍不暴露 `authToken`、密钥或密文 payload。
+- 同步稳定性评估文档已更新，剩余诊断边界从“缺少 raw last pulled 字段”调整为“仍需产品侧归因视图和端侧状态串联”。
+- 验证通过：客户端 sync service 测试、服务端 app/sync flow 测试、客户端与服务端相关 analyze、横屏宠物选择页聚焦测试，以及相关 `git diff --check`；提交前将恢复 `server/pubspec.lock` SDK 噪音并复查无测试残留进程。
+
 ## 2026-06-23 客户端 serverSeq checkpoint 接入
 
 - [x] 持久化客户端 `lastPulledServerSeq` 并在换家庭/清配对时重置 → 验证: settings 与同步测试覆盖

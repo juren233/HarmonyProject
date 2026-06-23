@@ -188,6 +188,15 @@ class SyncServerApp {
         'active': active,
         'lastSeenMs': device.lastSeenMs,
         'lastAckServerSeq': device.lastAckServerSeq,
+        'lastPulledServerSeq': device.lastPulledServerSeq,
+        'pullLagServerSeq': _serverSeqLag(
+          household.nextServerSeq,
+          device.lastPulledServerSeq,
+        ),
+        'ackLagServerSeq': _serverSeqLag(
+          household.nextServerSeq,
+          device.lastAckServerSeq,
+        ),
       };
     }).toList(growable: false);
     final activeAckSeqs = devices
@@ -234,6 +243,17 @@ class SyncServerApp {
       'mutationSyncEventIndexCount': household.mutationSyncEventIds.length,
       'devices': devices,
     };
+  }
+
+  int? _serverSeqLag(int nextServerSeq, int? deviceSeq) {
+    if (deviceSeq == null) {
+      return null;
+    }
+    final latestCommittedSeq = nextServerSeq - 1;
+    if (latestCommittedSeq <= deviceSeq) {
+      return 0;
+    }
+    return latestCommittedSeq - deviceSeq;
   }
 
   bool _hasDiagnosticsToken(Request request, String token) {
