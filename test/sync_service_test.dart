@@ -58,7 +58,13 @@ void main() {
       transportFactory: (_) => transport,
     );
 
-    await service.ensureStarted(store: PetNoteStore.seeded());
+    final store = PetNoteStore.seeded();
+    await store.setSyncLastPulledServerSeq(
+      householdId: 'house-1',
+      value: 14,
+    );
+
+    await service.ensureStarted(store: store);
 
     expect(service.isActive, isTrue);
     expect(service.ownerEngine, isNotNull);
@@ -308,13 +314,18 @@ void main() {
     );
     await secretStore.saveSharedKey(await crypto.exportKeyBase64());
     final transport = FakeSyncTransport();
+    final store = PetNoteStore.seeded();
+    await store.setSyncLastPulledServerSeq(
+      householdId: 'house-1',
+      value: 18,
+    );
     final service = SyncService(
       settings: settings,
       secretStore: secretStore,
       transportFactory: (_) => transport,
     );
 
-    await service.ensureStarted(store: PetNoteStore.seeded());
+    await service.ensureStarted(store: store);
     await acknowledgeHello(transport);
 
     final request = transport.sent.lastWhere(
@@ -325,6 +336,49 @@ void main() {
       request.payload['maxEvents'],
       MultiDeviceSyncController.defaultSnapshotPullBatchSize,
     );
+
+    await service.stop();
+  });
+
+  test('业务库缺少同源 checkpoint 时不信任设置里的旧 serverSeq 水位', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(42);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final storage = PetNoteLocalStorage.memory();
+    final store = await PetNoteStore.load(storage: storage);
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(
+      store: store,
+      pushStartupSnapshot: false,
+    );
+    final hello = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.hello,
+    );
+
+    expect(hello.payload['lastPulledServerSeq'], 0);
+
+    await acknowledgeHello(transport);
+    service.syncController?.requestSnapshot();
+    final request = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['afterServerSeq'], 0);
 
     await service.stop();
   });
@@ -462,6 +516,8 @@ void main() {
     );
     await secretStore.saveSharedKey(await crypto.exportKeyBase64());
     final transport = FakeSyncTransport();
+    final storage = PetNoteLocalStorage.memory();
+    final store = await PetNoteStore.load(storage: storage);
     final service = SyncService(
       settings: settings,
       secretStore: secretStore,
@@ -469,7 +525,7 @@ void main() {
     );
 
     await service.ensureStarted(
-      store: PetNoteStore.seeded(),
+      store: store,
       pushStartupSnapshot: false,
     );
     await acknowledgeHello(transport);
@@ -496,6 +552,8 @@ void main() {
 
     final reloaded = await AppSettingsController.load();
     expect(reloaded.lastPulledServerSeq, 12);
+    final reloadedStore = await PetNoteStore.load(storage: storage);
+    expect(reloadedStore.syncLastPulledServerSeqForHousehold('house-1'), 12);
 
     await service.stop();
   });
@@ -1908,13 +1966,18 @@ void main() {
     );
     await secretStore.saveSharedKey(await crypto.exportKeyBase64());
     final transport = FakeSyncTransport();
+    final store = PetNoteStore.seeded();
+    await store.setSyncLastPulledServerSeq(
+      householdId: 'house-1',
+      value: 23,
+    );
     final service = SyncService(
       settings: settings,
       secretStore: secretStore,
       transportFactory: (_) => transport,
     );
 
-    await service.ensureStartedForOwner(store: PetNoteStore.seeded());
+    await service.ensureStartedForOwner(store: store);
     service.ownerEngine?.requestSnapshot();
     await Future<void>.delayed(Duration.zero);
 
@@ -2067,13 +2130,18 @@ void main() {
     );
     await secretStore.saveSharedKey(await crypto.exportKeyBase64());
     final transport = FakeSyncTransport();
+    final store = PetNoteStore.seeded();
+    await store.setSyncLastPulledServerSeq(
+      householdId: 'house-secret',
+      value: 42,
+    );
     final service = SyncService(
       settings: settings,
       secretStore: secretStore,
       transportFactory: (_) => transport,
     );
 
-    await service.ensureStarted(store: PetNoteStore.seeded());
+    await service.ensureStarted(store: store);
     transport.incoming.add(
       const SyncMessage(SyncMessageTypes.pairError, {
         'message': 'auth failed',

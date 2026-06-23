@@ -647,6 +647,16 @@ class _OverviewDataSlice {
   final List<PetRecord> records;
 }
 
+class _SyncCheckpointState {
+  const _SyncCheckpointState({
+    required this.householdId,
+    required this.lastPulledServerSeq,
+  });
+
+  final String householdId;
+  final int lastPulledServerSeq;
+}
+
 class PetNoteStore extends ChangeNotifier {
   PetNoteStore._({
     List<Pet>? pets,
@@ -656,12 +666,15 @@ class PetNoteStore extends ChangeNotifier {
     OverviewAnalysisConfig? overviewAnalysisConfig,
     OverviewAiReportState? overviewAiReportState,
     List<PetNoteMutation>? pendingMutations,
+    _SyncCheckpointState? syncCheckpointState,
     PetNoteLocalStorage? storage,
     DateTime Function()? nowProvider,
     bool shouldAutoShowFirstLaunchIntro = true,
   })  : _storage = storage,
         _nowProvider = nowProvider ?? DateTime.now,
-        _shouldAutoShowFirstLaunchIntro = shouldAutoShowFirstLaunchIntro {
+        _shouldAutoShowFirstLaunchIntro = shouldAutoShowFirstLaunchIntro,
+        _syncCheckpointHouseholdId = syncCheckpointState?.householdId,
+        _syncLastPulledServerSeq = syncCheckpointState?.lastPulledServerSeq {
     if (pets != null) {
       _pets.addAll(pets);
     }
@@ -863,6 +876,9 @@ class PetNoteStore extends ChangeNotifier {
         localStorage?.readTable(PetNoteLocalTable.overviewAiReport),
       ),
       pendingMutations: _decodePendingMutationsFromStorage(localStorage),
+      syncCheckpointState: _decodeSyncCheckpointState(
+        localStorage?.readTable(PetNoteLocalTable.syncState),
+      ),
     );
     final migratedSemanticData = store._migrateLegacySemanticData();
     String? petPhotoDirectoryPath;
@@ -904,6 +920,8 @@ class PetNoteStore extends ChangeNotifier {
       StreamController<PetNoteMutation>.broadcast();
   final Map<String, PetNoteMutation> _pendingLocalMutations =
       <String, PetNoteMutation>{};
+  String? _syncCheckpointHouseholdId;
+  int? _syncLastPulledServerSeq;
   final Map<PetNoteLocalTable, String?> _persistedTableSnapshots =
       <PetNoteLocalTable, String?>{};
   Future<void> Function()? _notificationSyncHandler;
@@ -976,6 +994,15 @@ class PetNoteStore extends ChangeNotifier {
   Stream<PetNoteMutation> get localMutations => _localMutations.stream;
   List<PetNoteMutation> get pendingLocalMutations =>
       List<PetNoteMutation>.unmodifiable(_pendingLocalMutations.values);
+
+  int? syncLastPulledServerSeqForHousehold(String? householdId) {
+    if (householdId == null ||
+        householdId.isEmpty ||
+        _syncCheckpointHouseholdId != householdId) {
+      return null;
+    }
+    return _syncLastPulledServerSeq;
+  }
 
   void setNotificationSyncHandler(Future<void> Function()? handler) {
     _notificationSyncHandler = handler;
@@ -2833,6 +2860,24 @@ class PetNoteStore extends ChangeNotifier {
     );
   }
 
+  Future<void> setSyncLastPulledServerSeq({
+    required String householdId,
+    required int value,
+  }) async {
+    final normalizedHouseholdId = householdId.trim();
+    if (normalizedHouseholdId.isEmpty) {
+      return;
+    }
+    final normalizedValue = value < 0 ? 0 : value;
+    if (_syncCheckpointHouseholdId == normalizedHouseholdId &&
+        _syncLastPulledServerSeq == normalizedValue) {
+      return;
+    }
+    _syncCheckpointHouseholdId = normalizedHouseholdId;
+    _syncLastPulledServerSeq = normalizedValue;
+    await _saveSyncState();
+  }
+
   Future<void> markChecklistActionSynced({
     required String sourceType,
     required String itemId,
@@ -3258,6 +3303,8 @@ class PetNoteStore extends ChangeNotifier {
         _encodeOverviewAiReportTable();
     _persistedTableSnapshots[PetNoteLocalTable.pendingMutations] =
         _encodePendingMutationsTable();
+    _persistedTableSnapshots[PetNoteLocalTable.syncState] =
+        _encodeSyncStateTable();
   }
 
   void _refreshPersistedTableSnapshot(
@@ -3339,6 +3386,37 @@ class PetNoteStore extends ChangeNotifier {
       _pendingLocalMutations.values
           .map((mutation) => mutation.toJson())
           .toList(growable: false),
+    );
+  }
+
+  String? _encodeSyncStateTable() {
+    final householdId = _syncCheckpointHouseholdId;
+    final lastPulledServerSeq = _syncLastPulledServerSeq;
+    if (householdId == null ||
+        householdId.isEmpty ||
+        lastPulledServerSeq == null) {
+      return null;
+    }
+    return jsonEncode({
+      'householdId': householdId,
+      'lastPulledServerSeq': lastPulledServerSeq,
+    });
+  }
+
+  Future<void> _saveSyncState() async {
+    final storage = _storage;
+    if (storage == null) {
+      return;
+    }
+    final encoded = _encodeSyncStateTable();
+    if (encoded == null) {
+      await _removeTableIfPresent(storage, PetNoteLocalTable.syncState);
+      return;
+    }
+    await _writeTableIfChanged(
+      storage,
+      PetNoteLocalTable.syncState,
+      encoded,
     );
   }
 
@@ -3425,6 +3503,34 @@ class PetNoteStore extends ChangeNotifier {
       storage?.readTable(PetNoteLocalTable.pendingMutations),
       PetNoteMutation.fromJson,
     );
+  }
+
+  static _SyncCheckpointState? _decodeSyncCheckpointState(String? encoded) {
+    if (encoded == null || encoded.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map) {
+        return null;
+      }
+      final json = Map<String, dynamic>.from(decoded);
+      final householdId = json['householdId'] as String?;
+      final lastPulledServerSeq =
+          (json['lastPulledServerSeq'] as num?)?.toInt();
+      if (householdId == null ||
+          householdId.isEmpty ||
+          lastPulledServerSeq == null ||
+          lastPulledServerSeq < 0) {
+        return null;
+      }
+      return _SyncCheckpointState(
+        householdId: householdId,
+        lastPulledServerSeq: lastPulledServerSeq,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   static OverviewAnalysisConfig? _decodeOverviewAnalysisConfig(

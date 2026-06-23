@@ -115,7 +115,9 @@ class SyncService extends ChangeNotifier {
         sessionState: _sessionState,
         pendingOutboxCount: _controller?.pendingOutboxCount ?? 0,
         pendingMutationCount: _activeStore?.pendingLocalMutations.length ?? 0,
-        lastPulledServerSeq: settings.lastPulledServerSeq,
+        lastPulledServerSeq: _effectiveLastPulledServerSeq(
+          _activeConfig?.householdId ?? settings.householdId,
+        ),
         lastSyncedAt: _controller?.lastSyncedAt.value,
         lastPullAt: _lastPullAt,
         lastError: _lastSessionError ?? _controller?.lastError.value,
@@ -827,10 +829,21 @@ class SyncService extends ChangeNotifier {
         'role': isOwner ? 'owner' : 'pet',
         if (config.authToken != null) 'authToken': config.authToken,
         'deviceName': settings.deviceName ?? (isOwner ? '主人设备' : '宠物端设备'),
-        'lastPulledServerSeq': settings.lastPulledServerSeq,
+        'lastPulledServerSeq':
+            _effectiveLastPulledServerSeq(config.householdId),
         if (!isOwner) 'servedPetId': settings.servedPetId,
       }),
     );
+  }
+
+  int _effectiveLastPulledServerSeq(String? householdId) {
+    final storeSeq =
+        _activeStore?.syncLastPulledServerSeqForHousehold(householdId);
+    if (storeSeq == null) {
+      return 0;
+    }
+    final settingsSeq = settings.lastPulledServerSeq;
+    return storeSeq < settingsSeq ? storeSeq : settingsSeq;
   }
 
   void _handlePetSettingsChanged() {

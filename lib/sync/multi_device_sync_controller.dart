@@ -456,7 +456,7 @@ class MultiDeviceSyncController {
         if (dataPolicy == SyncDataPolicy.merge && resolveConflicts)
           'mergeMode': 'preserveConflictingIds',
         if (useCheckpoint && dataPolicy == SyncDataPolicy.merge) ...{
-          'afterServerSeq': settings?.lastPulledServerSeq ?? 0,
+          'afterServerSeq': _effectiveLastPulledServerSeq(),
           'maxEvents': defaultSnapshotPullBatchSize,
         },
       }),
@@ -545,7 +545,14 @@ class MultiDeviceSyncController {
     _inboundApplyFailedSinceCheckpoint = false;
     if (canAdvanceCheckpoint &&
         toServerSeq != null &&
-        toServerSeq > (settings?.lastPulledServerSeq ?? 0)) {
+        toServerSeq > _effectiveLastPulledServerSeq()) {
+      final householdId = settings?.householdId;
+      if (householdId != null && householdId.isNotEmpty) {
+        await store.setSyncLastPulledServerSeq(
+          householdId: householdId,
+          value: toServerSeq,
+        );
+      }
       await settings?.setLastPulledServerSeq(toServerSeq);
     }
     if (hasGap) {
@@ -608,6 +615,16 @@ class MultiDeviceSyncController {
   String? get _localNamespace {
     final deviceId = settings?.deviceId;
     return deviceId == null || deviceId.isEmpty ? null : deviceId;
+  }
+
+  int _effectiveLastPulledServerSeq() {
+    final householdId = settings?.householdId;
+    final storeSeq = store.syncLastPulledServerSeqForHousehold(householdId);
+    if (storeSeq == null) {
+      return 0;
+    }
+    final settingsSeq = settings?.lastPulledServerSeq ?? 0;
+    return storeSeq < settingsSeq ? storeSeq : settingsSeq;
   }
 
   void dispose() {

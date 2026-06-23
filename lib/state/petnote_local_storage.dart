@@ -16,7 +16,8 @@ enum PetNoteLocalTable {
   overviewConfig('overview_config_v1'),
   overviewAiReport('overview_ai_report_v1'),
   pendingMutations('pending_mutations_v1'),
-  syncOutbox('sync_outbox_v1');
+  syncOutbox('sync_outbox_v1'),
+  syncState('sync_state_v1');
 
   const PetNoteLocalTable(this.storageKey);
 
