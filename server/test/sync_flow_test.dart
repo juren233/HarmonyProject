@@ -959,15 +959,6 @@ void main() {
     final householdId = created.payload['householdId'] as String;
     final authToken = created.payload['authToken'] as String;
 
-    final petPair = connect();
-    petPair.send(SyncMessageTypes.pairJoin, {
-      'code': created.payload['code'],
-      'deviceId': 'pet-1',
-      'deviceName': '客厅平板',
-    });
-    await petPair.expectType(SyncMessageTypes.pairJoined);
-    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
-
     final owner = connect();
     owner.send(SyncMessageTypes.hello, {
       'householdId': householdId,
@@ -978,16 +969,6 @@ void main() {
     });
     await owner.expectType(SyncMessageTypes.helloAck);
 
-    final pet = connect();
-    pet.send(SyncMessageTypes.hello, {
-      'householdId': householdId,
-      'deviceId': 'pet-1',
-      'role': 'pet',
-      'authToken': authToken,
-      'deviceName': '客厅平板',
-    });
-    await pet.expectType(SyncMessageTypes.helloAck);
-
     for (var index = 1; index <= 3; index += 1) {
       owner.send(SyncMessageTypes.mutationPush, {
         'mutationId': 'retained-mutation-$index',
@@ -997,7 +978,6 @@ void main() {
         'kind': PetNoteMutationKind.upsert.name,
       });
       await owner.expectType(SyncMessageTypes.syncReceived);
-      await pet.expectType(SyncMessageTypes.mutation);
     }
 
     final household = app.store.household(householdId)!;
@@ -1020,13 +1000,13 @@ void main() {
     );
   });
 
-  test('服务端同步事件超过字节上限时保留最新事件', () async {
+  test('大量未拉取事件超过硬上限时强制保留最新事件', () async {
     final dataDirectory = app.store.dataDirectory;
     await app.close();
     await server.close(force: true);
     app = SyncServerApp(
       dataDirectory: dataDirectory,
-      maxRetainedSyncEventBytes: 900,
+      maxRetainedSyncEvents: 2,
     );
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
 
@@ -1047,6 +1027,8 @@ void main() {
     });
     await petPair.expectType(SyncMessageTypes.pairJoined);
     await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+    await petPair.close();
+    clients.remove(petPair);
 
     final owner = connect();
     owner.send(SyncMessageTypes.hello, {
@@ -1058,6 +1040,31 @@ void main() {
     });
     await owner.expectType(SyncMessageTypes.helloAck);
 
+    for (var index = 1; index <= 4; index += 1) {
+      owner.send(SyncMessageTypes.mutationPush, {
+        'mutationId': 'large-retention-mutation-$index',
+        'ciphertext': 'encrypted-mutation-$index',
+        'entityType': PetNoteEntityType.todo.name,
+        'entityId': 'todo-large-$index',
+        'kind': PetNoteMutationKind.upsert.name,
+      });
+      await owner.expectType(SyncMessageTypes.syncReceived);
+    }
+
+    final household = app.store.household(householdId)!;
+    expect(household.syncEvents, hasLength(2));
+    expect(
+      household.syncEvents.values.map((event) => event.payload['mutationId']),
+      containsAll(<String>[
+        'large-retention-mutation-3',
+        'large-retention-mutation-4',
+      ]),
+    );
+    expect(
+      household.syncEvents.values.map((event) => event.payload['mutationId']),
+      isNot(contains('large-retention-mutation-1')),
+    );
+
     final pet = connect();
     pet.send(SyncMessageTypes.hello, {
       'householdId': householdId,
@@ -1065,8 +1072,52 @@ void main() {
       'role': 'pet',
       'authToken': authToken,
       'deviceName': '客厅平板',
+      'lastPulledServerSeq': 0,
     });
     await pet.expectType(SyncMessageTypes.helloAck);
+    pet.send(SyncMessageTypes.snapshotRequest, {});
+
+    for (var index = 3; index <= 4; index += 1) {
+      final mutation = await pet.expectType(SyncMessageTypes.mutation);
+      expect(mutation.payload['serverSeq'], index);
+      expect(
+        mutation.payload['mutationId'],
+        'large-retention-mutation-$index',
+      );
+    }
+    final fullSnapshotRequest =
+        await owner.expectType(SyncMessageTypes.snapshotRequest);
+    expect(fullSnapshotRequest.payload['afterServerSeq'], isNull);
+  });
+
+  test('服务端同步事件超过字节上限时保留最新事件', () async {
+    final dataDirectory = app.store.dataDirectory;
+    await app.close();
+    await server.close(force: true);
+    app = SyncServerApp(
+      dataDirectory: dataDirectory,
+      maxRetainedSyncEventBytes: 900,
+    );
+    server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
+
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
 
     for (var index = 1; index <= 3; index += 1) {
       owner.send(SyncMessageTypes.snapshotPush, {
@@ -1075,7 +1126,6 @@ void main() {
             'encrypted-snapshot-$index-${List.filled(240, 'x').join()}',
       });
       await owner.expectType(SyncMessageTypes.syncReceived);
-      await pet.expectType(SyncMessageTypes.snapshot);
     }
 
     final household = app.store.household(householdId)!;

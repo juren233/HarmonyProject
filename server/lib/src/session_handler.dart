@@ -1086,7 +1086,12 @@ class SessionHandler {
     final maxBytes = app.maxRetainedSyncEventBytes;
     var removedCount = 0;
     while (maxEvents > 0 && household.syncEvents.length > maxEvents) {
-      final oldestSyncId = household.syncEvents.keys.first;
+      final oldestSyncId = _oldestRetentionCandidateSyncId(household);
+      if (oldestSyncId == null) {
+        household.syncEvents.remove(household.syncEvents.keys.first);
+        removedCount += 1;
+        continue;
+      }
       household.syncEvents.remove(oldestSyncId);
       removedCount += 1;
     }
@@ -1094,7 +1099,13 @@ class SessionHandler {
     while (maxBytes > 0 &&
         household.syncEvents.isNotEmpty &&
         payloadBytes > maxBytes) {
-      final oldestSyncId = household.syncEvents.keys.first;
+      final oldestSyncId = _oldestRetentionCandidateSyncId(household);
+      if (oldestSyncId == null) {
+        household.syncEvents.remove(household.syncEvents.keys.first);
+        removedCount += 1;
+        payloadBytes = _syncEventPayloadBytes(household);
+        continue;
+      }
       household.syncEvents.remove(oldestSyncId);
       removedCount += 1;
       payloadBytes = _syncEventPayloadBytes(household);
@@ -1106,6 +1117,25 @@ class SessionHandler {
         'bytes=$payloadBytes',
       );
     }
+  }
+
+  String? _oldestRetentionCandidateSyncId(Household household) {
+    for (final entry in household.syncEvents.entries) {
+      if (_canPruneSyncEventForRetention(household, entry.value)) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  bool _canPruneSyncEventForRetention(
+    Household household,
+    SyncEventReceipt event,
+  ) {
+    final receiptTargets = _activeReceiptTargets(household)
+        .where((device) => device.deviceId != event.originDeviceId);
+    return receiptTargets
+        .every((device) => _hasDeviceReceivedEvent(device, event));
   }
 
   int _syncEventPayloadBytes(Household household) {
