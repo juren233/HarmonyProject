@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -7,6 +9,7 @@ import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/owner_sync_engine.dart';
 import 'package:petnote/sync/pet_replica_controller.dart';
 import 'package:petnote/sync/sync_client.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
@@ -137,6 +140,87 @@ class SyncService extends ChangeNotifier {
     };
   }
 
+  Future<Map<String, Object?>>
+      buildDiagnosticsSnapshotWithPayloadStats() async {
+    final diagnostics = Map<String, Object?>.from(buildDiagnosticsSnapshot());
+    final store = _activeStore;
+    diagnostics['hasActiveStore'] = store != null;
+    if (store == null) {
+      return diagnostics;
+    }
+
+    final state = store.exportDataState();
+    final snapshotDataJsonBytes =
+        utf8.encode(jsonEncode(state.toJson())).length;
+    var petPhotoPathCount = 0;
+    var petPhotoUniquePathCount = 0;
+    var petPhotoSyncEligibleCount = 0;
+    var petPhotoMissingCount = 0;
+    var petPhotoEmptyCount = 0;
+    var petPhotoTooLargeCount = 0;
+    var petPhotoBytes = 0;
+    var petPhotoBase64Bytes = 0;
+    final seenPhotoPaths = <String>{};
+
+    for (final pet in state.pets) {
+      final photoPath = pet.photoPath?.trim();
+      if (photoPath == null || photoPath.isEmpty) {
+        continue;
+      }
+      petPhotoPathCount += 1;
+      if (!seenPhotoPaths.add(photoPath)) {
+        continue;
+      }
+      petPhotoUniquePathCount += 1;
+      final file = File(photoPath);
+      try {
+        if (!await file.exists()) {
+          petPhotoMissingCount += 1;
+          continue;
+        }
+        final length = await file.length();
+        if (length <= 0) {
+          petPhotoEmptyCount += 1;
+          continue;
+        }
+        if (length > syncPhotoAttachmentMaxBytes) {
+          petPhotoTooLargeCount += 1;
+          continue;
+        }
+        petPhotoSyncEligibleCount += 1;
+        petPhotoBytes += length;
+        petPhotoBase64Bytes += _estimatedBase64Bytes(length);
+      } on FileSystemException {
+        petPhotoMissingCount += 1;
+      }
+    }
+
+    final recordPhotoReferenceCount = state.records.fold<int>(
+      0,
+      (count, record) => count + record.photoPaths.length,
+    );
+    diagnostics.addAll(<String, Object?>{
+      'localPetCount': state.pets.length,
+      'localTodoCount': state.todos.length,
+      'localReminderCount': state.reminders.length,
+      'localRecordCount': state.records.length,
+      'snapshotDataJsonBytes': snapshotDataJsonBytes,
+      'estimatedSnapshotPayloadBytes':
+          snapshotDataJsonBytes + petPhotoBase64Bytes,
+      'petPhotoPathCount': petPhotoPathCount,
+      'petPhotoUniquePathCount': petPhotoUniquePathCount,
+      'petPhotoSyncEligibleCount': petPhotoSyncEligibleCount,
+      'petPhotoMissingCount': petPhotoMissingCount,
+      'petPhotoEmptyCount': petPhotoEmptyCount,
+      'petPhotoTooLargeCount': petPhotoTooLargeCount,
+      'petPhotoBytes': petPhotoBytes,
+      'petPhotoBase64Bytes': petPhotoBase64Bytes,
+      'recordPhotoReferenceCount': recordPhotoReferenceCount,
+      'petPhotoMaxBytes': syncPhotoAttachmentMaxBytes,
+    });
+    return diagnostics;
+  }
+
   String? _diagnosticErrorKind(Object? error) {
     if (error == null) {
       return null;
@@ -158,6 +242,13 @@ class SyncService extends ChangeNotifier {
       return 'outboxCapacity';
     }
     return 'unknown';
+  }
+
+  int _estimatedBase64Bytes(int rawBytes) {
+    if (rawBytes <= 0) {
+      return 0;
+    }
+    return ((rawBytes + 2) ~/ 3) * 4;
   }
 
   SyncIssueKind get currentIssueKind {

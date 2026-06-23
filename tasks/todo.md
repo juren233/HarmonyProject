@@ -1,5 +1,21 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 端侧 payload 与照片体积安全诊断
+
+- [x] 新增端侧 payload 体积安全诊断 → 验证: sync service 测试覆盖实体数量、snapshot JSON 字节和照片附件统计
+- [x] 诊断不得泄露本地照片路径、文件名、URL、token、密钥或密文 → 验证: JSON 串断言不包含敏感样本值
+- [x] 复用现有宠物头像附件同步口径 → 验证: 统计区分可同步、小于等于上限、缺失和超过上限的照片
+- [x] 更新同步评估文档 P2/P3 剩余边界 → 验证: 文档说明已具备端侧大 payload 原始统计
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncService.buildDiagnosticsSnapshotWithPayloadStats()` 新增异步安全诊断，保留原轻量 `buildDiagnosticsSnapshot()` 不做文件 IO。
+- 诊断新增本地实体数量、snapshot data JSON 字节、估算 snapshot payload 字节、宠物头像路径数量、唯一路径数量、可同步/缺失/空文件/超限数量、头像原始字节和 base64 估算字节。
+- 宠物头像同步上限提取为 `syncPhotoAttachmentMaxBytes`，诊断与实际 `SyncPhotoAttachmentCodec` 默认收集口径保持一致。
+- 新增测试用真实临时小图、空文件、超限文件、缺失路径和记录照片引用验证统计口径，并断言导出的 JSON 不包含路径、文件名、URL、token、密钥或 `ciphertext`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart lib/sync/sync_photo_attachment.dart test/sync_service_test.dart`。
+
 ## 2026-06-23 端侧同步诊断安全导出
 
 - [x] 新增端侧同步诊断结构化导出 → 验证: sync service 测试覆盖连接/session/issue/outbox/checkpoint 字段

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:petnote/state/petnote_local_storage.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/sync/multi_device_sync_controller.dart';
 import 'package:petnote/sync/official_sync_server_resolver.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote/sync/sync_transport.dart';
@@ -1875,6 +1877,161 @@ void main() {
     expect(encoded, isNot(contains('auth-token-secret')));
     expect(encoded, isNot(contains('shared-key-secret')));
     expect(encoded, isNot(contains('served-pet-secret')));
+    expect(encoded, isNot(contains('ciphertext')));
+
+    await service.stop();
+  });
+
+  test('同步诊断 payload 统计不泄露本地照片路径', () async {
+    final tempDirectory = Directory.systemTemp.createTempSync(
+      'petnote-diagnostics-secret-',
+    );
+    addTearDown(() {
+      if (tempDirectory.existsSync()) {
+        tempDirectory.deleteSync(recursive: true);
+      }
+    });
+    final smallPhoto = File('${tempDirectory.path}/small-secret-photo.jpg')
+      ..writeAsBytesSync([1, 2, 3, 4, 5]);
+    final emptyPhoto = File('${tempDirectory.path}/empty-secret-photo.jpg')
+      ..writeAsBytesSync(const <int>[]);
+    final largePhoto = File('${tempDirectory.path}/large-secret-photo.jpg');
+    final largeAccess = largePhoto.openSync(mode: FileMode.write);
+    largeAccess.truncateSync(syncPhotoAttachmentMaxBytes + 1);
+    largeAccess.closeSync();
+    final missingPhotoPath = '${tempDirectory.path}/missing-secret-photo.jpg';
+
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://secret.example/ws?token=url-secret');
+    await settings.setHouseholdId('house-secret');
+    await settings.setHouseholdAuthToken('auth-token-secret');
+    await settings.setSharedKeyBase64('shared-key-secret');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    await store.addPet(
+      name: '小图',
+      type: PetType.dog,
+      photoPath: smallPhoto.path,
+      breed: '柯基',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      weightKg: 8,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '可同步头像',
+    );
+    await store.addPet(
+      name: '空图',
+      type: PetType.cat,
+      photoPath: emptyPhoto.path,
+      breed: '中华田园猫',
+      sex: '妹妹',
+      birthday: '2025-01-01',
+      weightKg: 4,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '空头像',
+    );
+    await store.addPet(
+      name: '大图',
+      type: PetType.rabbit,
+      photoPath: largePhoto.path,
+      breed: '荷兰侏儒兔',
+      sex: '妹妹',
+      birthday: '2025-01-01',
+      weightKg: 2,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '超大头像',
+    );
+    await store.addPet(
+      name: '缺图',
+      type: PetType.bird,
+      photoPath: missingPhotoPath,
+      breed: '虎皮鹦鹉',
+      sex: '弟弟',
+      birthday: '2025-01-01',
+      weightKg: 0.1,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '缺失头像',
+    );
+    await store.addPet(
+      name: '复用小图',
+      type: PetType.hamster,
+      photoPath: smallPhoto.path,
+      breed: '叙利亚仓鼠',
+      sex: '妹妹',
+      birthday: '2025-01-01',
+      weightKg: 0.1,
+      neuterStatus: PetNeuterStatus.unknown,
+      feedingPreferences: '少食多餐',
+      allergies: '无',
+      note: '复用头像路径',
+    );
+    await store.addRecord(
+      petId: store.pets.first.id,
+      type: PetRecordType.image,
+      title: '影像记录',
+      recordDate: DateTime(2026, 6, 23),
+      summary: '记录照片引用',
+      note: '仅统计引用数量',
+      photoPaths: const [
+        '/private/record-secret-photo-a.jpg',
+        '/private/record-secret-photo-b.jpg',
+      ],
+    );
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => FakeSyncTransport(),
+    );
+
+    await service.ensureStarted(store: store);
+
+    final diagnostics =
+        await service.buildDiagnosticsSnapshotWithPayloadStats();
+    expect(diagnostics['hasActiveStore'], isTrue);
+    expect(diagnostics['localPetCount'], 5);
+    expect(diagnostics['localRecordCount'], 1);
+    expect(diagnostics['petPhotoPathCount'], 5);
+    expect(diagnostics['petPhotoUniquePathCount'], 4);
+    expect(diagnostics['petPhotoSyncEligibleCount'], 1);
+    expect(diagnostics['petPhotoMissingCount'], 1);
+    expect(diagnostics['petPhotoEmptyCount'], 1);
+    expect(diagnostics['petPhotoTooLargeCount'], 1);
+    expect(diagnostics['petPhotoBytes'], 5);
+    expect(diagnostics['petPhotoBase64Bytes'], 8);
+    expect(diagnostics['recordPhotoReferenceCount'], 2);
+    expect(diagnostics['snapshotDataJsonBytes'], greaterThan(0));
+    expect(
+      diagnostics['estimatedSnapshotPayloadBytes'],
+      (diagnostics['snapshotDataJsonBytes'] as int) + 8,
+    );
+
+    final encoded = jsonEncode(diagnostics);
+    expect(encoded, isNot(contains(tempDirectory.path)));
+    expect(encoded, isNot(contains('small-secret-photo')));
+    expect(encoded, isNot(contains('large-secret-photo')));
+    expect(encoded, isNot(contains('missing-secret-photo')));
+    expect(encoded, isNot(contains('record-secret-photo')));
+    expect(encoded, isNot(contains('secret.example')));
+    expect(encoded, isNot(contains('url-secret')));
+    expect(encoded, isNot(contains('house-secret')));
+    expect(encoded, isNot(contains('auth-token-secret')));
+    expect(encoded, isNot(contains('shared-key-secret')));
     expect(encoded, isNot(contains('ciphertext')));
 
     await service.stop();

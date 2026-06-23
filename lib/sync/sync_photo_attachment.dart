@@ -8,6 +8,7 @@ import 'package:petnote/state/petnote_store.dart';
 
 const String petPhotoAttachmentsPayloadKey = 'petPhotoAttachments';
 const String petPhotoAttachmentPayloadKey = 'petPhotoAttachment';
+const int syncPhotoAttachmentMaxBytes = 3 * 1024 * 1024;
 
 class SyncPhotoAttachment {
   const SyncPhotoAttachment({
@@ -40,7 +41,7 @@ class SyncPhotoAttachment {
 class SyncPhotoAttachmentCodec {
   const SyncPhotoAttachmentCodec({
     Future<String?> Function()? directoryLoader,
-    int maxPhotoBytes = 3 * 1024 * 1024,
+    int maxPhotoBytes = syncPhotoAttachmentMaxBytes,
   })  : _directoryLoader = directoryLoader,
         _maxPhotoBytes = maxPhotoBytes;
 

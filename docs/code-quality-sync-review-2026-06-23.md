@@ -10,10 +10,10 @@
 
 但如果目标是“极端网络和高频操作后仍稳定高效”，当前自研同步仍未到最终形态。主要剩余风险集中在四处：
 
-1. 客户端持久 outbox 已有数量/字节上限，snapshot 去重缓存也不再长期保存完整 JSON；但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
+1. 客户端持久 outbox 已有数量/字节上限，snapshot 去重缓存也不再长期保存完整 JSON；端侧安全诊断也能输出 snapshot JSON 与宠物头像附件体积统计。但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
 2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq`、按 seq 增量补发协议和基于 last pulled 水位的剪枝；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint，服务端诊断已能展示每设备 pulled/ack 水位和滞后值。后续重点转为产品侧诊断展示和更完整的 operation log。
 3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；虽然已具备 `serverSeq` / 设备 ack / 客户端 checkpoint 基础，但统一 operation log 尚未完成。
-4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，端侧也已有不含密钥/URL/token/密文的结构化诊断导出；后续还需要把这些指标与附件体积和具体冲突归因串成可读体验。
+4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，端侧也已有不含密钥/URL/token/路径/密文的结构化诊断与 payload 体积统计；后续还需要把这些指标与具体冲突归因串成可读体验。
 
 本轮建议：不要在当前轮贸然替换同步底座；先做“上限、压缩、可观测、checkpoint”四类增量加固。`codex/powersync-spike` 分支仍有保留价值，作为中长期迁移验证分支；已合并的 `feature/unified-ohos-flutter` 已在本轮删除。
 
@@ -67,18 +67,18 @@
 
 ### P2: 大 snapshot / 附件 payload 仍缺少分片策略
 
-`SyncFailureQueue` 持久队列已有消息数与字节数上限，`MultiDeviceSyncController` 的重复 snapshot 去重键也已改为 JSON 长度 + 稳定指纹，避免额外长期保留一份完整 snapshot JSON；但 snapshot 仍会把完整 `PetNoteDataState` 和头像附件一起 JSON + 加密发送。证据：`lib/sync/sync_failure_queue.dart`、`lib/sync/multi_device_sync_controller.dart`。
+`SyncFailureQueue` 持久队列已有消息数与字节数上限，`MultiDeviceSyncController` 的重复 snapshot 去重键也已改为 JSON 长度 + 稳定指纹，避免额外长期保留一份完整 snapshot JSON；端侧诊断新增 snapshot JSON 字节数、宠物头像可同步/缺失/空文件/超限数量、头像原始字节与 base64 估算字节，便于判断是否是大 payload 导致同步卡住。但 snapshot 仍会把完整 `PetNoteDataState` 和头像附件一起 JSON + 加密发送。证据：`lib/sync/sync_failure_queue.dart`、`lib/sync/multi_device_sync_controller.dart`、`lib/sync/sync_service.dart`。
 
 影响：
 
-- 长期离线或网络抖动下，队列不会无限增长，但超大 snapshot / 附件仍可能更快触发容量保护。
+- 长期离线或网络抖动下，队列不会无限增长，端侧也能看到本地 snapshot 与头像附件规模；但超大 snapshot / 附件仍可能更快触发容量保护。
 - 大图 base64 仍会进入 WebSocket JSON 帧，弱网下容易造成代理切断、重复重传和 UI 感知“同步卡住”。
 
 建议：头像改为 content-addressed blob：业务 op 只同步 `photoBlobId/hash/size`，文件内容单独分片上传下载；同时继续保留现有队列容量保护作为最后防线。
 
 ### P3: 可观测性仍需串联端侧状态
 
-客户端已有 `SyncStatusSnapshot`，并能通过安全诊断导出暴露本地 `lastPulledServerSeq`、outbox 数、mutation 数、最近错误分类和下次重试时间；服务端也已新增默认关闭的 household 级只读诊断入口，能够看到 household/device/syncEvents、事件字节数、last pulled、pull lag 和 ack lag。但用户反馈同步失败时，仍难以把服务端指标、客户端队列、认证错误、附件体积和具体冲突归因串成一条可读链路。
+客户端已有 `SyncStatusSnapshot`，并能通过安全诊断导出暴露本地 `lastPulledServerSeq`、outbox 数、mutation 数、最近错误分类、下次重试时间、snapshot JSON 字节数和宠物头像附件规模；服务端也已新增默认关闭的 household 级只读诊断入口，能够看到 household/device/syncEvents、事件字节数、last pulled、pull lag 和 ack lag。但用户反馈同步失败时，仍难以把服务端指标、客户端队列、认证错误、附件体积和具体冲突归因串成一条可读链路。
 
 建议继续扩展诊断页或运维导出：把每设备 last pulled/last ack 差值与最近大 payload 来源、冲突来源和客户端 outbox 状态组合成可读报告。生产接口仍必须走诊断 token、内网或管理员访问边界；端侧导出继续避免写入密钥、auth token、URL 或密文 payload。
 
