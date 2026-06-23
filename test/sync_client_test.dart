@@ -77,4 +77,19 @@ void main() {
     await client.disconnect();
     await server.close(force: true);
   });
+
+  test('断线发送直接抛错，由上层 durable outbox 负责缓存', () async {
+    final client = SyncClient(
+      url: 'ws://127.0.0.1:9/ws',
+      reconnectBaseDelay: const Duration(milliseconds: 50),
+    );
+
+    expect(
+      () =>
+          client.send(const SyncMessage(SyncMessageTypes.snapshotRequest, {})),
+      throwsStateError,
+    );
+
+    await client.dispose();
+  });
 }

@@ -16,8 +16,13 @@ class SyncServerApp {
   SyncServerApp({
     required Directory dataDirectory,
     RtcTokenService? rtcTokenService,
+    String? diagnosticsToken,
+    this.syncEventActiveDeviceTtl = const Duration(days: 30),
+    this.maxRetainedSyncEvents = 1000,
+    this.maxRetainedSyncEventBytes = 8 * 1024 * 1024,
   })  : store = HouseholdStore(dataDirectory),
         hub = WsHub(),
+        diagnosticsToken = _normalizedDiagnosticsToken(diagnosticsToken),
         rtcTokenService = rtcTokenService ??
             RtcTokenService.fromEnvironment(Platform.environment) {
     pairing = PairingService(store);
@@ -26,6 +31,10 @@ class SyncServerApp {
   final HouseholdStore store;
   final WsHub hub;
   final RtcTokenService rtcTokenService;
+  final String? diagnosticsToken;
+  final Duration syncEventActiveDeviceTtl;
+  final int maxRetainedSyncEvents;
+  final int maxRetainedSyncEventBytes;
   late final PairingService pairing;
 
   Future<HttpServer> serve(
@@ -42,6 +51,9 @@ class SyncServerApp {
     }
     if (request.url.path == 'rtc/token') {
       return _handleRtcToken(request);
+    }
+    if (request.url.path == 'diagnostics/sync') {
+      return _handleSyncDiagnostics(request);
     }
     if (request.url.path == 'ws') {
       return webSocketHandler((WebSocketChannel channel, _) {
@@ -102,6 +114,164 @@ class SyncServerApp {
     } on StateError {
       return Response(503, body: 'rtc not configured');
     }
+  }
+
+  Response _handleSyncDiagnostics(Request request) {
+    final token = diagnosticsToken;
+    if (token == null) {
+      return Response.notFound('not found');
+    }
+    if (request.method != 'GET') {
+      return Response(405, body: 'method not allowed');
+    }
+    if (!_hasDiagnosticsToken(request, token)) {
+      return Response(401, body: 'unauthorized');
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final households = store.households
+        .map((household) => _diagnosticsForHousehold(household, nowMs))
+        .toList(growable: false);
+    final totals = <String, dynamic>{
+      'householdCount': households.length,
+      'deviceCount': households.fold<int>(
+        0,
+        (sum, household) => sum + (household['deviceCount'] as int),
+      ),
+      'activeDeviceCount': households.fold<int>(
+        0,
+        (sum, household) => sum + (household['activeDeviceCount'] as int),
+      ),
+      'onlineDeviceCount': households.fold<int>(
+        0,
+        (sum, household) => sum + (household['onlineDeviceCount'] as int),
+      ),
+      'syncEventCount': households.fold<int>(
+        0,
+        (sum, household) => sum + (household['syncEventCount'] as int),
+      ),
+      'syncEventBytes': households.fold<int>(
+        0,
+        (sum, household) => sum + (household['syncEventBytes'] as int),
+      ),
+    };
+    return Response.ok(
+      jsonEncode({
+        'generatedAtMs': nowMs,
+        'retention': {
+          'activeDeviceTtlMs': syncEventActiveDeviceTtl.inMilliseconds,
+          'maxRetainedSyncEvents': maxRetainedSyncEvents,
+          'maxRetainedSyncEventBytes': maxRetainedSyncEventBytes,
+        },
+        'totals': totals,
+        'households': households,
+      }),
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );
+  }
+
+  Map<String, dynamic> _diagnosticsForHousehold(
+    Household household,
+    int nowMs,
+  ) {
+    final cutoffMs = nowMs - syncEventActiveDeviceTtl.inMilliseconds;
+    final devices = household.devices.values.map((device) {
+      final online = hub.isOnline(household.id, device.deviceId);
+      final active = online || ((device.lastSeenMs ?? -1) >= cutoffMs);
+      return {
+        'deviceId': device.deviceId,
+        'name': device.name,
+        'role': hub.roleFor(household.id, device.deviceId) ??
+            device.role ??
+            'unknown',
+        'servedPetId': device.servedPetId,
+        'online': online,
+        'active': active,
+        'lastSeenMs': device.lastSeenMs,
+        'lastAckServerSeq': device.lastAckServerSeq,
+        'lastPulledServerSeq': device.lastPulledServerSeq,
+        'pullLagServerSeq': _serverSeqLag(
+          household.nextServerSeq,
+          device.lastPulledServerSeq,
+        ),
+        'ackLagServerSeq': _serverSeqLag(
+          household.nextServerSeq,
+          device.lastAckServerSeq,
+        ),
+      };
+    }).toList(growable: false);
+    final activeAckSeqs = devices
+        .where((device) => device['active'] == true)
+        .map((device) => device['lastAckServerSeq'])
+        .whereType<int>()
+        .toList(growable: false);
+    final eventSeqs = household.syncEvents.values
+        .map((event) => event.serverSeq)
+        .where((seq) => seq > 0)
+        .toList(growable: false);
+    final syncEventSizes = household.syncEvents.values
+        .map((event) => utf8.encode(jsonEncode(event.toJson())).length)
+        .toList(growable: false);
+    final syncEventBytes = utf8
+        .encode(jsonEncode(household.syncEvents.map(
+          (syncId, event) => MapEntry(syncId, event.toJson()),
+        )))
+        .length;
+    return {
+      'householdId': household.id,
+      'nextServerSeq': household.nextServerSeq,
+      'minActiveAckServerSeq': activeAckSeqs.isEmpty
+          ? null
+          : activeAckSeqs.reduce((a, b) => a < b ? a : b),
+      'minSyncEventServerSeq':
+          eventSeqs.isEmpty ? null : eventSeqs.reduce((a, b) => a < b ? a : b),
+      'maxSyncEventServerSeq':
+          eventSeqs.isEmpty ? null : eventSeqs.reduce((a, b) => a > b ? a : b),
+      'deviceCount': household.devices.length,
+      'activeDeviceCount':
+          devices.where((device) => device['active'] == true).length,
+      'onlineDeviceCount':
+          devices.where((device) => device['online'] == true).length,
+      'syncEventCount': household.syncEvents.length,
+      'syncEventBytes': syncEventBytes,
+      'maxSyncEventBytes': syncEventSizes.isEmpty
+          ? 0
+          : syncEventSizes.reduce((a, b) => a > b ? a : b),
+      'completedItemCount': household.completedItemKeys.length,
+      'completedActionCount': household.completedActions.length,
+      'appliedChecklistActionCount': household.appliedChecklistActions.length,
+      'actionSyncEventIndexCount': household.actionSyncEventIds.length,
+      'mutationSyncEventIndexCount': household.mutationSyncEventIds.length,
+      'devices': devices,
+    };
+  }
+
+  int? _serverSeqLag(int nextServerSeq, int? deviceSeq) {
+    if (deviceSeq == null) {
+      return null;
+    }
+    final latestCommittedSeq = nextServerSeq - 1;
+    if (latestCommittedSeq <= deviceSeq) {
+      return 0;
+    }
+    return latestCommittedSeq - deviceSeq;
+  }
+
+  bool _hasDiagnosticsToken(Request request, String token) {
+    final headerToken = request.headers['x-petnote-diagnostics-token'];
+    if (headerToken == token) {
+      return true;
+    }
+    final authorization = request.headers['authorization'];
+    return authorization == 'Bearer $token';
+  }
+
+  static String? _normalizedDiagnosticsToken(String? constructorToken) {
+    final value = constructorToken ??
+        Platform.environment['PETNOTE_SYNC_DIAGNOSTICS_TOKEN'];
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
   }
 
   Future<void> close() async {

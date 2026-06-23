@@ -1,5 +1,331 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 宠物头像附件 content metadata
+
+- [x] 宠物头像附件携带稳定 blobId / sha256 / sizeBytes → 验证: codec 单测覆盖元数据生成
+- [x] 接收端校验附件 size/hash，不合格附件不落盘 → 验证: codec 测试覆盖错误 hash/size 不覆盖头像
+- [x] 保持旧 payload 兼容 → 验证: 缺少新字段的旧附件仍可同步
+- [x] 更新同步评估文档中 blob/分片剩余边界 → 验证: 文档说明已具备内容寻址元数据但尚未完成分片传输
+- [x] 跑附件/replica 聚焦测试、analyze、diff 检查并区分有意 lock 变更 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncPhotoAttachment` 新增 `blobId`、`sha256`、`sizeBytes` 字段，发送端按头像文件字节生成 `sha256:<hash>` 内容标识。
+- 接收端写入头像前会校验 `sizeBytes` 与 `sha256`，不匹配的附件不落盘、不覆盖宠物头像；缺少新字段的旧 payload 仍按原逻辑兼容写入。
+- `crypto` 已提升为客户端直接依赖；`pubspec.lock` 仅将既有 `crypto 3.0.7` 从 transitive 标记为 direct main，属于本轮有意依赖变更。
+- 评估文档已更新：当前已具备内容寻址元数据与接收校验，但头像内容仍随 snapshot/mutation JSON 传输，真正 blob/分片通道仍是后续项。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_photo_attachment_test.dart test/pet_replica_controller_test.dart test/multi_device_sync_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_photo_attachment.dart lib/sync/multi_device_sync_controller.dart test/sync_photo_attachment_test.dart test/pet_replica_controller_test.dart`。
+
+## 2026-06-23 同步问题弹窗安全诊断入口
+
+- [x] 同步问题弹窗新增诊断入口 → 验证: widget 测试从同步状态胶囊打开诊断信息
+- [x] 诊断信息展示格式化安全 JSON 并支持复制 → 验证: UI 包含诊断字段与复制按钮
+- [x] 诊断入口复用端侧 payload 安全诊断 → 验证: 文案和测试不暴露 URL、token、密钥、路径或密文
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明已有用户可见诊断入口
+- [x] 跑聚焦 widget/sync 测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `showSyncIssueDialog()` 新增“诊断信息”入口，用户在同步失败或同步确认中弹窗内可打开安全诊断。
+- 新增 `showSyncDiagnosticsDialog()`，展示格式化 JSON，并提供“复制”按钮；内容来自 `SyncService.buildDiagnosticsSnapshotWithPayloadStats()`。
+- 诊断弹窗只展示安全诊断字段，不展示 householdId 原值、URL、token、密钥、本地路径或密文 payload。
+- 宠物端同步状态胶囊测试已覆盖从“同步确认中”弹窗进入诊断信息，并验证不会显示 `house-1` 原始家庭组值。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/petnote_pages.dart lib/sync/sync_service.dart test/pet_device_dashboard_test.dart`。
+
+## 2026-06-23 端侧 payload 与照片体积安全诊断
+
+- [x] 新增端侧 payload 体积安全诊断 → 验证: sync service 测试覆盖实体数量、snapshot JSON 字节和照片附件统计
+- [x] 诊断不得泄露本地照片路径、文件名、URL、token、密钥或密文 → 验证: JSON 串断言不包含敏感样本值
+- [x] 复用现有宠物头像附件同步口径 → 验证: 统计区分可同步、小于等于上限、缺失和超过上限的照片
+- [x] 更新同步评估文档 P2/P3 剩余边界 → 验证: 文档说明已具备端侧大 payload 原始统计
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncService.buildDiagnosticsSnapshotWithPayloadStats()` 新增异步安全诊断，保留原轻量 `buildDiagnosticsSnapshot()` 不做文件 IO。
+- 诊断新增本地实体数量、snapshot data JSON 字节、估算 snapshot payload 字节、宠物头像路径数量、唯一路径数量、可同步/缺失/空文件/超限数量、头像原始字节和 base64 估算字节。
+- 宠物头像同步上限提取为 `syncPhotoAttachmentMaxBytes`，诊断与实际 `SyncPhotoAttachmentCodec` 默认收集口径保持一致。
+- 新增测试用真实临时小图、空文件、超限文件、缺失路径和记录照片引用验证统计口径，并断言导出的 JSON 不包含路径、文件名、URL、token、密钥或 `ciphertext`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart lib/sync/sync_photo_attachment.dart test/sync_service_test.dart`。
+
+## 2026-06-23 端侧同步诊断安全导出
+
+- [x] 新增端侧同步诊断结构化导出 → 验证: sync service 测试覆盖连接/session/issue/outbox/checkpoint 字段
+- [x] 诊断导出不得泄露 URL、家庭 ID、auth token、shared key、servedPetId 原值或密文 → 验证: JSON 串断言不包含敏感样本值
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明已具备安全 raw 导出，剩余为 UI/运维串联
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncService.buildDiagnosticsSnapshot()` 新增端侧结构化诊断导出，包含连接状态、session 状态、issue kind、设备角色、服务模式、outbox / mutation 计数、失败计数、last pulled 水位、同步时间和错误分类。
+- 导出只包含 `hasHouseholdId`、`hasDeviceId`、`hasServedPetId`、`hasPendingResetSnapshot` 这类布尔状态，不输出 URL、householdId、auth token、shared key、servedPetId 原值或密文 payload。
+- 新增测试用敏感样本值验证诊断 JSON 不包含 URL token、家庭 ID、auth token、shared key、servedPetId 和 `ciphertext`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart test/sync_service_test.dart`。
+
+## 2026-06-23 端侧同步状态水位诊断
+
+- [x] `SyncStatusSnapshot` 暴露端侧 `lastPulledServerSeq` → 验证: sync service 测试覆盖状态快照字段
+- [x] 保持现有 UI 与同步流程不变 → 验证: 只新增只读状态字段，不改变发送/接收协议
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明端侧 raw 水位已可读，剩余为产品化串联
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncStatusSnapshot` 新增只读 `lastPulledServerSeq` 字段，直接暴露当前设备本地持久 checkpoint 水位。
+- 现有连接状态、outbox 计数、mutation 计数、错误状态、重试时间、发送/接收协议和 UI 入口均未改变。
+- `test/sync_service_test.dart` 已覆盖状态快照在握手前失败队列阶段和握手后正常阶段都能读到同一端侧水位。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart test/sync_service_test.dart`。
+
+## 2026-06-23 Snapshot 去重缓存瘦身
+
+- [x] 将 `_lastPushedSnapshotKey` 从完整 JSON 改为稳定短指纹 → 验证: 同步测试仍覆盖重复 snapshot 不重复发送
+- [x] 保持 snapshot 加密 payload 与附件同步协议不变 → 验证: owner/pet replica 测试继续通过
+- [x] 更新同步评估文档，明确大附件分片仍是中期项 → 验证: 文档不夸大本轮优化范围
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `MultiDeviceSyncController` 的 snapshot 去重键现在保存 `dataPolicy`、冲突保留标记和 JSON 长度 + FNV 风格短指纹，不再把完整 snapshot JSON 长期留在 `_lastPushedSnapshotKey`。
+- Snapshot 加密 payload、照片附件字段、失败队列容量保护和入站解析协议保持不变；本轮只减少本地重复缓存的大字符串风险，不宣称已完成 blob/分片同步。
+- 新增控制器测试覆盖相同 snapshot 不重复发送、数据变化后仍重新发送，owner/pet 同步入口回归测试保持通过。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/multi_device_sync_controller_test.dart test/pet_replica_controller_test.dart test/owner_sync_engine_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/multi_device_sync_controller.dart test/multi_device_sync_controller_test.dart`。
+
+## 2026-06-23 服务端按拉取水位剪枝同步事件
+
+- [x] 用活跃设备 `lastPulledServerSeq` 辅助判断旧事件已收敛 → 验证: 服务端同步流测试覆盖无需显式 `sync_received` 也可剪枝
+- [x] 保留现有 `sync_received` 与长期离线设备 TTL 语义 → 验证: 既有 sync flow 测试保持通过
+- [x] 更新同步评估文档剩余边界 → 验证: 文档不再把 cursor prune 作为完全未落地缺口
+- [x] 跑服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端同步事件剪枝现在会把活跃设备的 `lastPulledServerSeq >= event.serverSeq` 视为该设备已收敛事件，减少 checkpoint 拉取成功但逐条回执缺失时的事件账本滞留。
+- 既有 `sync_received` 回执、在线/近期活跃设备 TTL、数量上限和字节上限保留不变；长期离线设备仍不会无限阻塞已确认事件剪枝。
+- 新增 sync flow 回归测试覆盖 hello 上报 last pulled 水位后无需显式 `sync_received` 也能剪枝已拉取事件。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/session_handler.dart test/sync_flow_test.dart`。
+
+## 2026-06-23 同步 checkpoint 诊断可观测性
+
+- [x] 客户端 hello 上报 `lastPulledServerSeq` → 验证: sync service 测试断言 hello payload
+- [x] 服务端持久记录设备 `lastPulledServerSeq` → 验证: sync flow 测试断言 hello 后设备水位
+- [x] 诊断接口输出 last pulled / pull lag / ack lag → 验证: server app 诊断测试覆盖字段且不泄露敏感内容
+- [x] 更新协议注释与同步评估文档 → 验证: 文档描述不再把 last pulled 诊断列为缺口
+- [x] 跑客户端/服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 客户端 hello 现在随握手上报本地 `lastPulledServerSeq`，服务端可看到每台设备当前已拉取到的服务端序号。
+- 服务端 `HouseholdDevice` 持久化 `lastPulledServerSeq`，hello 恢复旧设备或普通重连时都会刷新该水位，非法负数输入会被忽略并保留原值。
+- `/diagnostics/sync` 的每设备信息新增 `lastPulledServerSeq`、`pullLagServerSeq` 与 `ackLagServerSeq`，诊断接口仍不暴露 `authToken`、密钥或密文 payload。
+- 同步稳定性评估文档已更新，剩余诊断边界从“缺少 raw last pulled 字段”调整为“仍需产品侧归因视图和端侧状态串联”。
+- 验证通过：客户端 sync service 测试、服务端 app/sync flow 测试、客户端与服务端相关 analyze、横屏宠物选择页聚焦测试，以及相关 `git diff --check`；提交前将恢复 `server/pubspec.lock` SDK 噪音并复查无测试残留进程。
+
+## 2026-06-23 客户端 serverSeq checkpoint 接入
+
+- [x] 持久化客户端 `lastPulledServerSeq` 并在换家庭/清配对时重置 → 验证: settings 与同步测试覆盖
+- [x] 默认 merge 拉取携带 `afterServerSeq` / `maxEvents` → 验证: owner/pet 启动和重连请求断言
+- [x] 处理 `sync_checkpoint` 并在 `hasMore` 时续拉下一批 → 验证: checkpoint 入站测试覆盖水位推进和续拉
+- [x] 入站事件应用失败时不得推进 checkpoint → 验证: 坏 mutation 后 checkpoint 不更新水位
+- [x] 增量补发请求不再广播给其他设备 → 验证: server sync flow 测试覆盖
+- [x] 跑客户端/服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 客户端 settings 新增 `lastPulledServerSeq` 持久水位；切换家庭、重新配对或清除配对时会重置，避免旧家庭 checkpoint 串入新家庭。
+- 默认 merge 拉取现在携带 `afterServerSeq` 与 `maxEvents=50`，收到 `sync_checkpoint` 后推进本地水位，若 `hasMore=true` 会继续请求下一批；显式 `remoteWins` 覆盖请求不携带 checkpoint。
+- `MultiDeviceSyncController` 入站消息改为串行处理，确保 mutation/action/snapshot 与后续 checkpoint 按 WebSocket 顺序应用；如果入站事件应用失败，同批 checkpoint 不推进水位，避免跳过失败事件。
+- 服务端区分增量补发与普通快照请求，带 `afterServerSeq` / `maxEvents` 的请求只返回缺失事件与 checkpoint，不再广播给其他设备触发额外快照。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；客户端与服务端相关 analyze；`git diff --check`。复查无 lockfile diff 和测试残留进程。
+
+## 2026-06-23 服务端按 serverSeq 增量补发
+
+- [x] 为 `snapshot_request` 增加可选 `afterServerSeq` / `maxEvents` → 验证: 不传字段时旧补发行为不变
+- [x] 服务端按 `serverSeq` 过滤与限量补发事件 → 验证: 测试只收到目标序号之后的事件且最多一批
+- [x] 新增同步 checkpoint 响应 → 验证: 测试收到 `sync_checkpoint` 且包含 batch 边界和 remaining 标记
+- [x] 跑协议/服务端测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `snapshot_request` 现在可选携带 `afterServerSeq` 与 `maxEvents`；旧客户端不传字段时仍按原逻辑补发所有未确认事件，且不会额外收到 checkpoint。
+- 服务端补发路径按 `serverSeq` 排序，支持只发送 `afterServerSeq` 之后的事件，并把单批数量限制在 `maxEvents`，服务端内部最大按 100 条钳制。
+- 新增 `sync_checkpoint` 协议消息，增量请求后返回 `sentEventCount`、`remainingEventCount`、`fromServerSeq`、`toServerSeq` 与 `hasMore`，为后续客户端持久 checkpoint / batch pull 接入留好协议坐标。
+- 验证通过：`cd packages/petnote_sync_protocol && ../../.flutter_ohos_sdk_gitcode/bin/dart test`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；协议与服务端相关 `dart analyze`；`git diff --check`。
+
+## 2026-06-23 服务端 serverSeq / checkpoint 基础层
+
+- [x] 为服务端同步事件增加单调 `serverSeq` → 验证: 新 snapshot/mutation/action 事件序号递增并持久化
+- [x] 为旧 `syncEvents` 加载路径回填序号并推进 household 当前序号 → 验证: legacy 存储加载后事件有稳定 seq
+- [x] 记录设备 `lastAckServerSeq` 水位 → 验证: `sync_received` 后对应设备 ack 水位更新
+- [x] 在同步诊断接口暴露 household 当前 seq、最小 ack 和设备 ack → 验证: server app 测试覆盖诊断字段
+- [x] 跑 server 测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端 `Household` 现在维护 `nextServerSeq`，新注册的 snapshot/mutation/action 同步事件会分配单调 `serverSeq`，并把该序号放入服务端事件 payload。
+- 旧 `syncEvents` 加载时会为缺少 `serverSeq` 的事件回填稳定序号，并推进 `nextServerSeq`，避免旧数据阻塞后续 checkpoint 设计。
+- 设备模型新增 `lastAckServerSeq`，收到 `sync_received` 后记录对应设备已确认的最高服务端序号。
+- `/diagnostics/sync` 现在暴露 `nextServerSeq`、事件 seq 范围、active 设备最小 ack 和每设备 ack 水位；这只是 checkpoint/batch pull 的服务端基础层，客户端 `lastPulledSeq` 与按 seq 拉取尚未实现。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/pairing_test.dart test/server_app_test.dart test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/household_store.dart lib/src/session_handler.dart lib/src/server_app.dart test/pairing_test.dart test/server_app_test.dart test/sync_flow_test.dart`；`git diff --check`。
+
+## 2026-06-23 横屏宠物选择页左侧卡片排版再优化
+
+- [x] 对齐“我的”页项目介绍 App 图标盒视觉参数 → 验证: widget 测试覆盖深浅色 logo 背景、边框、阴影和 SVG 过滤
+- [x] 在左侧状态卡上部补充紧凑品牌说明并下移标题/连接状态 → 验证: 多尺寸横屏几何测试覆盖品牌区、标题和状态胶囊边界
+- [x] 保持宠物选择交互和右侧列表布局不变 → 验证: 点击宠物卡片仍回调选择
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡上部品牌区补充“宠物日常关怀记录App”，与“我的”页项目介绍语义保持一致，同时保留 `宠记` / `PetNote`。
+- App 图标盒继续随深浅色模式切换，阴影参数调整为与“我的”页项目介绍一致的 `blurRadius=16` / `offset=(0, 5)`。
+- 状态卡内间距和标题字号轻微收紧，标题“这台设备照顾谁？”与连接状态胶囊继续位于卡片下部，`720x390`、`900x520`、`1180x620` 横屏尺寸均由 widget 几何测试约束不越界。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`；`git diff --check -- lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart tasks/todo.md`。
+
+## 2026-06-23 服务端同步诊断接口
+
+- [x] 新增默认关闭的只读同步诊断接口 → 验证: 未配置 token 时 `/diagnostics/sync` 返回 404
+- [x] 诊断接口必须携带诊断 token → 验证: 缺少 token 返回 401，Bearer token 可访问
+- [x] 输出 household/device/syncEvents 统计但不泄露密钥或密文 → 验证: 测试断言响应不包含 auth token 与 ciphertext
+- [x] 跑 server app/sync flow 测试、server analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 新增 `/diagnostics/sync` 只读接口，默认未配置诊断 token 时返回 404，避免生产环境误暴露。
+- 配置 `diagnosticsToken` 或 `PETNOTE_SYNC_DIAGNOSTICS_TOKEN` 后，接口要求 `Authorization: Bearer ...` 或 `x-petnote-diagnostics-token`，未授权返回 401。
+- 响应只包含 household/device/syncEvents 计数、活跃/在线设备数、事件字节统计和保留策略，不包含 `authToken`、共享密钥、snapshot/action/mutation 密文。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/server_app_test.dart test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/server_app.dart lib/src/session_handler.dart lib/src/household_store.dart test/server_app_test.dart test/sync_flow_test.dart`；`git diff --check`。
+
+## 2026-06-23 服务端 syncEvents 保留策略加固
+
+- [x] 长期离线设备不再阻塞已确认同步事件剪枝 → 验证: stale 设备 45 天未见时已确认 mutation 可清空 `syncEvents`
+- [x] 为服务端同步事件账本增加数量上限 → 验证: 测试配置 `maxRetainedSyncEvents=2` 时保留最新事件
+- [x] 为服务端同步事件账本增加 UTF-8 字节上限和日志告警 → 验证: 测试配置小字节上限时剪掉旧 snapshot 并保留最新事件
+- [x] 跑服务端同步流测试、server analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端 `syncEvents` 剪枝现在只等待在线设备或最近 30 天内活跃的设备，长期离线/废弃设备不会永久拖住已被活跃设备确认的事件。
+- `SyncServerApp` 增加同步事件数量与 UTF-8 字节保留上限，默认最多 1000 条 / 8 MiB；超限时按插入顺序剪掉最旧事件并写入服务端告警日志。
+- 剪掉 `syncEvents` 时不删除 `actionSyncEventIds` / `mutationSyncEventIds`，保持旧 action/mutation 去重语义，避免历史事件被容量策略剪掉后重复广播。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/server_app.dart lib/src/session_handler.dart test/sync_flow_test.dart`。
+
+## 2026-06-23 SyncFailureQueue 容量保护
+
+- [x] 为 durable sync outbox 增加消息数量上限 → 验证: 超过 `maxPendingMessages` 时拒绝新增并保留既有队列
+- [x] 为 durable sync outbox 增加持久化字节上限 → 验证: 超过 `maxPendingBytes` 时拒绝新增并暴露容量异常
+- [x] 按 UTF-8 实际持久化体积计算字节上限 → 验证: 多字节 payload 回归测试覆盖字符串长度误判场景
+- [x] 跑同步相关测试、analyze、服务端同步流和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncFailureQueue` 现在默认限制 durable outbox 最多 500 条、持久化 JSON 最多 64 MiB，弱网或服务端异常时不会无限堆积非 mutation 出站消息。
+- 超过数量或字节上限时不会写入新消息，会保留既有队列并通过 `SyncOutboxCapacityException` 写入 `lastError`；同 `syncId` 替换消息超限时也不会误删旧消息。
+- 字节上限按 UTF-8 编码后的实际持久化体积计算，新增多字节 payload 回归测试避免中文/emoji 被字符串长度低估。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_client_test.dart test/sync_failure_queue_test.dart test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart lib/sync/sync_failure_queue.dart test/sync_failure_queue_test.dart lib/sync/sync_client.dart test/sync_client_test.dart lib/sync/sync_service.dart test/sync_service_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`git diff --check`。
+
+## 2026-06-23 横屏宠物选择页左侧卡片品牌区微调
+
+- [x] 在横屏左侧状态卡上半区加入紧凑品牌信息 → 验证: widget 测试覆盖 `宠记` / `PetNote` 位于状态卡内
+- [x] 保持标题和连接状态向下排列且不越界 → 验证: 多尺寸横屏几何测试覆盖品牌区、标题、状态胶囊边界
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡上半区现在展示紧凑品牌区，图标盒继续沿用“我的”页项目介绍卡片的深浅色背景、边框、阴影和深色 SVG 白色过滤逻辑。
+- 标题“这台设备照顾谁？”与连接状态胶囊保持在卡片底部区域，品牌区、标题和状态胶囊均由多尺寸横屏几何测试约束在状态卡边界内。
+- 右侧宠物列表、宠物卡片点击选择、设置按钮和竖屏选择页语义不变。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`；`git diff --check -- lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart tasks/todo.md`。
+
+## 2026-06-23 SyncClient 出站队列收敛
+
+- [x] 移除 `SyncClient` 底层不可见内存 outbox → 验证: 断线 `send()` 不再静默缓存
+- [x] 让断线发送显式抛错交给 `SyncFailureQueue` 持久化 → 验证: sync client / service 回归测试
+- [x] 跑同步相关 analyze、服务端同步流和 diff 检查 → 验证: 命令通过且无测试残留
+- [x] 审查后提交推送触发 GitHub Actions → 验证: `gh run list` 出现新 run
+
+### Review 2026-06-23
+
+- `SyncClient` 已移除底层内存 `_outbox`，断线时 `send()` 直接抛 `StateError`，避免业务消息进入状态快照不可见、进程重启不可恢复的缓存层。
+- 上层 `SyncFailureQueue` 继续作为唯一出站缓存，负责持久化、重试、去重和 household scope 过滤；新增测试锁定断线发送行为。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_client_test.dart test/sync_failure_queue_test.dart test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_client.dart test/sync_client_test.dart lib/sync/sync_failure_queue.dart lib/sync/sync_service.dart test/sync_service_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`。
+
+## 2026-06-23 全面代码质量与同步稳定性评估
+
+- [x] 复核当前 CI、工作区和 README 约束 → 验证: `gh run list` / `git status` 证据明确
+- [x] 审查 Flutter 客户端同步核心、服务端 relay 和协议包 → 验证: 关键文件与测试覆盖路径可追溯
+- [x] 联网调研弱网/高频操作下的可靠同步实践 → 验证: 报告引用官方或成熟项目资料
+- [x] 输出代码质量与同步稳定性评估报告 → 验证: `docs/` 落盘 Markdown
+- [x] 审查本地和远端分支留存必要性 → 验证: merged/stale 分支清单与处理建议明确
+- [x] 根据评估结果决定是否需要代码修复/提交推送 → 验证: 如有变更则测试、提交并触发 Actions
+
+### Review 2026-06-23
+
+- UI 提交 `852528b` 的 GitHub Actions 已完成：`PetNote Notify` 和 `PetNote Release` 均 success，并生成 `v1.4.0-beta.39`。
+- 新评估报告已落盘到 `docs/code-quality-sync-review-2026-06-23.md`，覆盖当前 main 的同步可靠性基线、剩余风险、外部官方资料依据、优先行动清单和分支留存结论。
+- 审查结论：当前 main 已具备握手门禁、持久 outbox、首次配对双向 merge、服务端原子写入等基础；剩余重点是收敛 `SyncClient._outbox`、增加队列/事件上限、引入 server sequence/checkpoint 和服务端诊断。
+- 分支处理：已删除已合并远端 `origin/feature/unified-ohos-flutter`；已删除干净且已合并的本地 `claude/frosty-greider-5d3ed7` worktree/分支；保留未合并且有同步迁移价值的 `codex/powersync-spike`。
+- 本轮没有直接修改同步核心代码，原因是未发现当前 main 会直接导致数据错位或同步完全失败的高危 bug；报告建议下一轮从 `SyncClient._outbox` 收敛开始做低风险增量修复。
+
+## 2026-06-23 横屏宠物选择页左侧卡片图标排版优化
+
+- [x] 在横屏选择页左侧状态卡加入深浅色自适应 App 图标 → 验证: widget 测试覆盖 light/dark logo 样式
+- [x] 下移标题和连接状态并收紧卡片内部边界 → 验证: 多尺寸横屏几何测试无溢出
+- [x] 保持右侧列表和宠物选择交互不变 → 验证: 点击宠物卡片仍回调选择
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 横屏宠物选择页左侧状态卡新增 App 图标，复用“我的”页项目介绍卡片的白/黑图标盒、边框、阴影和深色模式白色 SVG 过滤逻辑。
+- 状态卡改为上方图标、下方标题和连接状态胶囊的结构，标题与状态整体下移，`LayoutBuilder` 按卡片高度调整图标尺寸与间距，避免横屏小尺寸越界。
+- 右侧宠物列表和点击选择回调保持不变；新增测试覆盖 `720x390`、`900x520`、`1180x620` 横屏几何边界和深浅色图标样式。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`。
+
+## 2026-06-23 主人端头像 emoji fallback 与宠物类型预设扩展
+
+- [x] 主人端无图片宠物头像改用类型 emoji fallback，其他类型保持原缩写 → 验证: 主人端宠物列表 widget 测试
+- [x] 扩展宠物类型枚举、标签和头像映射 → 验证: store 序列化/反序列化与 fallback 测试
+- [x] 按联网取证结果更新建档预设类型与品种/常见饲养类型 → 验证: taxonomy 测试覆盖新增类型和每类数量
+- [x] 落盘预设来源审阅文档 → 验证: docs 中包含来源、边界和不纳入猴类说明
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: Flutter tests、`flutter analyze`、`git diff --check`
+
+### Review 2026-06-23
+
+- 主人端宠物列表无图片头像现在复用 `petAvatarFallbackForPet`，猫狗兔鸟及新增类型显示对应 emoji；`other` 继续显示原 `avatarText` 缩写。
+- `PetType` 新增仓鼠、鱼、龟、蛇、马、猪、鸡、牛、羊、山羊、啮齿类；旧未知 `type` 仍降级为 `other`，不做数据迁移。
+- 添加宠物引导页预设已按联网取证结果扩展：猫狗提供更多大众品种；鸟、鱼、龟、蛇、仓鼠、啮齿类按常见饲养类型处理；猴类未纳入预设。
+- 来源审阅已落盘到 `docs/pet-breed-preset-source-review-2026-06-23.md`，记录来源、预设口径和维护边界。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_care_store_test.dart test/pet_onboarding_taxonomy_test.dart test/pets_page_subtitle_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter test test/widget_test.dart test/pet_replica_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter test test/ai_insights_widget_test.dart --plain-name "overview page prefers pet photo and uses emoji or abbreviation fallback"`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/state/petnote_store.dart lib/app/petnote_pages_pets.dart lib/app/pet_onboarding_taxonomy.dart test/pet_care_store_test.dart test/pet_onboarding_taxonomy_test.dart test/pets_page_subtitle_test.dart test/widget_test.dart`；`git diff --check`。完整 `test/ai_insights_widget_test.dart` 曾卡在既有浮动按钮布局用例，已终止并改跑本轮相关聚焦用例；复查无 Flutter 测试残留进程。
+
+## 2026-06-23 宠物端头像返回选择页
+
+- [x] 为宠物待办页头像添加返回选择列表交互 → 验证: 点击头像回调清空服务宠物
+- [x] 保持界面无新增提示文案 → 验证: 仅增加语义按钮与 widget 测试
+- [x] 运行聚焦测试和静态检查 → 验证: dashboard 测试、analyze、diff check 通过
+
+### Review 2026-06-23
+
+- 宠物待办页头像现在是可点击语义按钮，点击后复用现有 `servedPetId = null` 路径返回宠物选择列表，不新增任何可见指引文案。
+- 新增 widget 测试覆盖点击头像后回调清空服务宠物并重新展示 `pet_selector_list_panel`。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_device_home.dart test/pet_device_dashboard_test.dart`；`git diff --check`。
+
+## 2026-06-22 宠物端 UI 与首次配对同步修复
+
+- [x] 修复首启角色页深色模式图标背景 → 验证: 浅色/深色 widget 测试覆盖 hero 颜色
+- [x] 修复宠物端选择页卡片阴影和横屏重复标题 → 验证: dashboard widget 测试覆盖无阴影、无右侧重复标题、点击选择仍可用
+- [x] 修复宠物端同步异常展示和时间栏换行 → 验证: 不再出现额外 `sync_failure_chip`，状态胶囊可打开同步问题弹窗
+- [x] 修复首次配对默认 merge 只拉不推的问题 → 验证: sync service 测试覆盖默认双向快照交换和 `pushStartupSnapshot=false`
+- [x] 输出首次配对同步根因报告 → 验证: `docs/pet-initial-pairing-sync-root-cause-2026-06-22.md`
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 计划内命令通过并清理本次测试残留
+
+### Review 2026-06-22
+
+- 首启角色页保留浅色软蓝图标背景，深色模式切换为深蓝灰圆形背景与高对比蓝色设备图标，避免深色主题下大浅色圆块突兀。
+- 宠物端选择页小卡片已移除阴影，仅保留背景、圆角和边框；横屏右侧列表面板不再重复显示“这台设备照顾谁？”，该语义只保留在左侧状态卡。
+- 宠物端看板/选择页顶部不再使用额外 `SyncFailureChip`；同步失败、握手失败和等待确认统一由原状态胶囊展示并打开同一同步问题弹窗，时间/日期约束为单行缩放或省略。
+- 默认首次配对启动改为双向 merge 快照交换：认证后先推本地 merge 快照，再请求远端 merge 快照，修复“先添加宠物再配对”时已有宠物不稳定下发的问题；显式同步策略和 `pushStartupSnapshot=false` 保护路径保持不变。
+- 根因报告已落盘到 `docs/pet-initial-pairing-sync-root-cause-2026-06-22.md`，记录现象、方向性缺口、修复策略、保护边界和验证场景。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart test/widget_test.dart test/sync_service_test.dart test/owner_sync_engine_test.dart test/pet_replica_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart lib/app/pet_first_launch_intro.dart lib/app/petnote_pages.dart lib/app/pet_device_home.dart lib/sync/sync_service.dart test/pet_device_dashboard_test.dart test/widget_test.dart test/sync_service_test.dart`；`git diff --check`。复查无本次 Flutter/Gradle 测试残留，仅有常驻 `xcodebuildmcp`。
+
 ## 2026-06-22 main 同步稳定性加固
 
 - [x] 启用 PUA always-on 模式 → 验证: `~/.pua/config.json` 保留未知字段且 `always_on=true`

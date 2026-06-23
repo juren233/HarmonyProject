@@ -698,6 +698,80 @@ void main() {
       expect(petAvatarFallbackForPet(unknown), 'MY');
     });
 
+    test('expanded pet type fallback keeps other type custom avatar text', () {
+      final hamster = Pet.fromJson(<String, Object?>{
+        'id': 'pet-hamster',
+        'name': 'Nori',
+        'avatarText': 'NO',
+        'type': 'hamster',
+        'breed': '叙利亚仓鼠',
+        'sex': '母',
+        'birthday': '2025-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 0.1,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+      final goat = Pet.fromJson(<String, Object?>{
+        'id': 'pet-goat',
+        'name': 'Mimi',
+        'avatarText': 'MI',
+        'type': 'goat',
+        'breed': '尼日利亚矮山羊',
+        'sex': '母',
+        'birthday': '2025-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 8.0,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+      final rodent = Pet.fromJson(<String, Object?>{
+        'id': 'pet-rodent',
+        'name': 'Bean',
+        'avatarText': 'BE',
+        'type': 'rodent',
+        'breed': '花枝鼠',
+        'sex': '公',
+        'birthday': '2025-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 0.4,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+      final other = Pet.fromJson(<String, Object?>{
+        'id': 'pet-other',
+        'name': 'Custom',
+        'avatarText': 'CU',
+        'type': 'other',
+        'breed': '其他',
+        'sex': '母',
+        'birthday': '2025-01-15',
+        'ageLabel': '新加入',
+        'weightKg': 2.0,
+        'neuterStatus': 'unknown',
+        'feedingPreferences': '未填写',
+        'allergies': '未填写',
+        'note': '未填写',
+      });
+
+      expect(hamster.type, PetType.hamster);
+      expect(petTypeLabel(hamster.type), '仓鼠');
+      expect(petAvatarFallbackForPet(hamster), '🐹');
+      expect(goat.type, PetType.goat);
+      expect(petAvatarFallbackForPet(goat), '🐐');
+      expect(rodent.type, PetType.rodent);
+      expect(petTypeLabel(rodent.type), '啮齿类');
+      expect(petAvatarFallbackForPet(rodent), '🐭');
+      expect(other.type, PetType.other);
+      expect(petAvatarFallbackForPet(other), 'CU');
+    });
+
     test('iOS update relocates legacy pet avatar paths into current sandbox',
         () async {
       final currentSupportDirectory =

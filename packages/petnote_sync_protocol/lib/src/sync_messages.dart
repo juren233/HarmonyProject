@@ -37,7 +37,7 @@ class SyncMessageTypes {
   static const pairError = 'pair_error'; // srv→client {message}
   // 会话
   static const hello =
-      'hello'; // client→srv {householdId, deviceId, role, authToken?, deviceName}
+      'hello'; // client→srv {householdId, deviceId, role, authToken?, deviceName, lastPulledServerSeq?}
   static const helloAck =
       'hello_ack'; // srv→client {snapshotVersion, authToken?, restoredHousehold?, restoredDevice?}
   // 快照同步
@@ -57,6 +57,8 @@ class SyncMessageTypes {
       'mutation'; // srv→device {mutationId, ciphertext, entityType, entityId, kind}
   static const syncReceived =
       'sync_received'; // device↔srv {syncId, originDeviceId?, receivedDeviceId?, actionId?, kind?, sourceType?, itemId?}
+  static const syncCheckpoint =
+      'sync_checkpoint'; // srv→device {fromServerSeq?, toServerSeq?, sentEventCount, remainingEventCount, hasMore}
   // 设备管理
   static const devicesRequest = 'devices_request'; // device→srv {}
   static const devices = 'devices'; // srv→device {devices: [...]}
@@ -159,7 +161,10 @@ class PetNoteMutation {
   factory PetNoteMutation.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
     final entityId = json['entityId'];
-    if (id is! String || id.isEmpty || entityId is! String || entityId.isEmpty) {
+    if (id is! String ||
+        id.isEmpty ||
+        entityId is! String ||
+        entityId.isEmpty) {
       throw const FormatException('invalid PetNoteMutation fields');
     }
     final data = json['data'];

@@ -24,7 +24,6 @@ class SyncClient implements SyncTransport {
   final StreamController<SyncMessage> _messages =
       StreamController<SyncMessage>.broadcast();
   final StreamController<Object> _errors = StreamController<Object>.broadcast();
-  final List<String> _outbox = <String>[];
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _socketSubscription;
@@ -57,10 +56,6 @@ class SyncClient implements SyncTransport {
       _socket = socket;
       _retryCount = 0;
       state.value = SyncConnectionState.connected;
-      for (final pending in _outbox) {
-        socket.add(pending);
-      }
-      _outbox.clear();
       await _socketSubscription?.cancel();
       _socketSubscription = socket.listen(
         _handleRawMessage,
@@ -71,7 +66,8 @@ class SyncClient implements SyncTransport {
         },
       );
     } catch (error) {
-      debugPrint('SyncClient connect failed: $url ${error.runtimeType}: $error');
+      debugPrint(
+          'SyncClient connect failed: $url ${error.runtimeType}: $error');
       _errors.add(error);
       _scheduleReconnect();
       rethrow;
@@ -82,11 +78,15 @@ class SyncClient implements SyncTransport {
   void send(SyncMessage message) {
     final encoded = message.encode();
     final socket = _socket;
-    if (state.value == SyncConnectionState.connected && socket != null) {
-      socket.add(encoded);
-      return;
+    if (state.value != SyncConnectionState.connected || socket == null) {
+      throw StateError('sync client is not connected');
     }
-    _outbox.add(encoded);
+    try {
+      socket.add(encoded);
+    } on Object catch (error) {
+      _errors.add(error);
+      rethrow;
+    }
   }
 
   void _handleRawMessage(dynamic raw) {

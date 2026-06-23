@@ -70,6 +70,8 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
   static const _roleSelectionPageIndex = 2;
   static const _roleSelectionHeroColor = Color(0xFF4A9DDA);
   static const _roleSelectionHeroShellColor = Color(0xFFD7ECFF);
+  static const _roleSelectionHeroDarkColor = Color(0xFF7BC7FF);
+  static const _roleSelectionHeroDarkShellColor = Color(0xFF173A52);
 
   late final PageController _pageController;
   late final AnimationController _launchController;
@@ -138,6 +140,8 @@ class _PetFirstLaunchIntroState extends State<PetFirstLaunchIntro>
       accentColor: Color(0xFFF2A65A),
       heroAccentColor: _roleSelectionHeroColor,
       heroShellColor: _roleSelectionHeroShellColor,
+      heroDarkAccentColor: _roleSelectionHeroDarkColor,
+      heroDarkShellColor: _roleSelectionHeroDarkShellColor,
       listStyle: _IntroListStyle.roleCards,
       values: [
         _IntroValueData(
@@ -1166,6 +1170,8 @@ class _IntroHeroIcon extends StatelessWidget {
     required this.heroAssetPath,
     required this.accentColor,
     this.shellColor,
+    this.darkAccentColor,
+    this.darkShellColor,
   });
 
   final Key heroKey;
@@ -1173,15 +1179,23 @@ class _IntroHeroIcon extends StatelessWidget {
   final String? heroAssetPath;
   final Color accentColor;
   final Color? shellColor;
+  final Color? darkAccentColor;
+  final Color? darkShellColor;
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final effectiveAccentColor =
+        isDark ? darkAccentColor ?? accentColor : accentColor;
+    final effectiveShellColor =
+        isDark ? darkShellColor ?? shellColor : shellColor;
     return Container(
       key: heroKey,
       width: _PetFirstLaunchIntroState._launchPawEndSize,
       height: _PetFirstLaunchIntroState._launchPawEndSize,
       decoration: BoxDecoration(
-        color: shellColor ?? accentColor.withValues(alpha: 0.18),
+        color:
+            effectiveShellColor ?? effectiveAccentColor.withValues(alpha: 0.18),
         shape: BoxShape.circle,
       ),
       child: Center(
@@ -1189,7 +1203,7 @@ class _IntroHeroIcon extends StatelessWidget {
           icon: icon,
           heroAssetPath: heroAssetPath,
           size: 50,
-          color: accentColor,
+          color: effectiveAccentColor,
         ),
       ),
     );
@@ -1287,6 +1301,8 @@ class _AnimatedIntroHeroState extends State<_AnimatedIntroHero>
                 heroAssetPath: _displayedPage.heroAssetPath,
                 accentColor: _displayedPage.heroAccentColor,
                 shellColor: _displayedPage.heroShellColor,
+                darkAccentColor: _displayedPage.heroDarkAccentColor,
+                darkShellColor: _displayedPage.heroDarkShellColor,
               ),
             ),
           );
@@ -1742,6 +1758,8 @@ class _IntroPageData {
     required this.accentColor,
     required this.heroAccentColor,
     this.heroShellColor,
+    this.heroDarkAccentColor,
+    this.heroDarkShellColor,
     this.values = const [],
     this.listStyle = _IntroListStyle.checks,
   });
@@ -1753,6 +1771,8 @@ class _IntroPageData {
   final Color accentColor;
   final Color heroAccentColor;
   final Color? heroShellColor;
+  final Color? heroDarkAccentColor;
+  final Color? heroDarkShellColor;
   final List<_IntroValueData> values;
   final _IntroListStyle listStyle;
 }

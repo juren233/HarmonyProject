@@ -11,6 +11,8 @@ class HouseholdDevice {
     this.role,
     this.servedPetId,
     this.lastSeenMs,
+    this.lastAckServerSeq,
+    this.lastPulledServerSeq,
   });
 
   final String deviceId;
@@ -18,6 +20,8 @@ class HouseholdDevice {
   String? role;
   String? servedPetId;
   int? lastSeenMs;
+  int? lastAckServerSeq;
+  int? lastPulledServerSeq;
 
   Map<String, dynamic> toJson() => {
         'deviceId': deviceId,
@@ -25,6 +29,8 @@ class HouseholdDevice {
         'role': role,
         'servedPetId': servedPetId,
         'lastSeenMs': lastSeenMs,
+        'lastAckServerSeq': lastAckServerSeq,
+        'lastPulledServerSeq': lastPulledServerSeq,
       };
 
   factory HouseholdDevice.fromJson(Map<String, dynamic> json) =>
@@ -34,6 +40,8 @@ class HouseholdDevice {
         role: json['role'] as String?,
         servedPetId: json['servedPetId'] as String?,
         lastSeenMs: json['lastSeenMs'] as int?,
+        lastAckServerSeq: (json['lastAckServerSeq'] as num?)?.toInt(),
+        lastPulledServerSeq: (json['lastPulledServerSeq'] as num?)?.toInt(),
       );
 }
 
@@ -56,11 +64,13 @@ class Household {
   final Map<String, SyncEventReceipt> syncEvents = <String, SyncEventReceipt>{};
   final Map<String, String> actionSyncEventIds = <String, String>{};
   final Map<String, String> mutationSyncEventIds = <String, String>{};
+  int nextServerSeq = 1;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'saltBase64': saltBase64,
         'authToken': authToken,
+        'nextServerSeq': nextServerSeq,
         'devices': devices.map(
           (deviceId, device) => MapEntry(deviceId, device.toJson()),
         ),
@@ -80,6 +90,9 @@ class Household {
       saltBase64: json['saltBase64'] as String,
       authToken: json['authToken'] as String? ?? _newAuthToken(),
     );
+    household.nextServerSeq = ((json['nextServerSeq'] as num?)?.toInt() ?? 1)
+        .clamp(1, 1 << 62)
+        .toInt();
 
     final devicesJson =
         json['devices'] as Map<String, dynamic>? ?? <String, dynamic>{};
@@ -130,8 +143,27 @@ class Household {
       }
     }
     household._restoreSyncEventIndexes(json);
+    household._backfillSyncEventSequences();
 
     return household;
+  }
+
+  int allocateServerSeq() => nextServerSeq++;
+
+  void _backfillSyncEventSequences() {
+    var maxServerSeq = 0;
+    for (final event in syncEvents.values) {
+      if (event.serverSeq <= 0) {
+        event.serverSeq = allocateServerSeq();
+      }
+      event.payload.putIfAbsent('serverSeq', () => event.serverSeq);
+      if (event.serverSeq > maxServerSeq) {
+        maxServerSeq = event.serverSeq;
+      }
+    }
+    if (nextServerSeq <= maxServerSeq) {
+      nextServerSeq = maxServerSeq + 1;
+    }
   }
 
   void _restoreSyncEventIndexes(Map<String, dynamic> json) {
@@ -194,6 +226,7 @@ class Household {
         syncId: syncId,
         originDeviceId: '',
         messageType: SyncMessageTypes.snapshot,
+        serverSeq: allocateServerSeq(),
         payload: {
           'syncId': syncId,
           'originDeviceId': '',
@@ -226,6 +259,7 @@ class Household {
           syncId: payload['syncId'] as String,
           originDeviceId: payload['originDeviceId'] as String? ?? '',
           messageType: SyncMessageTypes.action,
+          serverSeq: allocateServerSeq(),
           payload: payload,
         ),
       );
@@ -348,6 +382,7 @@ class SyncEventReceipt {
     required this.originDeviceId,
     required this.messageType,
     required this.payload,
+    required this.serverSeq,
     Set<String>? receivedByDeviceIds,
   }) : receivedByDeviceIds = receivedByDeviceIds ?? <String>{};
 
@@ -355,12 +390,14 @@ class SyncEventReceipt {
   final String originDeviceId;
   final String messageType;
   final Map<String, dynamic> payload;
+  int serverSeq;
   final Set<String> receivedByDeviceIds;
 
   Map<String, dynamic> toJson() => {
         'syncId': syncId,
         'originDeviceId': originDeviceId,
         'messageType': messageType,
+        'serverSeq': serverSeq,
         'payload': payload,
         'receivedByDeviceIds': receivedByDeviceIds.toList(growable: false),
       };
@@ -372,6 +409,7 @@ class SyncEventReceipt {
       syncId: syncId,
       originDeviceId: originDeviceId,
       messageType: json['messageType'] as String,
+      serverSeq: (json['serverSeq'] as num?)?.toInt() ?? 0,
       payload: Map<String, dynamic>.from(json['payload'] as Map? ?? const {}),
       receivedByDeviceIds: {
         ...((json['receivedByDeviceIds'] as List?) ?? const <dynamic>[])
@@ -389,6 +427,7 @@ class HouseholdStore {
   Future<void> _flushQueue = Future<void>.value();
 
   File get _file => File('${dataDirectory.path}/households.json');
+  Iterable<Household> get households => _households.values;
 
   Household? household(String? id) => id == null ? null : _households[id];
 

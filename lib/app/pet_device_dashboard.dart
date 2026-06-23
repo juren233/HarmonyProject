@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_pages.dart';
+import 'package:petnote/sync/sync_service.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
@@ -24,7 +26,7 @@ class PetDeviceDashboard extends StatefulWidget {
   final String? servedPetId;
   final String syncStatusLabel;
   final Set<String> pendingItemKeys;
-  final ValueChanged<String> onSelectServedPet;
+  final ValueChanged<String?> onSelectServedPet;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
   final DateTime Function()? nowProvider;
@@ -140,6 +142,8 @@ class _PetDeviceDashboardState extends State<PetDeviceDashboard>
                     pet: selectedPet,
                     syncStatusLabel: widget.syncStatusLabel,
                     pendingItemKeys: widget.pendingItemKeys,
+                    onReturnToPetSelection: () =>
+                        widget.onSelectServedPet(null),
                     onMarkDone: widget.onMarkDone,
                     onOpenSettings: widget.onOpenSettings,
                   ),
@@ -246,29 +250,37 @@ class _PetSelectorTopBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _formatClock(now),
-                style: TextStyle(
-                  color: tokens.primaryText,
-                  fontSize: 44,
-                  height: 0.95,
-                  fontWeight: FontWeight.w900,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatClock(now),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: tokens.primaryText,
+                    fontSize: 44,
+                    height: 0.95,
+                    letterSpacing: 0,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 '${_formatWeekday(now)} · 家中设备',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,
+                  height: 1.35,
+                  letterSpacing: 0,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-        const SyncFailureChip(),
-        const SizedBox(width: 8),
         _ConnectionPill(label: syncStatusLabel),
         const SizedBox(width: 8),
         _IconSurfaceButton(
@@ -337,35 +349,166 @@ class _PetSelectorSidePanel extends StatelessWidget {
           child: _SelectorSurface(
             key: const ValueKey('pet_selector_status_card'),
             padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '这台设备照顾谁？',
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: tokens.primaryText,
-                      fontSize: 34,
-                      height: 1.18,
-                      letterSpacing: 0,
-                      fontWeight: FontWeight.w900,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final logoSize =
+                    (constraints.maxHeight * 0.23).clamp(62.0, 82.0).toDouble();
+                final topGap =
+                    (constraints.maxHeight * 0.04).clamp(4.0, 12.0).toDouble();
+                final brandBottomGap =
+                    (constraints.maxHeight * 0.04).clamp(6.0, 14.0).toDouble();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: topGap),
+                    Center(child: _SelectorBrandHeader(logoSize: logoSize)),
+                    SizedBox(height: brandBottomGap),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '这台设备照顾谁？',
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: tokens.primaryText,
+                                  fontSize: 30,
+                                  height: 1.18,
+                                  letterSpacing: 0,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                  maxWidth: double.infinity),
+                              child: _ConnectionPill(label: syncStatusLabel),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: double.infinity),
-                  child: _ConnectionPill(label: syncStatusLabel),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SelectorBrandHeader extends StatelessWidget {
+  const _SelectorBrandHeader({required this.logoSize});
+
+  final double logoSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Column(
+      key: const ValueKey('pet_selector_brand_header'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SelectorAppLogo(size: logoSize),
+        const SizedBox(height: 10),
+        Text(
+          '宠记',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.primaryText,
+            fontSize: 20,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'PetNote',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: tokens.secondaryText,
+            fontSize: 11,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '宠物日常关怀记录App',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: tokens.secondaryText,
+            fontSize: 10,
+            height: 1.1,
+            letterSpacing: 0,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectorAppLogo extends StatelessWidget {
+  const _SelectorAppLogo({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final logoBoxBackground = isDark ? const Color(0xFF111111) : Colors.white;
+    final logoBoxBorderColor =
+        isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFEAE6E0);
+    final logoShadowColor =
+        isDark ? Colors.black.withValues(alpha: 0.28) : const Color(0x0D000000);
+    final logoColorFilter =
+        isDark ? const ColorFilter.mode(Colors.white, BlendMode.srcIn) : null;
+
+    return Container(
+      key: const ValueKey('pet_selector_app_logo_box'),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: logoBoxBackground,
+        borderRadius: BorderRadius.circular(size * 0.27),
+        border: Border.all(color: logoBoxBorderColor, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: logoShadowColor,
+            blurRadius: 16,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: size - 2,
+            maxHeight: size - 2,
+          ),
+          child: SvgPicture.asset(
+            'assets/images/intro/first_page_hero.svg',
+            fit: BoxFit.contain,
+            colorFilter: logoColorFilter,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -420,8 +563,6 @@ class _SelectorLandscapeTopBar extends StatelessWidget {
             ],
           ),
         ),
-        const SyncFailureChip(),
-        const SizedBox(width: 8),
         _IconSurfaceButton(
           key: const ValueKey('pet_dashboard_settings'),
           onPressed: onOpenSettings,
@@ -454,28 +595,7 @@ class _PetSelectorListPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (landscape) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    '这台设备照顾谁？',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: tokens.primaryText,
-                      fontSize: 30,
-                      height: 1.25,
-                      letterSpacing: 0,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ] else ...[
+          if (!landscape) ...[
             Row(
               children: [
                 Expanded(
@@ -560,13 +680,6 @@ class _PetSelectionCard extends StatelessWidget {
                   : tokens.panelBorder,
               width: 1.1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: tokens.panelShadow.withValues(alpha: 0.34),
-                blurRadius: landscape ? 10 : 18,
-                offset: Offset(0, landscape ? 4 : 8),
-              ),
-            ],
           ),
           child: Row(
             children: [
@@ -738,6 +851,7 @@ class _DashboardContent extends StatelessWidget {
     required this.pet,
     required this.syncStatusLabel,
     required this.pendingItemKeys,
+    required this.onReturnToPetSelection,
     required this.onMarkDone,
     required this.onOpenSettings,
   });
@@ -747,6 +861,7 @@ class _DashboardContent extends StatelessWidget {
   final Pet pet;
   final String syncStatusLabel;
   final Set<String> pendingItemKeys;
+  final VoidCallback onReturnToPetSelection;
   final ValueChanged<PetAction> onMarkDone;
   final VoidCallback onOpenSettings;
 
@@ -781,6 +896,7 @@ class _DashboardContent extends StatelessWidget {
                         pet: pet,
                         compact: true,
                         syncStatusLabel: syncStatusLabel,
+                        onReturnToPetSelection: onReturnToPetSelection,
                       ),
                     ),
                   ],
@@ -816,6 +932,7 @@ class _DashboardContent extends StatelessWidget {
                     child: _PetStatusPanel(
                       pet: pet,
                       compact: true,
+                      onReturnToPetSelection: onReturnToPetSelection,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -861,28 +978,37 @@ class _DashboardTopBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _formatClock(now),
-                style: TextStyle(
-                  color: tokens.primaryText,
-                  fontSize: isLandscape ? 42 : 44,
-                  height: 0.95,
-                  fontWeight: FontWeight.w900,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _formatClock(now),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: tokens.primaryText,
+                    fontSize: isLandscape ? 42 : 44,
+                    height: 0.95,
+                    letterSpacing: 0,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 '${_formatWeekday(now)} · 家中设备',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: tokens.secondaryText,
                   fontSize: 14,
+                  height: 1.35,
+                  letterSpacing: 0,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-        const SyncFailureChip(),
         if (showConnectionStatus) ...[
           const SizedBox(width: 8),
           _ConnectionPill(label: syncStatusLabel),
@@ -903,11 +1029,13 @@ class _PetStatusPanel extends StatelessWidget {
   const _PetStatusPanel({
     required this.pet,
     required this.compact,
+    required this.onReturnToPetSelection,
     this.syncStatusLabel,
   });
 
   final Pet pet;
   final bool compact;
+  final VoidCallback onReturnToPetSelection;
   final String? syncStatusLabel;
 
   @override
@@ -927,18 +1055,29 @@ class _PetStatusPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: PetPhotoAvatar(
-                      photoPath: pet.photoPath,
-                      fallbackText: petAvatarFallbackForPet(pet),
-                      radius: compact ? 45 : 54,
-                      backgroundColor: tokens.segmentedSelectedBackground,
-                      foregroundColor: Colors.white,
-                      fallbackTextStyle: TextStyle(
-                        color: Colors.white,
-                        fontSize: compact ? 36 : 44,
-                        fontWeight: FontWeight.w900,
+                  child: Semantics(
+                    button: true,
+                    label: '返回宠物选择',
+                    child: GestureDetector(
+                      key: const ValueKey(
+                        'pet_dashboard_avatar_return_selection',
+                      ),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onReturnToPetSelection,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: PetPhotoAvatar(
+                          photoPath: pet.photoPath,
+                          fallbackText: petAvatarFallbackForPet(pet),
+                          radius: compact ? 45 : 54,
+                          backgroundColor: tokens.segmentedSelectedBackground,
+                          foregroundColor: Colors.white,
+                          fallbackTextStyle: TextStyle(
+                            color: Colors.white,
+                            fontSize: compact ? 36 : 44,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1183,12 +1322,64 @@ class _ConnectionPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final service = SyncService.instance;
+    if (service == null) {
+      return _ConnectionPillBody(label: label);
+    }
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final failedCount = service.failedSyncCount;
+        if (failedCount == null) {
+          return _ConnectionPillBody(label: label);
+        }
+        return ValueListenableBuilder<int>(
+          valueListenable: failedCount,
+          builder: (context, count, _) {
+            final issueKind = service.currentIssueKind;
+            if (count <= 0 || issueKind == SyncIssueKind.none) {
+              return _ConnectionPillBody(label: label);
+            }
+            return _ConnectionPillBody(
+              label: syncIssueChipLabel(issueKind),
+              issueKind: issueKind,
+              issueCount: count,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _ConnectionPillBody extends StatelessWidget {
+  const _ConnectionPillBody({
+    required this.label,
+    this.issueKind = SyncIssueKind.none,
+    this.issueCount = 0,
+  });
+
+  final String label;
+  final SyncIssueKind issueKind;
+  final int issueCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasIssue = issueKind != SyncIssueKind.none;
     final connected = label.contains('已连接') || label.contains('同步中');
     final tokens = context.petNoteTokens;
-    return Container(
+    final foreground = hasIssue
+        ? tokens.badgeGoldForeground
+        : connected
+            ? tokens.emptyStateForeground
+            : tokens.badgeGoldForeground;
+    final dotColor = connected && !hasIssue
+        ? const Color(0xFF52B788)
+        : tokens.badgeGoldForeground;
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: connected
+        color: connected && !hasIssue
             ? tokens.emptyStateBackground
             : tokens.badgeGoldBackground,
         borderRadius: BorderRadius.circular(999),
@@ -1200,16 +1391,11 @@ class _ConnectionPill extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: connected
-                  ? const Color(0xFF52B788)
-                  : tokens.badgeGoldForeground,
+              color: dotColor,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: (connected
-                          ? const Color(0xFF52B788)
-                          : tokens.badgeGoldForeground)
-                      .withValues(alpha: 0.18),
+                  color: dotColor.withValues(alpha: 0.18),
                   blurRadius: 0,
                   spreadRadius: 5,
                 ),
@@ -1223,9 +1409,7 @@ class _ConnectionPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: connected
-                    ? tokens.emptyStateForeground
-                    : tokens.badgeGoldForeground,
+                color: foreground,
                 fontSize: 13,
                 height: 1.4,
                 letterSpacing: 0,
@@ -1234,6 +1418,21 @@ class _ConnectionPill extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+    if (!hasIssue) {
+      return content;
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => showSyncIssueDialog(
+          context,
+          count: issueCount,
+          issueKind: issueKind,
+        ),
+        child: content,
       ),
     );
   }

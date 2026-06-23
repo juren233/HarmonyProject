@@ -74,20 +74,32 @@ void main() {
     expect(
         household.syncEvents['sync-1']?.payload['ciphertext'], 'done-cipher');
     expect(household.syncEvents['sync-1']?.receivedByDeviceIds, {'o'});
+    expect(household.syncEvents['sync-1']?.serverSeq, greaterThan(0));
+    expect(household.syncEvents['sync-1']?.payload['serverSeq'],
+        household.syncEvents['sync-1']?.serverSeq);
     expect(
       household.syncEvents.values.any((event) =>
           event.messageType == SyncMessageTypes.snapshot &&
           event.payload['ciphertext'] == 'legacy-cipher' &&
-          event.payload['version'] == 7),
+          event.payload['version'] == 7 &&
+          event.serverSeq > 0 &&
+          event.payload['serverSeq'] == event.serverSeq),
       isTrue,
     );
     expect(
       household.syncEvents.values.any((event) =>
           event.messageType == SyncMessageTypes.action &&
           event.payload['actionId'] == 'legacy-action' &&
-          event.payload['ciphertext'] == 'legacy-action-cipher'),
+          event.payload['ciphertext'] == 'legacy-action-cipher' &&
+          event.serverSeq > 0 &&
+          event.payload['serverSeq'] == event.serverSeq),
       isTrue,
     );
+    expect(
+        household.nextServerSeq,
+        greaterThan(household.syncEvents.values
+            .map((event) => event.serverSeq)
+            .reduce((a, b) => a > b ? a : b)));
     final persisted = await file.readAsString();
     expect(persisted, contains('"role":"owner"'));
     expect(persisted, isNot(contains('snapshotCiphertext')));

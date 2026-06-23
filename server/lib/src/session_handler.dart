@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -270,7 +272,11 @@ class SessionHandler {
         restoredDevice
           ..name = requestedDeviceName
           ..role = requestedRole
-          ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+          ..lastSeenMs = DateTime.now().millisecondsSinceEpoch
+          ..lastPulledServerSeq =
+              _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
+                  restoredDevice.lastPulledServerSeq;
+        _pruneReceivedSyncEvents(restoredHousehold);
         app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
         _send(SyncMessage(SyncMessageTypes.helloAck, {
           'snapshotVersion': 0,
@@ -316,7 +322,11 @@ class SessionHandler {
     device
       ..name = _optionalString(message.payload['deviceName']) ?? device.name
       ..role = requestedRole
-      ..lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+      ..lastSeenMs = DateTime.now().millisecondsSinceEpoch
+      ..lastPulledServerSeq =
+          _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
+              device.lastPulledServerSeq;
+    _pruneReceivedSyncEvents(household);
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.helloAck, {
       'snapshotVersion': 0,
@@ -384,7 +394,28 @@ class SessionHandler {
   void _sendSnapshotIfAny(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    _sendMissingSyncEvents(household);
+    final afterServerSeq = _optionalInt(message.payload['afterServerSeq']);
+    final maxEvents = _optionalInt(message.payload['maxEvents']);
+    final batch = _sendMissingSyncEvents(
+      household,
+      afterServerSeq: afterServerSeq,
+      maxEvents: maxEvents,
+    );
+    final isIncrementalReplay = afterServerSeq != null || maxEvents != null;
+    if (isIncrementalReplay) {
+      _send(SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'afterServerSeq': afterServerSeq,
+        'requestedMaxEvents': maxEvents,
+        'sentEventCount': batch.sentEventCount,
+        'remainingEventCount': batch.remainingEventCount,
+        'hasMore': batch.remainingEventCount > 0,
+        if (batch.fromServerSeq != null) 'fromServerSeq': batch.fromServerSeq,
+        if (batch.toServerSeq != null) 'toServerSeq': batch.toServerSeq,
+      }));
+    }
+    if (isIncrementalReplay) {
+      return;
+    }
     _broadcastToOtherDevices(
       household,
       (_) => SyncMessage(
@@ -613,20 +644,23 @@ class SessionHandler {
     if (household == null) return;
     final syncId = _requiredString(message, 'syncId');
     if (syncId == null) return;
+    final currentDeviceId = deviceId;
+    if (currentDeviceId == null) return;
     final event = household.syncEvents[syncId];
     if (event == null) {
       return;
     }
-    if (deviceId != event.originDeviceId) {
-      event.receivedByDeviceIds.add(deviceId!);
+    _recordDeviceAck(household, currentDeviceId, event.serverSeq);
+    if (currentDeviceId != event.originDeviceId) {
+      event.receivedByDeviceIds.add(currentDeviceId);
     }
     final originDeviceId = _optionalString(message.payload['originDeviceId']) ??
         event.originDeviceId;
-    if (originDeviceId.isNotEmpty && originDeviceId != deviceId) {
+    if (originDeviceId.isNotEmpty && originDeviceId != currentDeviceId) {
       final receiptPayload = _syncReceivedPayload(
         event,
         syncId: syncId,
-        receivedDeviceId: deviceId!,
+        receivedDeviceId: currentDeviceId,
       );
       await app.store.flush();
       app.hub.sendTo(
@@ -639,6 +673,21 @@ class SessionHandler {
     await app.store.flush();
   }
 
+  void _recordDeviceAck(
+    Household household,
+    String receivedDeviceId,
+    int serverSeq,
+  ) {
+    final device = household.devices[receivedDeviceId];
+    if (device == null || serverSeq <= 0) {
+      return;
+    }
+    final previousSeq = device.lastAckServerSeq ?? 0;
+    if (serverSeq > previousSeq) {
+      device.lastAckServerSeq = serverSeq;
+    }
+  }
+
   Map<String, dynamic> _syncReceivedPayload(
     SyncEventReceipt event, {
     required String syncId,
@@ -648,6 +697,7 @@ class SessionHandler {
       'syncId': syncId,
       'originDeviceId': event.originDeviceId,
       'receivedDeviceId': receivedDeviceId,
+      'serverSeq': event.serverSeq,
     };
     for (final key in <String>[
       'actionId',
@@ -680,14 +730,14 @@ class SessionHandler {
   void _handleDeviceUpdate(SyncMessage message) {
     final household = _registeredHousehold();
     if (household == null) return;
-    final requestedDeviceId = _sessionRole == 'pet'
-        ? deviceId
-        : _requiredString(message, 'deviceId');
+    final requestedDeviceId =
+        _sessionRole == 'pet' ? deviceId : _requiredString(message, 'deviceId');
     if (requestedDeviceId == null) return;
     if (_sessionRole == 'pet' && message.payload.containsKey('deviceId')) {
       final explicitDeviceId = _optionalString(message.payload['deviceId']);
       if (explicitDeviceId != null && explicitDeviceId != deviceId) {
-        _send(SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
+        _send(
+            SyncMessage(SyncMessageTypes.pairError, {'message': 'forbidden'}));
         return;
       }
     } else if (_sessionRole != 'owner' && _sessionRole != 'pet') {
@@ -809,31 +859,49 @@ class SessionHandler {
     final syncId = _optionalString(payload['syncId']) ??
         '${DateTime.now().toUtc().microsecondsSinceEpoch}-${deviceId ?? 'unknown'}';
     final originDeviceId = deviceId ?? '';
+    final serverSeq = household.allocateServerSeq();
     final eventPayload = Map<String, dynamic>.from(payload)
       ..['syncId'] = syncId
-      ..['originDeviceId'] = originDeviceId;
+      ..['originDeviceId'] = originDeviceId
+      ..['serverSeq'] = serverSeq;
     final event = SyncEventReceipt(
       syncId: syncId,
       originDeviceId: originDeviceId,
       messageType: messageType,
+      serverSeq: serverSeq,
       payload: eventPayload,
     );
     household.syncEvents[syncId] = event;
+    _enforceSyncEventRetention(household);
     return event;
   }
 
-  void _sendMissingSyncEvents(Household household) {
+  _SyncEventBatch _sendMissingSyncEvents(
+    Household household, {
+    int? afterServerSeq,
+    int? maxEvents,
+  }) {
     final currentDeviceId = deviceId;
     if (currentDeviceId == null) {
-      return;
+      return const _SyncEventBatch();
     }
+    final eventLimit = maxEvents == null ? null : maxEvents.clamp(1, 100);
     final missingCompletedKeys = <String>{};
     var receiptChanged = false;
-    for (final event in household.syncEvents.values) {
+    var sentEventCount = 0;
+    var remainingEventCount = 0;
+    int? fromServerSeq;
+    int? toServerSeq;
+    final events = household.syncEvents.values.toList(growable: false)
+      ..sort((a, b) => a.serverSeq.compareTo(b.serverSeq));
+    for (final event in events) {
       if (event.originDeviceId == currentDeviceId) {
         continue;
       }
       if (event.receivedByDeviceIds.contains(currentDeviceId)) {
+        continue;
+      }
+      if (afterServerSeq != null && event.serverSeq <= afterServerSeq) {
         continue;
       }
       if (_isObsoleteCompletedAction(household, event.payload)) {
@@ -852,7 +920,14 @@ class SessionHandler {
           continue;
         }
       }
+      if (eventLimit != null && sentEventCount >= eventLimit) {
+        remainingEventCount += 1;
+        continue;
+      }
       _send(SyncMessage(event.messageType, event.payload));
+      sentEventCount += 1;
+      fromServerSeq ??= event.serverSeq;
+      toServerSeq = event.serverSeq;
     }
     if (missingCompletedKeys.isNotEmpty) {
       _sendMissingCompletedActions(household, missingCompletedKeys);
@@ -861,6 +936,12 @@ class SessionHandler {
       _pruneReceivedSyncEvents(household);
       unawaited(app.store.flush());
     }
+    return _SyncEventBatch(
+      sentEventCount: sentEventCount,
+      remainingEventCount: remainingEventCount,
+      fromServerSeq: fromServerSeq,
+      toServerSeq: toServerSeq,
+    );
   }
 
   void _sendMissingCompletedActions(
@@ -968,13 +1049,70 @@ class SessionHandler {
   }
 
   void _pruneReceivedSyncEvents(Household household) {
-    final deviceIds = household.devices.keys.toSet();
+    final devices = _activeReceiptTargets(household);
     household.syncEvents.removeWhere((_, event) {
-      final receiptTargets = {...deviceIds}..remove(event.originDeviceId);
-      final shouldPrune =
-          receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
-      return shouldPrune;
+      final receiptTargets =
+          devices.where((device) => device.deviceId != event.originDeviceId);
+      return receiptTargets
+          .every((device) => _hasDeviceReceivedEvent(device, event));
     });
+    _enforceSyncEventRetention(household);
+  }
+
+  bool _hasDeviceReceivedEvent(
+    HouseholdDevice device,
+    SyncEventReceipt event,
+  ) {
+    if (event.receivedByDeviceIds.contains(device.deviceId)) {
+      return true;
+    }
+    final lastPulledServerSeq = device.lastPulledServerSeq;
+    return lastPulledServerSeq != null &&
+        lastPulledServerSeq >= event.serverSeq;
+  }
+
+  List<HouseholdDevice> _activeReceiptTargets(Household household) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final cutoffMs = nowMs - app.syncEventActiveDeviceTtl.inMilliseconds;
+    return household.devices.values
+        .where((device) =>
+            app.hub.isOnline(household.id, device.deviceId) ||
+            ((device.lastSeenMs ?? -1) >= cutoffMs))
+        .toList(growable: false);
+  }
+
+  void _enforceSyncEventRetention(Household household) {
+    final maxEvents = app.maxRetainedSyncEvents;
+    final maxBytes = app.maxRetainedSyncEventBytes;
+    var removedCount = 0;
+    while (maxEvents > 0 && household.syncEvents.length > maxEvents) {
+      final oldestSyncId = household.syncEvents.keys.first;
+      household.syncEvents.remove(oldestSyncId);
+      removedCount += 1;
+    }
+    var payloadBytes = _syncEventPayloadBytes(household);
+    while (maxBytes > 0 &&
+        household.syncEvents.isNotEmpty &&
+        payloadBytes > maxBytes) {
+      final oldestSyncId = household.syncEvents.keys.first;
+      household.syncEvents.remove(oldestSyncId);
+      removedCount += 1;
+      payloadBytes = _syncEventPayloadBytes(household);
+    }
+    if (removedCount > 0) {
+      stderr.writeln(
+        '[PetNoteSyncServer] pruned $removedCount sync events '
+        'for household=${household.id} remaining=${household.syncEvents.length} '
+        'bytes=$payloadBytes',
+      );
+    }
+  }
+
+  int _syncEventPayloadBytes(Household household) {
+    final payload = household.syncEvents.map(
+      (syncId, event) => MapEntry(syncId, event.toJson()),
+    );
+    return utf8.encode(jsonEncode(payload)).length;
   }
 
   Household? _registeredHousehold() {
@@ -1007,6 +1145,24 @@ class SessionHandler {
   }
 
   String? _optionalString(Object? value) => value is String ? value : null;
+
+  int? _optionalInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return null;
+  }
+
+  int? _optionalPositiveInt(Object? value) {
+    final parsed = _optionalInt(value);
+    if (parsed == null || parsed < 0) {
+      return null;
+    }
+    return parsed;
+  }
 
   Set<String> _stringSet(Object? value) {
     if (value is! List) {
@@ -1041,4 +1197,18 @@ class SessionHandler {
   }
 
   void _send(SyncMessage message) => channel.sink.add(message.encode());
+}
+
+class _SyncEventBatch {
+  const _SyncEventBatch({
+    this.sentEventCount = 0,
+    this.remainingEventCount = 0,
+    this.fromServerSeq,
+    this.toServerSeq,
+  });
+
+  final int sentEventCount;
+  final int remainingEventCount;
+  final int? fromServerSeq;
+  final int? toServerSeq;
 }

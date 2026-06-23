@@ -271,55 +271,109 @@ class _SyncFailureCountChip extends StatelessWidget {
         final service = SyncService.instance;
         final issueKind =
             service?.currentIssueKind ?? SyncIssueKind.failedQueue;
-        final label = _syncIssueChipLabel(issueKind);
+        final label = syncIssueChipLabel(issueKind);
         return Padding(
           padding: const EdgeInsets.only(left: 12),
           child: ActionChip(
             key: const ValueKey('sync_failure_chip'),
             avatar: const Icon(Icons.sync_problem_rounded, size: 18),
             label: Text(label),
-            onPressed: () => _showSyncFailureDialog(
+            onPressed: () => showSyncIssueDialog(
               context,
-              count,
-              issueKind,
+              count: count,
+              issueKind: issueKind,
             ),
           ),
         );
       },
     );
   }
-
-  Future<void> _showSyncFailureDialog(
-    BuildContext context,
-    int count,
-    SyncIssueKind issueKind,
-  ) {
-    return showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(_syncIssueDialogTitle(issueKind)),
-        content: Text(_syncIssueDialogMessage(issueKind, count)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('关闭'),
-          ),
-          FilledButton(
-            key: const ValueKey('sync_failure_retry_button'),
-            onPressed: () {
-              final service = SyncService.instance;
-              service?.retrySyncIssues();
-              Navigator.of(context).pop();
-            },
-            child: const Text('重新同步'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-String _syncIssueChipLabel(SyncIssueKind issueKind) {
+Future<void> showSyncIssueDialog(
+  BuildContext context, {
+  required int count,
+  required SyncIssueKind issueKind,
+}) {
+  final parentContext = context;
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(_syncIssueDialogTitle(issueKind)),
+      content: Text(_syncIssueDialogMessage(issueKind, count)),
+      actions: [
+        TextButton(
+          key: const ValueKey('sync_failure_diagnostics_button'),
+          onPressed: () {
+            Navigator.of(context).pop();
+            unawaited(showSyncDiagnosticsDialog(parentContext));
+          },
+          child: const Text('诊断信息'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+        FilledButton(
+          key: const ValueKey('sync_failure_retry_button'),
+          onPressed: () {
+            final service = SyncService.instance;
+            service?.retrySyncIssues();
+            Navigator.of(context).pop();
+          },
+          child: const Text('重新同步'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> showSyncDiagnosticsDialog(BuildContext context) async {
+  final service = SyncService.instance;
+  final diagnostics = service == null
+      ? <String, Object?>{'available': false}
+      : await service.buildDiagnosticsSnapshotWithPayloadStats();
+  if (!context.mounted) {
+    return;
+  }
+  final encoded = const JsonEncoder.withIndent('  ').convert(diagnostics);
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('同步诊断信息'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: SelectableText(
+            encoded,
+            key: const ValueKey('sync_diagnostics_payload'),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('sync_diagnostics_copy_button'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: encoded));
+            if (!context.mounted) {
+              return;
+            }
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              const SnackBar(content: Text('诊断信息已复制')),
+            );
+          },
+          child: const Text('复制'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
+}
+
+String syncIssueChipLabel(SyncIssueKind issueKind) {
   return switch (issueKind) {
     SyncIssueKind.pendingResetConfirmation => '同步确认中',
     SyncIssueKind.handshakeFailed || SyncIssueKind.failedQueue => '同步失败',

@@ -2,37 +2,53 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:petnote/data/data_storage_models.dart';
 import 'package:petnote/platform/petnote_app_directory.dart';
 import 'package:petnote/state/petnote_store.dart';
 
 const String petPhotoAttachmentsPayloadKey = 'petPhotoAttachments';
 const String petPhotoAttachmentPayloadKey = 'petPhotoAttachment';
+const int syncPhotoAttachmentMaxBytes = 3 * 1024 * 1024;
 
 class SyncPhotoAttachment {
   const SyncPhotoAttachment({
     required this.petId,
     required this.fileName,
     required this.base64Data,
+    this.blobId,
+    this.sha256,
+    this.sizeBytes,
   });
 
   final String petId;
   final String fileName;
   final String base64Data;
+  final String? blobId;
+  final String? sha256;
+  final int? sizeBytes;
 
   Map<String, dynamic> toJson() {
     return {
       'petId': petId,
       'fileName': fileName,
       'base64Data': base64Data,
+      if (blobId != null) 'blobId': blobId,
+      if (sha256 != null) 'sha256': sha256,
+      if (sizeBytes != null) 'sizeBytes': sizeBytes,
     };
   }
 
   factory SyncPhotoAttachment.fromJson(Map<String, dynamic> json) {
+    final size = json['sizeBytes'];
+    final sha = (json['sha256'] as String?)?.trim();
     return SyncPhotoAttachment(
       petId: json['petId'] as String? ?? '',
       fileName: json['fileName'] as String? ?? '',
       base64Data: json['base64Data'] as String? ?? '',
+      blobId: (json['blobId'] as String?)?.trim(),
+      sha256: sha == null || sha.isEmpty ? null : sha,
+      sizeBytes: size is num ? size.toInt() : null,
     );
   }
 }
@@ -40,7 +56,7 @@ class SyncPhotoAttachment {
 class SyncPhotoAttachmentCodec {
   const SyncPhotoAttachmentCodec({
     Future<String?> Function()? directoryLoader,
-    int maxPhotoBytes = 3 * 1024 * 1024,
+    int maxPhotoBytes = syncPhotoAttachmentMaxBytes,
   })  : _directoryLoader = directoryLoader,
         _maxPhotoBytes = maxPhotoBytes;
 
@@ -82,10 +98,14 @@ class SyncPhotoAttachmentCodec {
       return null;
     }
     final bytes = await file.readAsBytes();
+    final digest = sha256.convert(bytes).toString();
     return SyncPhotoAttachment(
       petId: pet.id,
       fileName: _safeFileName(photoPath, pet.id),
       base64Data: base64Encode(bytes),
+      blobId: 'sha256:$digest',
+      sha256: digest,
+      sizeBytes: bytes.length,
     );
   }
 
@@ -131,14 +151,14 @@ class SyncPhotoAttachmentCodec {
         continue;
       }
       final bytes = _decodeBytes(attachment.base64Data);
-      if (bytes == null || bytes.isEmpty || bytes.length > _maxPhotoBytes) {
+      if (!_isValidAttachmentBytes(attachment, bytes)) {
         continue;
       }
       final file = File(_joinPath(
         directory.path,
         '${_safeSegment(attachment.petId)}-${_safeFileName(attachment.fileName, attachment.petId)}',
       ));
-      await file.writeAsBytes(bytes, flush: true);
+      await file.writeAsBytes(bytes!, flush: true);
       pathByPetId[attachment.petId] = file.path;
     }
     return pathByPetId;
@@ -150,6 +170,34 @@ class SyncPhotoAttachmentCodec {
     } on FormatException {
       return null;
     }
+  }
+
+  bool _isValidAttachmentBytes(
+    SyncPhotoAttachment attachment,
+    Uint8List? bytes,
+  ) {
+    if (bytes == null || bytes.isEmpty || bytes.length > _maxPhotoBytes) {
+      return false;
+    }
+    final expectedSize = attachment.sizeBytes;
+    if (expectedSize != null && expectedSize != bytes.length) {
+      return false;
+    }
+    final expectedHash = attachment.sha256;
+    if (expectedHash != null &&
+        expectedHash.isNotEmpty &&
+        sha256.convert(bytes).toString() != expectedHash) {
+      return false;
+    }
+    final expectedBlobId = attachment.blobId;
+    if (expectedBlobId != null &&
+        expectedBlobId.isNotEmpty &&
+        expectedHash != null &&
+        expectedHash.isNotEmpty &&
+        expectedBlobId != 'sha256:$expectedHash') {
+      return false;
+    }
+    return true;
   }
 }
 

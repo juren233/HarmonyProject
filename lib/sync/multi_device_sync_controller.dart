@@ -12,6 +12,8 @@ import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 class MultiDeviceSyncController {
+  static const int defaultSnapshotPullBatchSize = 50;
+
   MultiDeviceSyncController({
     required this.store,
     required this.transport,
@@ -71,6 +73,7 @@ class MultiDeviceSyncController {
   );
 
   StreamSubscription<SyncMessage>? _subscription;
+  Future<void> _messageQueue = Future<void>.value();
   Timer? _pushTimer;
   String? _lastPushedSnapshotKey;
   int _version;
@@ -78,6 +81,7 @@ class MultiDeviceSyncController {
   var _started = false;
   var _resolveNextMergeSnapshotConflict = false;
   var _pairingRemoved = false;
+  var _inboundApplyFailedSinceCheckpoint = false;
 
   int get pendingOutboxCount => _failureQueue.pendingCount;
   DateTime? get nextOutboxRetryAt => _failureQueue.nextRetryAt;
@@ -97,7 +101,11 @@ class MultiDeviceSyncController {
     _failureQueue.restore();
     _mutationOutbox.start();
     _subscription = transport.messages.listen((message) {
-      unawaited(_onMessage(message));
+      _messageQueue = _messageQueue.then((_) => _onMessage(message)).catchError(
+        (Object error) {
+          lastError.value = error;
+        },
+      );
     }, onError: (Object error) {
       lastError.value = error;
     });
@@ -149,7 +157,8 @@ class MultiDeviceSyncController {
               attachments.map((item) => item.toJson()).toList(),
       };
       final json = jsonEncode(snapshotPayload);
-      final snapshotKey = '${dataPolicy.name}:$preserveConflictingIds:$json';
+      final snapshotKey =
+          '${dataPolicy.name}:$preserveConflictingIds:${_snapshotFingerprint(json)}';
       if (!force && snapshotKey == _lastPushedSnapshotKey) {
         return;
       }
@@ -168,6 +177,15 @@ class MultiDeviceSyncController {
     } on Object catch (error) {
       lastError.value = error;
     }
+  }
+
+  String _snapshotFingerprint(String json) {
+    var hash = 0xcbf29ce484222325;
+    for (final byte in utf8.encode(json)) {
+      hash ^= byte;
+      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+    }
+    return '${json.length}:$hash';
   }
 
   Future<void> _onMessage(SyncMessage message) async {
@@ -192,6 +210,8 @@ class MultiDeviceSyncController {
       case SyncMessageTypes.syncReceived:
         await _mutationOutbox.applySyncReceived(message);
         await _markResetSnapshotReceived(message);
+      case SyncMessageTypes.syncCheckpoint:
+        await _applySyncCheckpoint(message);
       default:
         break;
     }
@@ -281,6 +301,7 @@ class MultiDeviceSyncController {
       await _mutationOutbox.markRemoteActionApplied(appliedAction);
       lastSyncedAt.value = DateTime.now();
     } on Object catch (error) {
+      _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
     }
   }
@@ -310,6 +331,7 @@ class MultiDeviceSyncController {
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
     } on Object catch (error) {
+      _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
     }
   }
@@ -396,6 +418,7 @@ class MultiDeviceSyncController {
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
     } on Object catch (error) {
+      _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
     }
   }
@@ -413,6 +436,7 @@ class MultiDeviceSyncController {
   void requestSnapshot({
     SyncDataPolicy dataPolicy = SyncDataPolicy.merge,
     bool resolveConflicts = false,
+    bool useCheckpoint = true,
   }) {
     if (_pairingRemoved) {
       return;
@@ -426,6 +450,10 @@ class MultiDeviceSyncController {
         'dataPolicy': dataPolicy.name,
         if (dataPolicy == SyncDataPolicy.merge && resolveConflicts)
           'mergeMode': 'preserveConflictingIds',
+        if (useCheckpoint && dataPolicy == SyncDataPolicy.merge) ...{
+          'afterServerSeq': settings?.lastPulledServerSeq ?? 0,
+          'maxEvents': defaultSnapshotPullBatchSize,
+        },
       }),
     );
   }
@@ -502,6 +530,20 @@ class MultiDeviceSyncController {
       return;
     }
     await settings?.setPendingResetSnapshotSyncId(null);
+  }
+
+  Future<void> _applySyncCheckpoint(SyncMessage message) async {
+    final toServerSeq = (message.payload['toServerSeq'] as num?)?.toInt();
+    final canAdvanceCheckpoint = !_inboundApplyFailedSinceCheckpoint;
+    _inboundApplyFailedSinceCheckpoint = false;
+    if (canAdvanceCheckpoint &&
+        toServerSeq != null &&
+        toServerSeq > (settings?.lastPulledServerSeq ?? 0)) {
+      await settings?.setLastPulledServerSeq(toServerSeq);
+    }
+    if (message.payload['hasMore'] == true) {
+      requestSnapshot();
+    }
   }
 
   void _handleStoreChanged() {

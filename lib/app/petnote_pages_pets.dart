@@ -503,7 +503,7 @@ class _PetSelectorCardState extends State<_PetSelectorCard> {
                       children: [
                         PetPhotoAvatar(
                           photoPath: pet.photoPath,
-                          fallbackText: pet.avatarText,
+                          fallbackText: petAvatarFallbackForPet(pet),
                           radius: 20,
                           backgroundColor: selected
                               ? const Color(0x33FFFFFF)

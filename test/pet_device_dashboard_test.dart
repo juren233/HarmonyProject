@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/pet_device_dashboard.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
@@ -61,6 +62,15 @@ void main() {
     expect(find.text('已连接'), findsOneWidget);
     expect(find.text('选择后会进入常亮中枢屏，只展示它的状态和待办。'), findsNothing);
     expect(find.text('稍后可在设置中重新选择'), findsNothing);
+
+    final cardInk = tester.widget<Ink>(
+      find.descendant(
+        of: find.byKey(ValueKey('dashboard_select_pet_${store.pets.first.id}')),
+        matching: find.byType(Ink),
+      ),
+    );
+    final cardDecoration = cardInk.decoration as BoxDecoration;
+    expect(cardDecoration.boxShadow, anyOf(isNull, isEmpty));
 
     final pet = store.pets.first;
     await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -170,8 +180,40 @@ void main() {
         find.byKey(const ValueKey('pet_selector_side_panel')), findsOneWidget);
     expect(
         find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_app_logo_box')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_brand_header')),
+        findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('宠记'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('PetNote'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_status_card')),
+        matching: find.text('宠物日常关怀记录App'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('选择服务宠物'), findsNothing);
-    expect(find.text('这台设备照顾谁？'), findsWidgets);
+    expect(find.text('这台设备照顾谁？'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pet_selector_list_panel')),
+        matching: find.text('这台设备照顾谁？'),
+      ),
+      findsNothing,
+    );
     expect(find.text('2 只可服务'), findsNothing);
     expect(find.text('横放设备时，左侧保留状态和设置，右侧留给宠物选择。'), findsNothing);
     expect(find.text('选择后进入常亮中枢屏'), findsNothing);
@@ -229,22 +271,68 @@ void main() {
       final listPanelRect = tester.getRect(
         find.byKey(const ValueKey('pet_selector_list_panel')),
       );
+      final statusCardRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_status_card')),
+      );
+      final logoRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_app_logo_box')),
+      );
+      final brandHeaderRect = tester.getRect(
+        find.byKey(const ValueKey('pet_selector_brand_header')),
+      );
+      final brandTaglineRect = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_brand_header')),
+          matching: find.text('宠物日常关怀记录App'),
+        ),
+      );
       expect(sidePanelRect.left, greaterThanOrEqualTo(0));
       expect(listPanelRect.right, lessThanOrEqualTo(size.width));
       expect(sidePanelRect.right, lessThan(listPanelRect.left));
+      expect(
+          brandHeaderRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(brandHeaderRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
+      expect(
+        brandHeaderRect.right,
+        lessThanOrEqualTo(statusCardRect.right - 8),
+      );
+      expect(
+        brandHeaderRect.bottom,
+        lessThanOrEqualTo(statusCardRect.bottom - 8),
+      );
+      expect(logoRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(logoRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
+      expect(logoRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(logoRect.bottom, lessThanOrEqualTo(statusCardRect.bottom - 8));
       final syncPillRect = tester.getRect(find.text('同步中...'));
-      expect(syncPillRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
-      expect(syncPillRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      expect(syncPillRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(syncPillRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(syncPillRect.bottom, lessThanOrEqualTo(statusCardRect.bottom - 8));
       final titleRect = tester.getRect(
         find.descendant(
           of: find.byKey(const ValueKey('pet_selector_status_card')),
           matching: find.text('这台设备照顾谁？'),
         ),
       );
-      expect(titleRect.left, greaterThanOrEqualTo(sidePanelRect.left + 8));
-      expect(titleRect.right, lessThanOrEqualTo(sidePanelRect.right - 8));
+      expect(titleRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
+      expect(titleRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(logoRect.top, greaterThanOrEqualTo(brandHeaderRect.top));
+      expect(logoRect.bottom, lessThan(brandHeaderRect.bottom));
+      expect(
+          brandTaglineRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+      expect(
+          brandTaglineRect.bottom, lessThanOrEqualTo(brandHeaderRect.bottom));
+      expect(brandHeaderRect.bottom, lessThan(titleRect.top));
+      expect(titleRect.bottom, lessThan(syncPillRect.top));
       expect(find.text('选择服务宠物'), findsNothing);
       expect(find.text('${store.pets.length} 只可服务'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_list_panel')),
+          matching: find.text('这台设备照顾谁？'),
+        ),
+        findsNothing,
+      );
 
       final pet = store.pets.first;
       await tester.tap(find.byKey(ValueKey('dashboard_select_pet_${pet.id}')));
@@ -253,6 +341,70 @@ void main() {
     }
 
     addTearDown(() => tester.binding.setSurfaceSize(null));
+  });
+
+  testWidgets('横屏选择页左侧 App 图标跟随深浅色模式', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 520));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    Future<void> pumpDashboard(Brightness brightness) async {
+      final store = PetNoteStore.seeded();
+      await tester.pumpWidget(
+        _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: null,
+            syncStatusLabel: '已连接',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (_) {},
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+          brightness: brightness,
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await pumpDashboard(Brightness.light);
+    final lightLogo = tester.widget<Container>(
+      find.byKey(const ValueKey('pet_selector_app_logo_box')),
+    );
+    final lightDecoration = lightLogo.decoration as BoxDecoration;
+    expect(lightDecoration.color, Colors.white);
+    expect(lightDecoration.boxShadow?.single.blurRadius, 16);
+    expect(lightDecoration.boxShadow?.single.offset, const Offset(0, 5));
+    expect(
+      tester
+          .widget<SvgPicture>(
+            find.descendant(
+              of: find.byKey(const ValueKey('pet_selector_app_logo_box')),
+              matching: find.byType(SvgPicture),
+            ),
+          )
+          .colorFilter,
+      isNull,
+    );
+
+    await pumpDashboard(Brightness.dark);
+    final darkLogo = tester.widget<Container>(
+      find.byKey(const ValueKey('pet_selector_app_logo_box')),
+    );
+    final darkDecoration = darkLogo.decoration as BoxDecoration;
+    expect(darkDecoration.color, const Color(0xFF111111));
+    expect(darkDecoration.boxShadow?.single.blurRadius, 16);
+    expect(darkDecoration.boxShadow?.single.offset, const Offset(0, 5));
+    expect(
+      tester
+          .widget<SvgPicture>(
+            find.descendant(
+              of: find.byKey(const ValueKey('pet_selector_app_logo_box')),
+              matching: find.byType(SvgPicture),
+            ),
+          )
+          .colorFilter,
+      const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+    );
   });
 
   testWidgets('横屏选择页长文案不破坏布局', (tester) async {
@@ -435,6 +587,39 @@ void main() {
 
     expect(action?.kind, PetActionKind.markDone);
     expect(action?.sourceType, firstItem.sourceType);
+  });
+
+  testWidgets('点击宠物待办页头像返回宠物选择列表', (tester) async {
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+    String? selectedPetId = pet.id;
+
+    Widget dashboard() => _wrapDashboard(
+          PetDeviceDashboard(
+            store: store,
+            servedPetId: selectedPetId,
+            syncStatusLabel: '已连接',
+            pendingItemKeys: const <String>{},
+            onSelectServedPet: (value) => selectedPetId = value,
+            onMarkDone: (_) {},
+            onOpenSettings: () {},
+          ),
+        );
+
+    await tester.pumpWidget(dashboard());
+    expect(
+        find.byKey(const ValueKey('pet_dashboard_pet_card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_list_panel')), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('pet_dashboard_avatar_return_selection')),
+    );
+    await tester.pumpWidget(dashboard());
+
+    expect(selectedPetId, isNull);
+    expect(
+        find.byKey(const ValueKey('pet_selector_list_panel')), findsOneWidget);
   });
 
   testWidgets('宠物端看板详情页时钟保持分钟刷新', (tester) async {
@@ -848,15 +1033,37 @@ void main() {
       find.byKey(const ValueKey('pet_dashboard_settings')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('sync_failure_chip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync_failure_chip')), findsNothing);
+    expect(find.text('同步确认中'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('sync_failure_chip')));
+    await tester.tap(find.text('同步确认中'));
     await tester.pumpAndSettle();
 
     expect(find.text('同步确认中'), findsWidgets);
     expect(find.text('数据已发出，正在等待另一台设备确认收到。'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('sync_failure_retry_button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('sync_failure_diagnostics_button')),
+      findsOneWidget,
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('sync_failure_diagnostics_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('同步诊断信息'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sync_diagnostics_payload')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('connectionState'), findsOneWidget);
+    expect(find.textContaining('hasHouseholdId'), findsOneWidget);
+    expect(find.textContaining('house-1'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('sync_diagnostics_copy_button')),
       findsOneWidget,
     );
 

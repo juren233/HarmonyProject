@@ -32,6 +32,128 @@ void main() {
     client.close();
   });
 
+  test('同步诊断接口默认关闭', () async {
+    final client = HttpClient();
+    final request = await client.getUrl(
+      Uri.parse('http://127.0.0.1:${server.port}/diagnostics/sync'),
+    );
+    final response = await request.close();
+
+    expect(response.statusCode, 404);
+    client.close();
+  });
+
+  test('同步诊断接口要求 token 且不泄露敏感同步内容', () async {
+    await server.close(force: true);
+    await app.close();
+    app = SyncServerApp(
+      dataDirectory: Directory.systemTemp.createTempSync('petnote_srv_'),
+      diagnosticsToken: 'diagnostics-secret',
+    );
+    server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
+
+    final household = app.store.create('household-1', 'salt', 'auth-token');
+    household.nextServerSeq = 4;
+    household.devices['owner-1'] = HouseholdDevice(
+      deviceId: 'owner-1',
+      name: '主人手机',
+      role: 'owner',
+      lastSeenMs: DateTime.now().millisecondsSinceEpoch,
+      lastAckServerSeq: 2,
+      lastPulledServerSeq: 1,
+    );
+    household.devices['pet-stale'] = HouseholdDevice(
+      deviceId: 'pet-stale',
+      name: '旧平板',
+      role: 'pet',
+      lastSeenMs: DateTime.now()
+          .subtract(const Duration(days: 45))
+          .millisecondsSinceEpoch,
+    );
+    household.syncEvents['sync-1'] = SyncEventReceipt(
+      syncId: 'sync-1',
+      originDeviceId: 'owner-1',
+      messageType: SyncMessageTypes.snapshot,
+      serverSeq: 3,
+      payload: {
+        'syncId': 'sync-1',
+        'originDeviceId': 'owner-1',
+        'serverSeq': 3,
+        'version': 7,
+        'ciphertext': 'very-sensitive-ciphertext',
+      },
+    );
+
+    final unauthorizedClient = HttpClient();
+    final unauthorizedRequest = await unauthorizedClient.getUrl(
+      Uri.parse('http://127.0.0.1:${server.port}/diagnostics/sync'),
+    );
+    final unauthorizedResponse = await unauthorizedRequest.close();
+    expect(unauthorizedResponse.statusCode, 401);
+    unauthorizedClient.close();
+
+    final ws = IOWebSocketChannel.connect('ws://127.0.0.1:${server.port}/ws');
+    ws.sink.add(SyncMessage(SyncMessageTypes.hello, {
+      'householdId': 'household-1',
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': 'auth-token',
+      'deviceName': '主人手机',
+      'lastPulledServerSeq': 3,
+    }).encode());
+    expect(SyncMessage.decode(await ws.stream.first as String).type,
+        SyncMessageTypes.helloAck);
+
+    final client = HttpClient();
+    final request = await client.getUrl(
+      Uri.parse('http://127.0.0.1:${server.port}/diagnostics/sync'),
+    );
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer diagnostics-secret',
+    );
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+    final json = jsonDecode(body) as Map<String, dynamic>;
+
+    expect(response.statusCode, 200);
+    expect(json['generatedAtMs'], isA<int>());
+    expect(json['retention'], isA<Map<String, dynamic>>());
+    expect(json['totals'], containsPair('householdCount', 1));
+    expect(json['totals'], containsPair('deviceCount', 2));
+    expect(json['totals'], containsPair('activeDeviceCount', 1));
+    expect(json['totals'], containsPair('onlineDeviceCount', 1));
+    expect(json['totals'], containsPair('syncEventCount', 1));
+    final diagnosticsHousehold =
+        (json['households'] as List<dynamic>).single as Map<String, dynamic>;
+    expect(diagnosticsHousehold['householdId'], 'household-1');
+    expect(diagnosticsHousehold['nextServerSeq'], 4);
+    expect(diagnosticsHousehold['minSyncEventServerSeq'], 3);
+    expect(diagnosticsHousehold['maxSyncEventServerSeq'], 3);
+    expect(diagnosticsHousehold['minActiveAckServerSeq'], 2);
+    expect(diagnosticsHousehold['syncEventBytes'], isA<int>());
+    expect(diagnosticsHousehold['maxSyncEventBytes'], isA<int>());
+    final devices = (diagnosticsHousehold['devices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('online', true));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('lastAckServerSeq', 2));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('lastPulledServerSeq', 3));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('pullLagServerSeq', 0));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'owner-1'),
+        containsPair('ackLagServerSeq', 1));
+    expect(devices.firstWhere((device) => device['deviceId'] == 'pet-stale'),
+        containsPair('active', false));
+    expect(body, isNot(contains('auth-token')));
+    expect(body, isNot(contains('very-sensitive-ciphertext')));
+
+    await ws.sink.close();
+    client.close();
+  });
+
   test('未配置 ARTC 时 Token 接口返回 503', () async {
     final client = HttpClient();
     final request = await client
@@ -61,8 +183,9 @@ void main() {
       }),
     );
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
-    app.store.create('household-1', 'salt', 'auth-token')
-      .devices['owner-device'] = HouseholdDevice(
+    app.store
+        .create('household-1', 'salt', 'auth-token')
+        .devices['owner-device'] = HouseholdDevice(
       deviceId: 'owner-device',
       name: '主人手机',
     );
@@ -90,8 +213,8 @@ void main() {
     expect(json['token'], isA<String>());
     expect(json['token'] as String, isNot(contains('fake-app-key-for-test')));
     expect(json['singleToken'], isA<String>());
-    expect(
-        json['singleToken'] as String, isNot(contains('fake-app-key-for-test')));
+    expect(json['singleToken'] as String,
+        isNot(contains('fake-app-key-for-test')));
     expect(json['nonce'], isA<String>());
     expect(json['timestamp'], isA<int>());
     expect(json['gslb'], isA<List<dynamic>>());
@@ -164,8 +287,9 @@ void main() {
       }),
     );
     server = await app.serve(address: InternetAddress.loopbackIPv4, port: 0);
-    app.store.create('household-1', 'salt', 'auth-token')
-      .devices['known-device'] = HouseholdDevice(
+    app.store
+        .create('household-1', 'salt', 'auth-token')
+        .devices['known-device'] = HouseholdDevice(
       deviceId: 'known-device',
       name: '已配对设备',
     );

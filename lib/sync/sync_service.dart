@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:petnote/state/app_settings_controller.dart';
@@ -7,6 +9,7 @@ import 'package:petnote/sync/official_sync_server_resolver.dart';
 import 'package:petnote/sync/owner_sync_engine.dart';
 import 'package:petnote/sync/pet_replica_controller.dart';
 import 'package:petnote/sync/sync_client.dart';
+import 'package:petnote/sync/sync_photo_attachment.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
 import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
@@ -28,6 +31,7 @@ class SyncStatusSnapshot {
     required this.sessionState,
     required this.pendingOutboxCount,
     required this.pendingMutationCount,
+    required this.lastPulledServerSeq,
     required this.lastSyncedAt,
     required this.lastPullAt,
     required this.lastError,
@@ -38,6 +42,7 @@ class SyncStatusSnapshot {
   final SyncSessionState sessionState;
   final int pendingOutboxCount;
   final int pendingMutationCount;
+  final int lastPulledServerSeq;
   final DateTime? lastSyncedAt;
   final DateTime? lastPullAt;
   final Object? lastError;
@@ -101,6 +106,7 @@ class SyncService extends ChangeNotifier {
             petController?.pendingOutboxCount ??
             0,
         pendingMutationCount: _activeStore?.pendingLocalMutations.length ?? 0,
+        lastPulledServerSeq: settings.lastPulledServerSeq,
         lastSyncedAt: ownerEngine?.lastSyncedAt.value ??
             petController?.lastSyncedAt.value,
         lastPullAt: _lastPullAt,
@@ -110,6 +116,141 @@ class SyncService extends ChangeNotifier {
         nextRetryAt:
             ownerEngine?.nextOutboxRetryAt ?? petController?.nextOutboxRetryAt,
       );
+  Map<String, Object?> buildDiagnosticsSnapshot() {
+    final snapshot = statusSnapshot;
+    return <String, Object?>{
+      'connectionState': snapshot.connectionState.name,
+      'sessionState': snapshot.sessionState.name,
+      'issueKind': currentIssueKind.name,
+      'deviceRole': settings.deviceRole.name,
+      'syncServerMode': settings.syncServerMode.name,
+      'hasHouseholdId': settings.householdId != null,
+      'hasDeviceId': settings.deviceId != null,
+      'hasServedPetId': settings.servedPetId != null,
+      'hasPendingResetSnapshot': settings.pendingResetSnapshotSyncId != null,
+      'pendingOutboxCount': snapshot.pendingOutboxCount,
+      'pendingMutationCount': snapshot.pendingMutationCount,
+      'failedSyncCount': _failedSyncCount.value,
+      'lastPulledServerSeq': snapshot.lastPulledServerSeq,
+      'lastSyncedAtMs': snapshot.lastSyncedAt?.millisecondsSinceEpoch,
+      'lastPullAtMs': snapshot.lastPullAt?.millisecondsSinceEpoch,
+      'nextRetryAtMs': snapshot.nextRetryAt?.millisecondsSinceEpoch,
+      'lastErrorType': snapshot.lastError?.runtimeType.toString(),
+      'lastErrorKind': _diagnosticErrorKind(snapshot.lastError),
+    };
+  }
+
+  Future<Map<String, Object?>>
+      buildDiagnosticsSnapshotWithPayloadStats() async {
+    final diagnostics = Map<String, Object?>.from(buildDiagnosticsSnapshot());
+    final store = _activeStore;
+    diagnostics['hasActiveStore'] = store != null;
+    if (store == null) {
+      return diagnostics;
+    }
+
+    final state = store.exportDataState();
+    final snapshotDataJsonBytes =
+        utf8.encode(jsonEncode(state.toJson())).length;
+    var petPhotoPathCount = 0;
+    var petPhotoUniquePathCount = 0;
+    var petPhotoSyncEligibleCount = 0;
+    var petPhotoMissingCount = 0;
+    var petPhotoEmptyCount = 0;
+    var petPhotoTooLargeCount = 0;
+    var petPhotoBytes = 0;
+    var petPhotoBase64Bytes = 0;
+    final seenPhotoPaths = <String>{};
+
+    for (final pet in state.pets) {
+      final photoPath = pet.photoPath?.trim();
+      if (photoPath == null || photoPath.isEmpty) {
+        continue;
+      }
+      petPhotoPathCount += 1;
+      if (!seenPhotoPaths.add(photoPath)) {
+        continue;
+      }
+      petPhotoUniquePathCount += 1;
+      final file = File(photoPath);
+      try {
+        if (!await file.exists()) {
+          petPhotoMissingCount += 1;
+          continue;
+        }
+        final length = await file.length();
+        if (length <= 0) {
+          petPhotoEmptyCount += 1;
+          continue;
+        }
+        if (length > syncPhotoAttachmentMaxBytes) {
+          petPhotoTooLargeCount += 1;
+          continue;
+        }
+        petPhotoSyncEligibleCount += 1;
+        petPhotoBytes += length;
+        petPhotoBase64Bytes += _estimatedBase64Bytes(length);
+      } on FileSystemException {
+        petPhotoMissingCount += 1;
+      }
+    }
+
+    final recordPhotoReferenceCount = state.records.fold<int>(
+      0,
+      (count, record) => count + record.photoPaths.length,
+    );
+    diagnostics.addAll(<String, Object?>{
+      'localPetCount': state.pets.length,
+      'localTodoCount': state.todos.length,
+      'localReminderCount': state.reminders.length,
+      'localRecordCount': state.records.length,
+      'snapshotDataJsonBytes': snapshotDataJsonBytes,
+      'estimatedSnapshotPayloadBytes':
+          snapshotDataJsonBytes + petPhotoBase64Bytes,
+      'petPhotoPathCount': petPhotoPathCount,
+      'petPhotoUniquePathCount': petPhotoUniquePathCount,
+      'petPhotoSyncEligibleCount': petPhotoSyncEligibleCount,
+      'petPhotoMissingCount': petPhotoMissingCount,
+      'petPhotoEmptyCount': petPhotoEmptyCount,
+      'petPhotoTooLargeCount': petPhotoTooLargeCount,
+      'petPhotoBytes': petPhotoBytes,
+      'petPhotoBase64Bytes': petPhotoBase64Bytes,
+      'recordPhotoReferenceCount': recordPhotoReferenceCount,
+      'petPhotoMaxBytes': syncPhotoAttachmentMaxBytes,
+    });
+    return diagnostics;
+  }
+
+  String? _diagnosticErrorKind(Object? error) {
+    if (error == null) {
+      return null;
+    }
+    if (error is TimeoutException) {
+      return 'timeout';
+    }
+    final text = error.toString().toLowerCase();
+    if (text.contains('auth failed')) {
+      return 'authFailed';
+    }
+    if (text.contains('unknown household')) {
+      return 'unknownHousehold';
+    }
+    if (text.contains('secure storage')) {
+      return 'secureStorage';
+    }
+    if (text.contains('outbox') && text.contains('limit')) {
+      return 'outboxCapacity';
+    }
+    return 'unknown';
+  }
+
+  int _estimatedBase64Bytes(int rawBytes) {
+    if (rawBytes <= 0) {
+      return 0;
+    }
+    return ((rawBytes + 2) ~/ 3) * 4;
+  }
+
   SyncIssueKind get currentIssueKind {
     final baseCount = ownerEngine?.failedSyncCount.value ??
         petController?.failedSyncCount.value ??
@@ -247,13 +388,25 @@ class SyncService extends ChangeNotifier {
     );
 
     if (pendingPolicy == null) {
+      final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
       if (!pushStartupSnapshot) {
         await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
         _initialConnectionCompleted = true;
         return;
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-      ownerEngine?.requestSnapshot();
+      if (hasPendingReset) {
+        ownerEngine?.requestSnapshot();
+      } else {
+        await ownerEngine?.pushSnapshotNow(
+          dataPolicy: SyncDataPolicy.merge,
+          preserveConflictingIds: true,
+        );
+        ownerEngine?.requestSnapshot(
+          dataPolicy: SyncDataPolicy.merge,
+          resolveConflicts: true,
+        );
+      }
       _initialConnectionCompleted = true;
       return;
     }
@@ -339,13 +492,25 @@ class SyncService extends ChangeNotifier {
     );
 
     if (pendingPolicy == null) {
+      final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
       if (!pushStartupSnapshot) {
         await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
         _initialConnectionCompleted = true;
         return;
       }
       await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
-      petController?.requestSnapshot();
+      if (hasPendingReset) {
+        petController?.requestSnapshot();
+      } else {
+        await petController?.pushSnapshotNow(
+          dataPolicy: SyncDataPolicy.merge,
+          preserveConflictingIds: true,
+        );
+        petController?.requestSnapshot(
+          dataPolicy: SyncDataPolicy.merge,
+          resolveConflicts: true,
+        );
+      }
       _initialConnectionCompleted = true;
       return;
     }
@@ -750,6 +915,7 @@ class SyncService extends ChangeNotifier {
         'role': isOwner ? 'owner' : 'pet',
         if (config.authToken != null) 'authToken': config.authToken,
         'deviceName': settings.deviceName ?? (isOwner ? '主人设备' : '宠物端设备'),
+        'lastPulledServerSeq': settings.lastPulledServerSeq,
         if (!isOwner) 'servedPetId': settings.servedPetId,
       }),
     );

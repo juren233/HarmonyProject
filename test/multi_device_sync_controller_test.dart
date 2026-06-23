@@ -33,6 +33,46 @@ void main() async {
     owner.dispose();
     pet.dispose();
   });
+
+  test('重复快照去重使用短指纹且数据变化后仍会重新发送', () async {
+    final store = PetNoteStore.seeded();
+    final transport = FakeSyncTransport();
+    final controller = MultiDeviceSyncController(
+      store: store,
+      transport: transport,
+      crypto: crypto,
+    );
+
+    await controller.start(
+      pushInitialSnapshot: false,
+      requestInitialSnapshot: false,
+    );
+    await controller.pushSnapshotNow();
+    await controller.pushSnapshotNow();
+
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.snapshotPush),
+      hasLength(1),
+    );
+
+    await store.addTodo(
+      petId: store.pets.first.id,
+      title: '短指纹快照变化',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    await controller.pushSnapshotNow();
+
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.snapshotPush),
+      hasLength(2),
+    );
+
+    controller.dispose();
+  });
 }
 
 class FakeSyncTransport implements SyncTransport {
@@ -51,6 +91,7 @@ class FakeSyncTransport implements SyncTransport {
   ValueListenable<SyncConnectionState> get state => _state;
   final ValueNotifier<SyncConnectionState> _state =
       ValueNotifier<SyncConnectionState>(SyncConnectionState.connected);
+  final List<SyncMessage> sent = <SyncMessage>[];
 
   @override
   Future<void> connect() async {
@@ -63,5 +104,7 @@ class FakeSyncTransport implements SyncTransport {
   }
 
   @override
-  void send(SyncMessage message) {}
+  void send(SyncMessage message) {
+    sent.add(message);
+  }
 }
