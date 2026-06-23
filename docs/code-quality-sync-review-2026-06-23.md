@@ -11,7 +11,7 @@
 但如果目标是“极端网络和高频操作后仍稳定高效”，当前自研同步仍未到最终形态。主要剩余风险集中在四处：
 
 1. 客户端持久 outbox 已有数量/字节上限，但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
-2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq` 和按 seq 增量补发协议；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint，服务端诊断已能展示每设备 pulled/ack 水位和滞后值。后续重点转为产品侧诊断展示和服务端 cursor prune。
+2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq`、按 seq 增量补发协议和基于 last pulled 水位的剪枝；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint，服务端诊断已能展示每设备 pulled/ack 水位和滞后值。后续重点转为产品侧诊断展示和更完整的 operation log。
 3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；虽然已具备 `serverSeq` / 设备 ack / 客户端 checkpoint 基础，但统一 operation log 尚未完成。
 4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，后续还需要把这些指标与端侧 outbox、认证错误、附件体积和具体冲突归因串起来。
 
@@ -39,7 +39,7 @@
 
 服务端 `_pruneReceivedSyncEvents` 已只等待在线或近期活跃设备；`syncEvents` 同时有数量与 UTF-8 字节上限，超限时剪掉最旧事件并写日志告警。
 
-剩余边界：服务端已记录 `serverSeq` 和 `lastAckServerSeq`，客户端也会持久记录 `lastPulledServerSeq`；但服务端还没有用 active cursor 直接驱动 cursor prune。
+剩余边界：服务端已记录 `serverSeq`、`lastAckServerSeq` 和 `lastPulledServerSeq`，也会用活跃设备的 last pulled 水位辅助剪枝；但剪枝仍服务于现有 snapshot/mutation/action 三链路，尚未收敛成统一 operation log。
 
 ### 已完成: 客户端 checkpoint 接入默认 merge 拉取
 

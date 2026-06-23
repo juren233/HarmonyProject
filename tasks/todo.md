@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 服务端按拉取水位剪枝同步事件
+
+- [x] 用活跃设备 `lastPulledServerSeq` 辅助判断旧事件已收敛 → 验证: 服务端同步流测试覆盖无需显式 `sync_received` 也可剪枝
+- [x] 保留现有 `sync_received` 与长期离线设备 TTL 语义 → 验证: 既有 sync flow 测试保持通过
+- [x] 更新同步评估文档剩余边界 → 验证: 文档不再把 cursor prune 作为完全未落地缺口
+- [x] 跑服务端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- 服务端同步事件剪枝现在会把活跃设备的 `lastPulledServerSeq >= event.serverSeq` 视为该设备已收敛事件，减少 checkpoint 拉取成功但逐条回执缺失时的事件账本滞留。
+- 既有 `sync_received` 回执、在线/近期活跃设备 TTL、数量上限和字节上限保留不变；长期离线设备仍不会无限阻塞已确认事件剪枝。
+- 新增 sync flow 回归测试覆盖 hello 上报 last pulled 水位后无需显式 `sync_received` 也能剪枝已拉取事件。
+- 验证通过：`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart test test/sync_flow_test.dart`；`cd server && ../.flutter_ohos_sdk_gitcode/bin/dart analyze lib/src/session_handler.dart test/sync_flow_test.dart`。
+
 ## 2026-06-23 同步 checkpoint 诊断可观测性
 
 - [x] 客户端 hello 上报 `lastPulledServerSeq` → 验证: sync service 测试断言 hello payload

@@ -276,6 +276,7 @@ class SessionHandler {
           ..lastPulledServerSeq =
               _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
                   restoredDevice.lastPulledServerSeq;
+        _pruneReceivedSyncEvents(restoredHousehold);
         app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
         _send(SyncMessage(SyncMessageTypes.helloAck, {
           'snapshotVersion': 0,
@@ -325,6 +326,7 @@ class SessionHandler {
       ..lastPulledServerSeq =
           _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
               device.lastPulledServerSeq;
+    _pruneReceivedSyncEvents(household);
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.helloAck, {
       'snapshotVersion': 0,
@@ -1047,25 +1049,36 @@ class SessionHandler {
   }
 
   void _pruneReceivedSyncEvents(Household household) {
-    final deviceIds = _activeReceiptTargetIds(household);
+    final devices = _activeReceiptTargets(household);
     household.syncEvents.removeWhere((_, event) {
-      final receiptTargets = {...deviceIds}..remove(event.originDeviceId);
-      final shouldPrune =
-          receiptTargets.difference(event.receivedByDeviceIds).isEmpty;
-      return shouldPrune;
+      final receiptTargets =
+          devices.where((device) => device.deviceId != event.originDeviceId);
+      return receiptTargets
+          .every((device) => _hasDeviceReceivedEvent(device, event));
     });
     _enforceSyncEventRetention(household);
   }
 
-  Set<String> _activeReceiptTargetIds(Household household) {
+  bool _hasDeviceReceivedEvent(
+    HouseholdDevice device,
+    SyncEventReceipt event,
+  ) {
+    if (event.receivedByDeviceIds.contains(device.deviceId)) {
+      return true;
+    }
+    final lastPulledServerSeq = device.lastPulledServerSeq;
+    return lastPulledServerSeq != null &&
+        lastPulledServerSeq >= event.serverSeq;
+  }
+
+  List<HouseholdDevice> _activeReceiptTargets(Household household) {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final cutoffMs = nowMs - app.syncEventActiveDeviceTtl.inMilliseconds;
     return household.devices.values
         .where((device) =>
             app.hub.isOnline(household.id, device.deviceId) ||
             ((device.lastSeenMs ?? -1) >= cutoffMs))
-        .map((device) => device.deviceId)
-        .toSet();
+        .toList(growable: false);
   }
 
   void _enforceSyncEventRetention(Household household) {

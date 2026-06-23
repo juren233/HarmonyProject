@@ -714,6 +714,66 @@ void main() {
     expect(household.devices['pet-1']?.lastAckServerSeq, 2);
   });
 
+  test('hello 上报 lastPulledServerSeq 后会剪枝已拉取事件', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    for (var index = 1; index <= 2; index += 1) {
+      owner.send(SyncMessageTypes.mutationPush, {
+        'mutationId': 'pulled-prune-mutation-$index',
+        'ciphertext': 'encrypted-mutation-$index',
+        'entityType': PetNoteEntityType.todo.name,
+        'entityId': 'todo-pulled-$index',
+        'kind': PetNoteMutationKind.upsert.name,
+      });
+      await owner.expectType(SyncMessageTypes.syncReceived);
+    }
+
+    final household = app.store.household(householdId)!;
+    expect(household.syncEvents, hasLength(2));
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+      'lastPulledServerSeq': 2,
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await app.store.flush();
+
+    expect(household.devices['pet-1']?.lastPulledServerSeq, 2);
+    expect(household.syncEvents, isEmpty);
+  });
+
   test('snapshotRequest 支持按 serverSeq 增量限量补发并返回 checkpoint', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
