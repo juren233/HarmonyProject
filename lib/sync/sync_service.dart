@@ -98,10 +98,9 @@ class SyncService extends ChangeNotifier {
 
   bool get isActive => _transport != null;
   SyncTransport? get debugTransport => _transport;
-  MultiDeviceSyncController? get ownerEngine =>
-      _activeRole == DeviceRole.owner ? _controller : null;
-  MultiDeviceSyncController? get petController =>
-      _activeRole == DeviceRole.pet ? _controller : null;
+  MultiDeviceSyncController? get syncController => _controller;
+  MultiDeviceSyncController? get ownerEngine => _controller;
+  MultiDeviceSyncController? get petController => _controller;
   @visibleForTesting
   set petController(MultiDeviceSyncController? controller) {
     _controller = controller;
@@ -290,9 +289,8 @@ class SyncService extends ChangeNotifier {
 
   void retrySyncIssues() {
     _controller?.retryFailedSync();
-    final role = _activeRole;
-    if (settings.pendingResetSnapshotSyncId != null && role != null) {
-      unawaited(_pushPendingResetSnapshotIfAny(role));
+    if (settings.pendingResetSnapshotSyncId != null && _activeRole != null) {
+      unawaited(_pushPendingResetSnapshotIfAny());
     }
     _refreshFailedSyncCount();
   }
@@ -301,20 +299,11 @@ class SyncService extends ChangeNotifier {
     required PetNoteStore store,
     bool pushStartupSnapshot = true,
   }) async {
-    switch (settings.deviceRole) {
-      case DeviceRole.owner:
-        await ensureStartedForOwner(
-          store: store,
-          pushStartupSnapshot: pushStartupSnapshot,
-        );
-      case DeviceRole.pet:
-        await ensureStartedForPet(
-          store: store,
-          pushStartupSnapshot: pushStartupSnapshot,
-        );
-      case DeviceRole.undecided:
-        return;
-    }
+    await _ensureStartedForRole(
+      store: store,
+      role: settings.deviceRole,
+      pushStartupSnapshot: pushStartupSnapshot,
+    );
   }
 
   Future<void> ensureStartedForOwner({
@@ -324,109 +313,33 @@ class SyncService extends ChangeNotifier {
     if (store == null) {
       return;
     }
-    final pendingPolicy = settings.pendingInitialSyncPolicy;
-    if (_activeRole == DeviceRole.pet) {
-      await stop();
-    }
-    final config = await _loadConfig();
-    if (config == null) {
-      if (isActive) {
-        await stop();
-      }
-      return;
-    }
-    if (isActive) {
-      if (pendingPolicy == null &&
-          _activeConfig?.matches(config) == true &&
-          identical(_controller?.store, store)) {
-        _activeStore = store;
-        await recoverSync();
-        return;
-      }
-      await stop();
-    }
-    final transport = _transportFactory(config.url);
-    _transport = transport;
-    _activeConfig = config;
-    _activeStore = store;
-    final controller = _createController(
+    await _ensureStartedForRole(
       store: store,
-      transport: transport,
-    );
-    _controller = controller;
-    await controller.start(
-      pushInitialSnapshot: false,
-      requestInitialSnapshot: false,
-    );
-    _attachEngineFailedCount(_controller?.failedSyncCount);
-    _activeRole = DeviceRole.owner;
-    notifyListeners();
-
-    _attachHelloAckHandler(transport, config);
-    _attachHelloOnConnect(
-      transport: transport,
-      config: config,
       role: DeviceRole.owner,
+      pushStartupSnapshot: pushStartupSnapshot,
     );
-    await _connectTransport(
-      transport: transport,
-    );
-
-    if (pendingPolicy == null) {
-      final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
-      if (!pushStartupSnapshot) {
-        await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-        _initialConnectionCompleted = true;
-        return;
-      }
-      await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-      if (hasPendingReset) {
-        _controller?.requestSnapshot();
-      } else {
-        await _controller?.pushSnapshotNow(
-          dataPolicy: SyncDataPolicy.merge,
-          preserveConflictingIds: true,
-        );
-        _controller?.requestSnapshot(
-          dataPolicy: SyncDataPolicy.merge,
-          resolveConflicts: true,
-        );
-      }
-      _initialConnectionCompleted = true;
-      return;
-    }
-
-    final policy = pendingPolicy;
-    await settings.setPendingInitialSyncPolicy(null);
-
-    // 首次连接完成后，根据配对时选择的策略执行同步
-    if (policy == SyncDataPolicy.remoteWins) {
-      // 以对方为准：请求对方数据并覆盖本机
-      _controller?.requestSnapshot(dataPolicy: SyncDataPolicy.remoteWins);
-    } else if (policy == SyncDataPolicy.localWins) {
-      // 以本机为准：推送本机数据覆盖对方
-      await _controller?.pushSnapshotNow(
-        dataPolicy: SyncDataPolicy.remoteWins,
-      );
-    } else {
-      // 合并：双向传输，对方没有的数据会被添加
-      await _controller?.pushSnapshotNow(
-        dataPolicy: SyncDataPolicy.merge,
-        preserveConflictingIds: true,
-      );
-      _controller?.requestSnapshot(resolveConflicts: true);
-    }
-    _initialConnectionCompleted = true;
   }
 
   Future<void> ensureStartedForPet({
     required PetNoteStore store,
     bool pushStartupSnapshot = true,
   }) async {
-    final pendingPolicy = settings.pendingInitialSyncPolicy;
-    if (_activeRole == DeviceRole.owner) {
-      await stop();
+    await _ensureStartedForRole(
+      store: store,
+      role: DeviceRole.pet,
+      pushStartupSnapshot: pushStartupSnapshot,
+    );
+  }
+
+  Future<void> _ensureStartedForRole({
+    required PetNoteStore store,
+    required DeviceRole role,
+    required bool pushStartupSnapshot,
+  }) async {
+    if (role == DeviceRole.undecided) {
+      return;
     }
+    final pendingPolicy = settings.pendingInitialSyncPolicy;
     final config = await _loadConfig();
     if (config == null) {
       if (isActive) {
@@ -435,10 +348,25 @@ class SyncService extends ChangeNotifier {
       return;
     }
     if (isActive) {
+      final roleChanged = _activeRole != null && _activeRole != role;
       if (pendingPolicy == null &&
           _activeConfig?.matches(config) == true &&
           identical(_controller?.store, store)) {
         _activeStore = store;
+        if (roleChanged) {
+          _setActiveRole(role);
+          final transport = _transport;
+          if (transport != null &&
+              transport.state.value == SyncConnectionState.connected) {
+            _setSessionState(SyncSessionState.handshaking);
+            _sendHello(
+              transport: transport,
+              config: _activeConfig ?? config,
+              role: role,
+            );
+            _startHandshakeTimer();
+          }
+        }
         await recoverSync();
         return;
       }
@@ -458,29 +386,36 @@ class SyncService extends ChangeNotifier {
       requestInitialSnapshot: false,
     );
     _attachEngineFailedCount(_controller?.failedSyncCount);
-    _activeRole = DeviceRole.pet;
-    notifyListeners();
+    _setActiveRole(role);
 
     _attachHelloAckHandler(transport, config);
     _attachHelloOnConnect(
       transport: transport,
       config: config,
-      role: DeviceRole.pet,
+      role: role,
     );
-    _lastReportedServedPetId = settings.servedPetId;
-    settings.addListener(_handlePetSettingsChanged);
     await _connectTransport(
       transport: transport,
     );
 
+    await _runInitialSyncPolicy(
+      pendingPolicy: pendingPolicy,
+      pushStartupSnapshot: pushStartupSnapshot,
+    );
+  }
+
+  Future<void> _runInitialSyncPolicy({
+    required SyncDataPolicy? pendingPolicy,
+    required bool pushStartupSnapshot,
+  }) async {
     if (pendingPolicy == null) {
       final hasPendingReset = settings.pendingResetSnapshotSyncId != null;
       if (!pushStartupSnapshot) {
-        await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
+        await _pushPendingResetSnapshotIfAny();
         _initialConnectionCompleted = true;
         return;
       }
-      await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
+      await _pushPendingResetSnapshotIfAny();
       if (hasPendingReset) {
         _controller?.requestSnapshot();
       } else {
@@ -583,7 +518,7 @@ class SyncService extends ChangeNotifier {
     }
     if (_sessionState == SyncSessionState.authenticated) {
       _retryActiveEngine();
-      _requestSnapshotWithCooldown(role, force: true);
+      _requestSnapshotWithCooldown(force: true);
     }
   }
 
@@ -617,7 +552,7 @@ class SyncService extends ChangeNotifier {
     _refreshFailedSyncCount();
   }
 
-  void _requestSnapshotWithCooldown(DeviceRole role, {bool force = false}) {
+  void _requestSnapshotWithCooldown({bool force = false}) {
     final now = DateTime.now();
     final lastPullAt = _lastPullAt;
     if (!force &&
@@ -626,14 +561,7 @@ class SyncService extends ChangeNotifier {
       return;
     }
     _lastPullAt = now;
-    switch (role) {
-      case DeviceRole.owner:
-        _controller?.requestSnapshot();
-      case DeviceRole.pet:
-        _controller?.requestSnapshot();
-      case DeviceRole.undecided:
-        break;
-    }
+    _controller?.requestSnapshot();
   }
 
   void _stopAfterRemoval() {
@@ -715,30 +643,17 @@ class SyncService extends ChangeNotifier {
     return syncId;
   }
 
-  Future<void> _pushPendingResetSnapshotIfAny(DeviceRole role) async {
+  Future<void> _pushPendingResetSnapshotIfAny() async {
     final syncId = settings.pendingResetSnapshotSyncId;
     if (syncId == null || syncId.isEmpty) {
       return;
     }
-    switch (role) {
-      case DeviceRole.owner:
-        debugPrint(
-            '[PetNoteSync] push pending reset snapshot as owner: $syncId');
-        await _controller?.pushSnapshotNow(
-          dataPolicy: SyncDataPolicy.remoteWins,
-          force: true,
-          syncId: syncId,
-        );
-      case DeviceRole.pet:
-        debugPrint('[PetNoteSync] push pending reset snapshot as pet: $syncId');
-        await _controller?.pushSnapshotNow(
-          dataPolicy: SyncDataPolicy.remoteWins,
-          force: true,
-          syncId: syncId,
-        );
-      case DeviceRole.undecided:
-        break;
-    }
+    debugPrint('[PetNoteSync] push pending reset snapshot: $syncId');
+    await _controller?.pushSnapshotNow(
+      dataPolicy: SyncDataPolicy.remoteWins,
+      force: true,
+      syncId: syncId,
+    );
     _refreshFailedSyncCount();
   }
 
@@ -779,6 +694,18 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  void _setActiveRole(DeviceRole role) {
+    settings.removeListener(_handlePetSettingsChanged);
+    _activeRole = role;
+    if (role == DeviceRole.pet) {
+      _lastReportedServedPetId = settings.servedPetId;
+      settings.addListener(_handlePetSettingsChanged);
+    } else {
+      _lastReportedServedPetId = null;
+    }
+    notifyListeners();
+  }
+
   void _attachHelloOnConnect({
     required SyncTransport transport,
     required _SyncConfig config,
@@ -797,20 +724,21 @@ class SyncService extends ChangeNotifier {
         return;
       }
       _setSessionState(SyncSessionState.handshaking);
+      final activeRole = _activeRole ?? role;
       _sendHello(
         transport: transport,
         config: _activeConfig ?? config,
-        role: role,
+        role: activeRole,
       );
       _startHandshakeTimer();
       if (settings.pendingResetSnapshotSyncId != null) {
-        unawaited(_pushPendingResetSnapshotIfAny(role));
+        unawaited(_pushPendingResetSnapshotIfAny());
       }
 
       // 只在重连时（非首次连接）主动请求快照
       if (_initialConnectionCompleted) {
         _retryActiveEngine();
-        _requestSnapshotWithCooldown(role);
+        _requestSnapshotWithCooldown();
       }
     }
 
@@ -852,21 +780,10 @@ class SyncService extends ChangeNotifier {
         _activeConfig = config.copyWith(authToken: restoredToken);
       }
       if (message.payload['restoredHousehold'] == true) {
-        switch (_activeRole) {
-          case DeviceRole.owner:
-            unawaited(Future<void>.sync(() async {
-              await _ensurePendingResetSnapshotSyncId();
-              await _pushPendingResetSnapshotIfAny(DeviceRole.owner);
-            }));
-          case DeviceRole.pet:
-            unawaited(Future<void>.sync(() async {
-              await _ensurePendingResetSnapshotSyncId();
-              await _pushPendingResetSnapshotIfAny(DeviceRole.pet);
-            }));
-          case DeviceRole.undecided:
-          case null:
-            break;
-        }
+        unawaited(Future<void>.sync(() async {
+          await _ensurePendingResetSnapshotSyncId();
+          await _pushPendingResetSnapshotIfAny();
+        }));
       }
       _retryActiveEngine();
     }, onError: (Object error, StackTrace stackTrace) {

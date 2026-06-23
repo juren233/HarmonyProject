@@ -23,7 +23,6 @@ import 'package:petnote/data/data_storage_coordinator.dart';
 import 'package:petnote/notifications/notification_models.dart';
 import 'package:petnote/state/petnote_store.dart';
 import 'package:petnote/state/app_settings_controller.dart';
-import 'package:petnote/sync/sync_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const double _settingsEntrySpacing = 12;
@@ -340,7 +339,6 @@ class _DeviceModeCardState extends State<_DeviceModeCard> {
           return;
         }
       }
-      await SyncService.instance?.stop();
       await widget.settingsController.setDeviceRole(role);
     } finally {
       _isSelectingRole = false;

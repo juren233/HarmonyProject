@@ -96,7 +96,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
     return selectedRemoteVideoDevice(
       pet: widget.pet,
       devices: widget.devicesOverride ??
-          SyncService.instance?.ownerEngine?.devices.value ??
+          SyncService.instance?.syncController?.devices.value ??
           const [],
     )?.deviceId;
   }
@@ -144,7 +144,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
     final connectedDevice = selectedRemoteVideoDevice(
       pet: widget.pet,
       devices: widget.devicesOverride ??
-          SyncService.instance?.ownerEngine?.devices.value ??
+          SyncService.instance?.syncController?.devices.value ??
           const [],
     );
     final statusLabel = connectedDevice == null
@@ -520,7 +520,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
   }) {
     final service = SyncService.instance;
     final devices = widget.devicesOverride ??
-        service?.ownerEngine?.devices.value ??
+        service?.syncController?.devices.value ??
         const [];
     final deviceSummary = devices
         .map(
@@ -556,7 +556,7 @@ class _RemoteVideoCallPageState extends State<RemoteVideoCallPage>
     if (widget.devicesOverride != null) {
       return current;
     }
-    final engine = SyncService.instance?.ownerEngine;
+    final engine = SyncService.instance?.syncController;
     if (engine == null) {
       return current;
     }

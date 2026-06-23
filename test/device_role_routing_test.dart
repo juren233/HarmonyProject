@@ -33,10 +33,11 @@ void main() {
     expect(source, contains('PetDeviceHome('));
   });
 
-  test('PetNoteRoot 主人壳层启动 owner 同步服务', () {
+  test('PetNoteRoot 应用级入口启动多设备同步服务', () {
     final source = File('lib/app/petnote_root.dart').readAsStringSync();
 
     expect(source, contains('SyncService.instance ??='));
-    expect(source, contains('ensureStartedForOwner(store: store)'));
+    expect(source, contains('ensureStarted(store: store)'));
+    expect(source, isNot(contains('ensureStartedForOwner(store: store)')));
   });
 }

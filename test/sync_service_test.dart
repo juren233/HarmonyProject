@@ -62,6 +62,7 @@ void main() {
 
     expect(service.isActive, isTrue);
     expect(service.ownerEngine, isNotNull);
+    expect(service.petController, same(service.ownerEngine));
     expect(transport.connected, isTrue);
     expect(transport.sent.first.type, SyncMessageTypes.hello);
     expect(transport.sent.first.payload['role'], 'owner');
@@ -139,6 +140,7 @@ void main() {
 
     expect(service.isActive, isTrue);
     expect(service.petController, isNotNull);
+    expect(service.ownerEngine, same(service.petController));
     expect(transport.sent.first.type, SyncMessageTypes.hello);
     expect(transport.sent.first.payload['role'], 'pet');
     expect(transport.sent.first.payload['authToken'], 'auth-token-1');
@@ -176,6 +178,51 @@ void main() {
           message.payload['role'] == 'pet'),
       isTrue,
     );
+
+    await service.stop();
+  });
+
+  test('角色切换不重启多设备同步连接', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.ensureDeviceId();
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transports = <FakeSyncTransport>[];
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) {
+        final transport = FakeSyncTransport();
+        transports.add(transport);
+        return transport;
+      },
+    );
+    final store = PetNoteStore.seeded();
+
+    await service.ensureStarted(store: store, pushStartupSnapshot: false);
+    await acknowledgeHello(transports.single);
+    transports.single.sent.clear();
+
+    await settings.setDeviceRole(DeviceRole.pet);
+    await service.ensureStarted(store: store, pushStartupSnapshot: false);
+
+    expect(transports, hasLength(1));
+    expect(transports.single.connected, isTrue);
+    expect(service.ownerEngine, same(service.petController));
+    final helloMessages = transports.single.sent
+        .where((message) => message.type == SyncMessageTypes.hello)
+        .toList(growable: false);
+    expect(helloMessages, hasLength(1));
+    expect(helloMessages.single.payload['role'], 'pet');
 
     await service.stop();
   });

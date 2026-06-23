@@ -114,7 +114,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
       await _stopKeepAlive();
       return;
     }
-    await service.ensureStartedForPet(store: store);
+    await service.ensureStarted(store: store);
     await _syncIncomingCallController(service, store);
     await _syncKeepAlive();
     if (mounted) {
@@ -158,7 +158,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final controller = _syncService?.petController;
+    final controller = _syncService?.syncController;
     final listenables = <Listenable>[
       widget.settingsController,
       store,
@@ -211,7 +211,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
 
   String _syncStatusLabel(SyncService? service) {
     final transport = service?.transport;
-    final controller = service?.petController;
+    final controller = service?.syncController;
     final sessionState = service?.sessionState;
 
     if (sessionState == SyncSessionState.handshaking) {

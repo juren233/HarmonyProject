@@ -3,7 +3,6 @@ import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/sync/sync_secret_store.dart';
-import 'package:petnote/sync/sync_service.dart';
 
 class PetDeviceSettingsPage extends StatelessWidget {
   const PetDeviceSettingsPage({
@@ -159,7 +158,6 @@ class PetDeviceSettingsPage extends StatelessWidget {
     if (confirmed != true) {
       return;
     }
-    await SyncService.instance?.stop();
     await settingsController.setDeviceRole(DeviceRole.owner);
   }
 

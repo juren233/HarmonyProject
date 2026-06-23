@@ -2866,6 +2866,61 @@ void main() {
     expect(SyncService.instance?.settings, same(rootSettings));
   });
 
+  testWidgets('PetNoteRoot 在宠物角色也启动同一套同步服务', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('pet-house');
+    await settings.setHouseholdAuthToken('pet-auth');
+    await settings.setSharedKeyBase64(_testSharedKeyBase64);
+    final transport = _WidgetFakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 64));
+      final activeService = SyncService.instance;
+      if (activeService != null) {
+        await activeService.stop();
+        activeService.dispose();
+      }
+      SyncService.instance = null;
+      settings.dispose();
+      store.dispose();
+    });
+
+    SyncService.instance = service;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildPetNoteTheme(Brightness.light),
+        home: PetNoteRoot(
+          settingsController: settings,
+          storeLoader: () async => store,
+          notificationAdapter: _GrantedNotificationPlatformAdapter(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+
+    expect(service.isActive, isTrue);
+    expect(service.petController, isNotNull);
+    expect(transport.sent.first.type, SyncMessageTypes.hello);
+    expect(transport.sent.first.payload['role'], 'pet');
+    transport.acknowledgeHello();
+    await tester.pump();
+  });
+
   testWidgets(
       'root reflects store-managed time-derived refresh on minute boundary',
       (tester) async {
@@ -4892,6 +4947,7 @@ class _FakeIntroHapticsDriver implements IntroHapticsDriver {
 }
 
 class _WidgetFakeSyncTransport implements SyncTransport {
+  final List<SyncMessage> sent = <SyncMessage>[];
   final StreamController<SyncMessage> _messages =
       StreamController<SyncMessage>.broadcast();
   final StreamController<Object> _errors = StreamController<Object>.broadcast();
@@ -4921,7 +4977,13 @@ class _WidgetFakeSyncTransport implements SyncTransport {
   }
 
   @override
-  void send(SyncMessage message) {}
+  void send(SyncMessage message) => sent.add(message);
+
+  void acknowledgeHello() {
+    _messages.add(
+      const SyncMessage(SyncMessageTypes.helloAck, {'snapshotVersion': 0}),
+    );
+  }
 }
 
 class _GrantedNotificationPlatformAdapter

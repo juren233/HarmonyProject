@@ -54,7 +54,7 @@ class _DevicesPageState extends State<DevicesPage> {
     _serverMode = widget.settingsController.syncServerMode;
     _serverController =
         TextEditingController(text: widget.settingsController.syncServerUrl);
-    SyncService.instance?.ownerEngine?.requestDevices();
+    SyncService.instance?.syncController?.requestDevices();
   }
 
   @override
@@ -68,7 +68,7 @@ class _DevicesPageState extends State<DevicesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final engine = SyncService.instance?.ownerEngine;
+    final engine = SyncService.instance?.syncController;
     return HyperPageBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,

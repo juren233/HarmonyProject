@@ -185,11 +185,8 @@ class _PetNoteRootState extends State<PetNoteRoot>
     if (settingsController == null || store == null) {
       return;
     }
-    if (settingsController.deviceRole != DeviceRole.owner) {
-      return;
-    }
     final syncService = await _syncServiceForSettings(settingsController);
-    await syncService.ensureStartedForOwner(store: store);
+    await syncService.ensureStarted(store: store);
   }
 
   Future<void> _activateSyncForSettings(
@@ -211,9 +208,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
       }
       return showSyncMergeConflictDialog(context, conflict);
     };
-    if (settingsController.deviceRole == DeviceRole.owner) {
-      await syncService.ensureStartedForOwner(store: store);
-    }
+    await syncService.ensureStarted(store: store);
   }
 
   void _attachSettingsListener(AppSettingsController settingsController) {
@@ -931,9 +926,7 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
     _detachSettingsListener();
-    if (widget.settingsController?.deviceRole == DeviceRole.owner) {
-      unawaited(_stopSyncServiceForSettings(widget.settingsController));
-    }
+    unawaited(_stopSyncServiceForSettings(widget.settingsController));
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
     super.dispose();

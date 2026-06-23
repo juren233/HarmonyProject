@@ -1033,13 +1033,17 @@ class SessionHandler {
     if (event.receivedByDeviceIds.contains(currentDeviceId)) {
       return _ReplayDecision.skip;
     }
+    final currentDevice = household.devices[currentDeviceId];
+    if (currentDevice != null &&
+        _hasDeviceReceivedEvent(currentDevice, event)) {
+      return _ReplayDecision.skip;
+    }
     if (_isObsoleteCompletedAction(household, event.payload)) {
       return _ReplayDecision.markReceived;
     }
     if (event.messageType == SyncMessageTypes.snapshot) {
       final completedKeys = _stringSet(event.payload['completedItemKeys']);
-      final missingKeys =
-          household.completedItemKeys.difference(completedKeys);
+      final missingKeys = household.completedItemKeys.difference(completedKeys);
       return missingKeys.isEmpty
           ? _ReplayDecision.send
           : _ReplayDecision.sendCompletedActions;
@@ -1170,13 +1174,6 @@ class SessionHandler {
   }
 
   void _pruneReceivedSyncEvents(Household household) {
-    final devices = _activeReceiptTargets(household);
-    household.syncEvents.removeWhere((_, event) {
-      final receiptTargets =
-          devices.where((device) => device.deviceId != event.originDeviceId);
-      return receiptTargets
-          .every((device) => _hasDeviceReceivedEvent(device, event));
-    });
     _enforceSyncEventRetention(household);
   }
 

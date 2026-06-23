@@ -286,10 +286,10 @@ void main() {
     final persisted = await File(
       '${app.store.dataDirectory.path}/households.json',
     ).readAsString();
-    expect(persisted, isNot(contains('encrypted-snapshot-v1')));
+    expect(persisted, contains('encrypted-snapshot-v1'));
     expect(persisted, contains('encrypted-action'));
     expect(persisted, contains('completedActions'));
-    expect(persisted, isNot(contains('"syncEvents":{"')));
+    expect(persisted, contains('"syncEvents":{'));
   });
 
   test('移除设备后其他在线设备会收到更新后的设备列表', () async {
@@ -714,7 +714,7 @@ void main() {
     expect(household.devices['pet-1']?.lastAckServerSeq, 2);
   });
 
-  test('hello 上报 lastPulledServerSeq 后会剪枝已拉取事件', () async {
+  test('hello 上报 lastPulledServerSeq 后不会重复回放已拉取事件', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -771,7 +771,234 @@ void main() {
     await app.store.flush();
 
     expect(household.devices['pet-1']?.lastPulledServerSeq, 2);
-    expect(household.syncEvents, isEmpty);
+    expect(household.syncEvents, hasLength(2));
+
+    pet.send(SyncMessageTypes.snapshotRequest, {});
+    await pet.expectNoType(SyncMessageTypes.mutation);
+  });
+
+  test('晚加入的第三台设备能回放已被其他设备确认的历史事件', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final firstPetPair = connect();
+    firstPetPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await firstPetPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final firstPet = connect();
+    firstPet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await firstPet.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.mutationPush, {
+      'mutationId': 'offline-third-device-mutation',
+      'ciphertext': 'encrypted-offline-third-device-mutation',
+      'entityType': PetNoteEntityType.pet.name,
+      'entityId': 'pet-profile-1',
+      'kind': PetNoteMutationKind.upsert.name,
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+    final liveMutation = await firstPet.expectType(SyncMessageTypes.mutation);
+    expect(liveMutation.payload['mutationId'], 'offline-third-device-mutation');
+
+    firstPet.send(SyncMessageTypes.syncReceived, {
+      'syncId': liveMutation.payload['syncId'],
+      'originDeviceId': liveMutation.payload['originDeviceId'],
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final household = app.store.household(householdId)!;
+    expect(
+      household.syncEvents.keys,
+      contains(liveMutation.payload['syncId']),
+    );
+
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    final secondPetCode =
+        await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final secondPetPair = connect();
+    secondPetPair.send(SyncMessageTypes.pairJoin, {
+      'code': secondPetCode.payload['code'],
+      'deviceId': 'pet-2',
+      'deviceName': '卧室平板',
+    });
+    await secondPetPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+    await firstPetPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final secondPet = connect();
+    secondPet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-2',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '卧室平板',
+      'lastPulledServerSeq': 0,
+    });
+    await secondPet.expectType(SyncMessageTypes.helloAck);
+    secondPet.send(SyncMessageTypes.snapshotRequest, {
+      'afterServerSeq': 0,
+      'maxEvents': 50,
+    });
+
+    final replayedMutation =
+        await secondPet.expectType(SyncMessageTypes.mutation);
+    expect(replayedMutation.payload['mutationId'],
+        'offline-third-device-mutation');
+  });
+
+  test('第三台设备加入后任一设备新变更都会广播给另外两台', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final firstPetPair = connect();
+    firstPetPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await firstPetPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+
+    final firstPet = connect();
+    firstPet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await firstPet.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.pairCreate, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    final secondPetCode = await owner.expectType(SyncMessageTypes.pairCreated);
+    final secondPetPair = connect();
+    secondPetPair.send(SyncMessageTypes.pairJoin, {
+      'code': secondPetCode.payload['code'],
+      'deviceId': 'pet-2',
+      'deviceName': '卧室平板',
+    });
+    await secondPetPair.expectType(SyncMessageTypes.pairJoined);
+    await owner.expectType(SyncMessageTypes.pairPeerJoined);
+    await firstPet.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final secondPet = connect();
+    secondPet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-2',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '卧室平板',
+    });
+    await secondPet.expectType(SyncMessageTypes.helloAck);
+
+    owner.send(SyncMessageTypes.mutationPush, {
+      'mutationId': 'owner-live-mutation',
+      'ciphertext': 'owner-live-ciphertext',
+      'entityType': PetNoteEntityType.todo.name,
+      'entityId': 'todo-owner-live',
+      'kind': PetNoteMutationKind.upsert.name,
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+    final firstPetOwnerMutation =
+        await firstPet.expectType(SyncMessageTypes.mutation);
+    final secondPetOwnerMutation =
+        await secondPet.expectType(SyncMessageTypes.mutation);
+    expect(firstPetOwnerMutation.payload['mutationId'], 'owner-live-mutation');
+    expect(secondPetOwnerMutation.payload['mutationId'], 'owner-live-mutation');
+
+    firstPet.send(SyncMessageTypes.actionPush, {
+      'actionId': 'first-pet-live-action',
+      'ciphertext': 'first-pet-live-ciphertext',
+      'kind': PetActionKind.postpone.name,
+      'sourceType': 'todo',
+      'itemId': 'todo-first-pet-live',
+    });
+    await firstPet.expectType(SyncMessageTypes.syncReceived);
+    final ownerFirstPetAction = await owner.expectType(SyncMessageTypes.action);
+    final secondPetFirstPetAction =
+        await secondPet.expectType(SyncMessageTypes.action);
+    expect(ownerFirstPetAction.payload['actionId'], 'first-pet-live-action');
+    expect(
+      secondPetFirstPetAction.payload['actionId'],
+      'first-pet-live-action',
+    );
+
+    secondPet.send(SyncMessageTypes.mutationPush, {
+      'mutationId': 'second-pet-live-mutation',
+      'ciphertext': 'second-pet-live-ciphertext',
+      'entityType': PetNoteEntityType.reminder.name,
+      'entityId': 'reminder-second-pet-live',
+      'kind': PetNoteMutationKind.upsert.name,
+    });
+    await secondPet.expectType(SyncMessageTypes.syncReceived);
+    final ownerSecondPetMutation =
+        await owner.expectType(SyncMessageTypes.mutation);
+    final firstPetSecondPetMutation =
+        await firstPet.expectType(SyncMessageTypes.mutation);
+    expect(
+      ownerSecondPetMutation.payload['mutationId'],
+      'second-pet-live-mutation',
+    );
+    expect(
+      firstPetSecondPetMutation.payload['mutationId'],
+      'second-pet-live-mutation',
+    );
   });
 
   test('snapshotRequest 支持按 serverSeq 增量限量补发并返回 checkpoint', () async {
@@ -1030,7 +1257,7 @@ void main() {
     );
   });
 
-  test('增量拉取不会把当前设备自己已剪枝事件误判成断档', () async {
+  test('增量拉取不会把当前设备自己的已确认事件误判成断档', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -1086,7 +1313,7 @@ void main() {
     clients.remove(pet);
 
     final household = app.store.household(householdId)!;
-    expect(household.syncEvents, isEmpty);
+    expect(household.syncEvents, hasLength(1));
 
     owner.send(SyncMessageTypes.mutationPush, {
       'mutationId': 'owner-after-pet-origin',
@@ -1124,7 +1351,7 @@ void main() {
     await owner.expectNoType(SyncMessageTypes.snapshotRequest);
   });
 
-  test('长期离线设备不会阻塞已确认同步事件剪枝', () async {
+  test('长期离线设备不会阻塞同步事件确认状态', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -1203,7 +1430,7 @@ void main() {
     await app.store.flush();
 
     final household = app.store.household(householdId)!;
-    expect(household.syncEvents, isEmpty);
+    expect(household.syncEvents, hasLength(1));
     expect(
       household.mutationSyncEventIds,
       containsPair('mutation-stale-device', mutation.payload['syncId']),
@@ -2026,7 +2253,7 @@ void main() {
     await pet.expectNoType(SyncMessageTypes.mutation);
   });
 
-  test('mutation 事件清理后重复 mutationId 仍不会重复广播', () async {
+  test('mutation 事件确认后重复 mutationId 仍不会重复广播', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -2085,7 +2312,8 @@ void main() {
     final persistedAfterPrune = await File(
       '${app.store.dataDirectory.path}/households.json',
     ).readAsString();
-    expect(persistedAfterPrune, isNot(contains('"syncEvents":{"')));
+    expect(persistedAfterPrune, contains('"syncEvents":{'));
+    expect(persistedAfterPrune, contains('mutation-pruned-repeat'));
 
     owner.send(SyncMessageTypes.mutationPush, payload);
     await pet.expectNoType(SyncMessageTypes.mutation);
@@ -2281,7 +2509,7 @@ void main() {
     await owner.expectNoType(SyncMessageTypes.action);
   });
 
-  test('完成事件已清理后仍会用完成动作回执被否决操作', () async {
+  test('完成事件确认后仍会用完成动作回执被否决操作', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -2339,7 +2567,8 @@ void main() {
     final persistedAfterPrune = await File(
       '${app.store.dataDirectory.path}/households.json',
     ).readAsString();
-    expect(persistedAfterPrune, isNot(contains('"syncEvents":{"')));
+    expect(persistedAfterPrune, contains('"syncEvents":{'));
+    expect(persistedAfterPrune, contains('done-pruned'));
 
     pet.send(SyncMessageTypes.actionPush, {
       'actionId': 'postpone-after-prune',
@@ -2419,7 +2648,7 @@ void main() {
     expect(duplicateReceipt.payload['actionId'], 'action-repeat');
   });
 
-  test('已确认的延后 action 被剪枝后重复上报不会再次广播', () async {
+  test('已确认的延后 action 重复上报不会再次广播', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
       'deviceId': 'owner-1',
@@ -2480,7 +2709,8 @@ void main() {
     final persistedAfterPrune = await File(
       '${app.store.dataDirectory.path}/households.json',
     ).readAsString();
-    expect(persistedAfterPrune, isNot(contains('"syncEvents":{"')));
+    expect(persistedAfterPrune, contains('"syncEvents":{'));
+    expect(persistedAfterPrune, contains('postpone-repeat'));
 
     owner.send(SyncMessageTypes.actionPush, {
       ...payload,
@@ -2859,7 +3089,7 @@ void main() {
     await replayOwner.expectNoType(SyncMessageTypes.snapshot);
   });
 
-  test('服务器重启后仍保留未回执事件并在回执后清理', () async {
+  test('服务器重启后仍保留同步事件并用回执标记已确认设备', () async {
     final dataDirectory = app.store.dataDirectory;
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
@@ -2939,7 +3169,7 @@ void main() {
         await File('${dataDirectory.path}/households.json').readAsString();
     expect(persistedAfterReceipt, contains('offline-ciphertext'));
     expect(persistedAfterReceipt, contains('completedActions'));
-    expect(persistedAfterReceipt, isNot(contains('"syncEvents":{"')));
+    expect(persistedAfterReceipt, contains('"syncEvents":{'));
     final decodedAfterReceipt =
         jsonDecode(persistedAfterReceipt) as Map<String, dynamic>;
     final persistedHousehold = (decodedAfterReceipt['households']
@@ -3035,6 +3265,6 @@ void main() {
     final persisted = await File(
       '${app.store.dataDirectory.path}/households.json',
     ).readAsString();
-    expect(persisted, isNot(contains('"syncEvents":{"')));
+    expect(persisted, contains('"syncEvents":{'));
   });
 }
