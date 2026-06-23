@@ -1,5 +1,23 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 iOS 原生体重滚轮与首次配对宠物去重
+
+- [x] iOS 体重数字入口接入 Swift/UIKit 原生滚轮 → 验证: widget/结构测试覆盖 MethodChannel 与 UIPickerView
+- [x] 原生体重滚轮按刻度触发选择触感 → 验证: iOS 源码测试覆盖 UISelectionFeedbackGenerator.selectionChanged
+- [x] 非 iOS 体重滚轮补充刻度选择触感且不重复触发 → 验证: widget 测试覆盖 selectionClick
+- [x] 首次配对 merge 识别同一宠物并复用已有 petId → 验证: store 测试覆盖同档案不重复、关联数据 remap
+- [x] 保留真实冲突宠物克隆保护语义 → 验证: 既有同 id 不同内容测试继续通过
+- [x] 跑聚焦测试、analyze、diff 检查并清理测试残留 → 验证: 命令通过且无无关文件入提交
+
+### Review 2026-06-23
+
+- iOS 体重数字入口新增 `petnote/native_weight_picker` MethodChannel，原生侧用 Swift/UIKit `UIPickerView` 展示体重滚轮，并用 `UISelectionFeedbackGenerator.selectionChanged()` 提供刻度触感。
+- iOS 原生体重弹层支持“完成 / 手动输入 / 取消”；完成后同步 `_weight` 与 Flutter 滚轮位置，手动输入回落到既有直接输入弹窗，取消不改值。
+- 非 iOS 页面内 Flutter 滚轮改为有状态组件，按选中 index 去重触发 `triggerSelectionHaptic()`，保持原有滚轮选择与直接输入能力。
+- `mergeDataPreservingConflictingIds` 在同 ID 或稳定合并 ID 回流且宠物档案指纹一致时复用已有宠物 ID，并把 incoming 待办、提醒和记录 remap 到保留宠物，避免首次配对后同一宠物重复出现。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/native_weight_picker_test.dart test/widget_test.dart test/pet_care_store_test.dart test/interaction_haptics_structure_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/native_weight_picker.dart lib/app/pet_onboarding_overlay.dart lib/state/petnote_store.dart test/native_weight_picker_test.dart test/widget_test.dart test/pet_care_store_test.dart test/interaction_haptics_structure_test.dart`；`git diff --check`。
+- iOS 入口已从不可用的 `FlutterImplicitEngineDelegate` / `FlutterImplicitEngineBridge` 切回标准 `FlutterAppDelegate` 注册模式；验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter build ios --release --no-codesign`，产物为 `build/ios/iphoneos/Runner.app`。
+
 ## 2026-06-23 宠物头像附件 content metadata
 
 - [x] 宠物头像附件携带稳定 blobId / sha256 / sizeBytes → 验证: codec 单测覆盖元数据生成

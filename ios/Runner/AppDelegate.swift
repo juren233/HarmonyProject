@@ -11,57 +11,57 @@ import UIKit
 import UserNotifications
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "IosNativeDockPlugin") {
+    GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "IosNativeDockPlugin") {
       IosNativeDockPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNotificationPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteNotificationPlugin") {
       PetNoteNotificationPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteAiSecretStorePlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteAiSecretStorePlugin") {
       PetNoteAiSecretStorePlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteDataPackageFileAccessPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteDataPackageFileAccessPlugin") {
       PetNoteDataPackageFileAccessPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteAppDirectoryPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteAppDirectoryPlugin") {
       PetNoteAppDirectoryPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteKeepAlivePlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteKeepAlivePlugin") {
       PetNoteKeepAlivePlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteRtcPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteRtcPlugin") {
       PetNoteRtcPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteNativeOptionPickerPlugin") {
       PetNoteNativeOptionPickerPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteIntroHapticsPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteNativeWeightPickerPlugin") {
+      PetNoteNativeWeightPickerPlugin.register(with: registrar)
+    }
+    if let registrar = registrar(forPlugin: "PetNoteIntroHapticsPlugin") {
       PetNoteIntroHapticsPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteInteractionHapticsPlugin") {
+    if let registrar = registrar(forPlugin: "PetNoteInteractionHapticsPlugin") {
       PetNoteInteractionHapticsPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "IosNativeOverviewRangeButtonPlugin") {
+    if let registrar = registrar(forPlugin: "IosNativeOverviewRangeButtonPlugin") {
       IosNativeOverviewRangeButtonPlugin.register(with: registrar)
     }
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "IosNativeUpdateReminderSwitchPlugin") {
+    if let registrar = registrar(forPlugin: "IosNativeUpdateReminderSwitchPlugin") {
       IosNativeUpdateReminderSwitchPlugin.register(with: registrar)
     }
     if #available(iOS 14.0, *),
-      let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PetNoteNativePetPhotoPickerPlugin")
+      let registrar = registrar(forPlugin: "PetNoteNativePetPhotoPickerPlugin")
     {
       PetNoteNativePetPhotoPickerPlugin.register(with: registrar)
     }
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   override func application(
@@ -1162,6 +1162,244 @@ final class PetNoteNativeOptionPickerPlugin: NSObject, FlutterPlugin, UIAdaptive
     return [
       "status": "success",
       "selectedValue": selectedValue,
+    ]
+  }
+
+  private static func cancelledPayload() -> [String: Any?] {
+    return [
+      "status": "cancelled",
+      "errorCode": "cancelled",
+    ]
+  }
+
+  private static func errorPayload(code: String, message: String) -> [String: Any?] {
+    return [
+      "status": "error",
+      "errorCode": code,
+      "errorMessage": message,
+    ]
+  }
+}
+
+final class PetNoteNativeWeightPickerPlugin: NSObject, FlutterPlugin, UIPickerViewDataSource, UIPickerViewDelegate, UIAdaptivePresentationControllerDelegate {
+  static let channelName = "petnote/native_weight_picker"
+
+  private var pendingResult: FlutterResult?
+  private var presentedController: UIViewController?
+  private var pickerView: UIPickerView?
+  private var values: [Double] = []
+  private var selectedRow: Int = 0
+  private var minWeightKg: Double = 0.1
+  private var maxWeightKg: Double = 80.0
+  private var stepKg: Double = 0.1
+  private var selectedWeightKg: Double = 0.1
+  private var feedbackGenerator = UISelectionFeedbackGenerator()
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = PetNoteNativeWeightPickerPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard pendingResult == nil else {
+      result(Self.errorPayload(code: "invalidResponse", message: "Another native weight picker request is already running."))
+      return
+    }
+
+    switch call.method {
+    case "pickWeight":
+      guard let arguments = call.arguments as? [String: Any] else {
+        result(Self.errorPayload(code: "invalidResponse", message: "Missing arguments for native weight picker."))
+        return
+      }
+      let minWeightKg = Self.doubleValue(arguments["minWeightKg"]) ?? 0.1
+      let maxWeightKg = Self.doubleValue(arguments["maxWeightKg"]) ?? 80.0
+      let stepKg = Self.doubleValue(arguments["stepKg"]) ?? 0.1
+      let initialValue = Self.doubleValue(arguments["initialValue"]) ?? minWeightKg
+      guard maxWeightKg >= minWeightKg, stepKg > 0 else {
+        result(Self.errorPayload(code: "invalidResponse", message: "Invalid weight range for native weight picker."))
+        return
+      }
+      presentPicker(
+        initialValue: initialValue,
+        minWeightKg: minWeightKg,
+        maxWeightKg: maxWeightKg,
+        stepKg: stepKg,
+        result: result
+      )
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    if pendingResult != nil {
+      finish(with: Self.cancelledPayload())
+    }
+  }
+
+  func numberOfComponents(in pickerView: UIPickerView) -> Int {
+    return 1
+  }
+
+  func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+    return values.count
+  }
+
+  func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+    guard row >= 0, row < values.count else {
+      return nil
+    }
+    return String(format: "%.1f kg", values[row])
+  }
+
+  func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+    guard row >= 0, row < values.count else {
+      return
+    }
+    selectedRow = row
+    selectedWeightKg = values[row]
+    feedbackGenerator.selectionChanged()
+  }
+
+  private func presentPicker(
+    initialValue: Double,
+    minWeightKg: Double,
+    maxWeightKg: Double,
+    stepKg: Double,
+    result: @escaping FlutterResult
+  ) {
+    guard let presenter = Self.topViewController() else {
+      result(Self.errorPayload(code: "unavailable", message: "Unable to present the native weight picker."))
+      return
+    }
+
+    self.minWeightKg = minWeightKg
+    self.maxWeightKg = maxWeightKg
+    self.stepKg = stepKg
+    self.values = Self.makeValues(minWeightKg: minWeightKg, maxWeightKg: maxWeightKg, stepKg: stepKg)
+    self.selectedRow = Self.indexForValue(initialValue, minWeightKg: minWeightKg, maxWeightKg: maxWeightKg, stepKg: stepKg)
+    self.selectedWeightKg = values[selectedRow]
+
+    let alert = UIAlertController(title: "输入体重", message: nil, preferredStyle: .actionSheet)
+    alert.presentationController?.delegate = self
+
+    let pickerContainer = UIViewController()
+    let picker = UIPickerView()
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    picker.dataSource = self
+    picker.delegate = self
+    picker.selectRow(selectedRow, inComponent: 0, animated: false)
+    pickerContainer.view.addSubview(picker)
+    NSLayoutConstraint.activate([
+      picker.leadingAnchor.constraint(equalTo: pickerContainer.view.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: pickerContainer.view.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: pickerContainer.view.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: pickerContainer.view.bottomAnchor),
+      pickerContainer.view.heightAnchor.constraint(equalToConstant: 216),
+    ])
+    pickerView = picker
+
+    let container = UIViewController()
+    container.view.backgroundColor = .clear
+    container.view.heightAnchor.constraint(equalToConstant: 216).isActive = true
+    container.view.addSubview(pickerContainer.view)
+    pickerContainer.view.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      pickerContainer.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+      pickerContainer.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+      pickerContainer.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+      pickerContainer.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor),
+    ])
+
+    alert.setValue(container, forKey: "contentViewController")
+    alert.addAction(UIAlertAction(title: "完成", style: .default) { [weak self] _ in
+      guard let self else { return }
+      self.finish(with: Self.successPayload(value: self.selectedWeightKg))
+    })
+    alert.addAction(UIAlertAction(title: "手动输入", style: .default) { [weak self] _ in
+      self?.finish(with: Self.manualInputPayload())
+    })
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+      self?.finish(with: Self.cancelledPayload())
+    })
+
+    if UIDevice.current.userInterfaceIdiom == .pad,
+      let popover = alert.popoverPresentationController {
+      popover.sourceView = presenter.view
+      let bounds = presenter.view.bounds
+      popover.sourceRect = CGRect(x: bounds.midX, y: bounds.maxY - 1, width: 1, height: 1)
+      popover.permittedArrowDirections = []
+    }
+
+    pendingResult = result
+    presentedController = alert
+    feedbackGenerator.prepare()
+    presenter.present(alert, animated: true)
+  }
+
+  private func finish(with payload: [String: Any?]) {
+    let callback = pendingResult
+    pendingResult = nil
+    presentedController = nil
+    callback?(payload)
+  }
+
+  private static func makeValues(minWeightKg: Double, maxWeightKg: Double, stepKg: Double) -> [Double] {
+    var values: [Double] = []
+    var current = minWeightKg
+    while current <= maxWeightKg + (stepKg / 2) {
+      values.append((current * 10).rounded() / 10)
+      current += stepKg
+    }
+    return values
+  }
+
+  private static func indexForValue(_ value: Double, minWeightKg: Double, maxWeightKg: Double, stepKg: Double) -> Int {
+    let values = makeValues(minWeightKg: minWeightKg, maxWeightKg: maxWeightKg, stepKg: stepKg)
+    let clamped = min(max(value, minWeightKg), maxWeightKg)
+    let rawIndex = Int(((clamped - minWeightKg) / stepKg).rounded())
+    return max(0, min(rawIndex, values.count - 1))
+  }
+
+  private static func topViewController(
+    base: UIViewController? = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first(where: \.isKeyWindow)?
+      .rootViewController
+  ) -> UIViewController? {
+    if let navigationController = base as? UINavigationController {
+      return topViewController(base: navigationController.visibleViewController)
+    }
+    if let tabBarController = base as? UITabBarController {
+      return topViewController(base: tabBarController.selectedViewController)
+    }
+    if let presentedViewController = base?.presentedViewController {
+      return topViewController(base: presentedViewController)
+    }
+    return base
+  }
+
+  private static func doubleValue(_ value: Any?) -> Double? {
+    if let value = value as? Double { return value }
+    if let value = value as? Int { return Double(value) }
+    if let value = value as? NSNumber { return value.doubleValue }
+    return nil
+  }
+
+  private static func manualInputPayload() -> [String: Any?] {
+    return ["status": "manualInput"]
+  }
+
+  private static func successPayload(value: Double) -> [String: Any?] {
+    return [
+      "status": "success",
+      "value": value,
     ]
   }
 

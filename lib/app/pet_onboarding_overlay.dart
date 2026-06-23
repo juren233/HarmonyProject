@@ -5,9 +5,11 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:petnote/app/app_theme.dart';
 import 'package:petnote/app/common_widgets.dart';
+import 'package:petnote/app/interaction_feedback.dart';
 import 'package:petnote/app/intro_haptics.dart';
 import 'package:petnote/app/layout_metrics.dart';
 import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/native_weight_picker.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/pet_onboarding_taxonomy.dart';
 import 'package:petnote/state/petnote_store.dart';
@@ -46,6 +48,7 @@ class PetOnboardingOverlay extends StatefulWidget {
     required this.onSubmit,
     required this.onDefer,
     this.nativePetPhotoPicker,
+    this.nativeWeightPicker,
     this.animateInitialEntry = true,
     this.externalRevealProgress,
     this.onReturnToIntro,
@@ -54,6 +57,7 @@ class PetOnboardingOverlay extends StatefulWidget {
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
   final NativePetPhotoPicker? nativePetPhotoPicker;
+  final NativeWeightPicker? nativeWeightPicker;
   final bool animateInitialEntry;
   final double? externalRevealProgress;
   final VoidCallback? onReturnToIntro;
@@ -91,6 +95,7 @@ class _PetOnboardingOverlayState extends State<PetOnboardingOverlay> {
               animateInitialEntry: widget.animateInitialEntry,
               externalRevealProgress: widget.externalRevealProgress,
               nativePetPhotoPicker: widget.nativePetPhotoPicker,
+              nativeWeightPicker: widget.nativeWeightPicker,
               onSubmit: widget.onSubmit,
               onDefer: widget.onDefer,
               onReturnToIntro: widget.onReturnToIntro,
@@ -121,6 +126,7 @@ class PetOnboardingFlow extends StatefulWidget {
     required this.onSubmit,
     required this.onDefer,
     this.nativePetPhotoPicker,
+    this.nativeWeightPicker,
     this.animateInitialEntry = true,
     this.externalRevealProgress,
     this.embedded = false,
@@ -133,6 +139,7 @@ class PetOnboardingFlow extends StatefulWidget {
   final Future<void> Function(PetOnboardingResult result) onSubmit;
   final Future<void> Function() onDefer;
   final NativePetPhotoPicker? nativePetPhotoPicker;
+  final NativeWeightPicker? nativeWeightPicker;
   final bool animateInitialEntry;
   final double? externalRevealProgress;
   final bool embedded;
@@ -167,6 +174,8 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   late final IntroHapticsDriver _introHapticsDriver;
   late final NativePetPhotoPicker _nativePetPhotoPicker =
       widget.nativePetPhotoPicker ?? MethodChannelNativePetPhotoPicker();
+  late final NativeWeightPicker _nativeWeightPicker =
+      widget.nativeWeightPicker ?? MethodChannelNativeWeightPicker();
 
   int _stepIndex = 0;
   PetType? _type;
@@ -927,6 +936,39 @@ class _PetOnboardingFlowState extends State<PetOnboardingFlow>
   }
 
   Future<void> _openWeightInputDialog() async {
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      final result = await _nativeWeightPicker.pickWeight(
+        NativeWeightPickerRequest(
+          initialValue: _selectedWeightKg ?? _defaultWeightKg,
+          minWeightKg: _minWeightKg,
+          maxWeightKg: _maxWeightKg,
+          stepKg: 0.1,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (result.isSuccess && result.value != null) {
+        final clamped =
+            result.value!.clamp(_minWeightKg, _maxWeightKg).toDouble();
+        _weight.text = clamped.toStringAsFixed(1);
+        await _weightWheelController.animateToItem(
+          _weightIndexFor(clamped),
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+        return;
+      }
+      if (result.status == NativeWeightPickerStatus.cancelled) {
+        return;
+      }
+      await _openWeightInputDialogFallback();
+      return;
+    }
+    await _openWeightInputDialogFallback();
+  }
+
+  Future<void> _openWeightInputDialogFallback() async {
     final value = await showDialog<double>(
       context: context,
       builder: (context) => _WeightDirectInputDialog(
@@ -1096,7 +1138,7 @@ class _OnboardingInsetSurface extends StatelessWidget {
   }
 }
 
-class _WeightWheelPicker extends StatelessWidget {
+class _WeightWheelPicker extends StatefulWidget {
   const _WeightWheelPicker({
     required this.controller,
     required this.value,
@@ -1116,10 +1158,26 @@ class _WeightWheelPicker extends StatelessWidget {
   final VoidCallback onTapValue;
 
   @override
+  State<_WeightWheelPicker> createState() => _WeightWheelPickerState();
+}
+
+class _WeightWheelPickerState extends State<_WeightWheelPicker> {
+  int? _lastHapticIndex;
+
+  void _handleSelectedItemChanged(int index) {
+    if (_lastHapticIndex != index) {
+      _lastHapticIndex = index;
+      triggerSelectionHaptic();
+    }
+    widget.onChanged(widget.minWeightKg + index / 10);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final tokens = context.petNoteTokens;
-    final selected = value ?? defaultWeightKg;
-    final itemCount = ((maxWeightKg - minWeightKg) * 10).round() + 1;
+    final selected = widget.value ?? widget.defaultWeightKg;
+    final itemCount =
+        ((widget.maxWeightKg - widget.minWeightKg) * 10).round() + 1;
     return _OnboardingInsetSurface(
       key: const ValueKey('onboarding_weight_picker_surface'),
       child: Column(
@@ -1130,7 +1188,7 @@ class _WeightWheelPicker extends StatelessWidget {
             child: InkWell(
               key: const ValueKey('onboarding_weight_value_button'),
               borderRadius: BorderRadius.circular(18),
-              onTap: onTapValue,
+              onTap: widget.onTapValue,
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
@@ -1149,17 +1207,15 @@ class _WeightWheelPicker extends StatelessWidget {
             key: const ValueKey('onboarding_weight_wheel'),
             height: 168,
             child: ListWheelScrollView.useDelegate(
-              controller: controller,
+              controller: widget.controller,
               itemExtent: 42,
               physics: const FixedExtentScrollPhysics(),
               overAndUnderCenterOpacity: 0.42,
-              onSelectedItemChanged: (index) {
-                onChanged(minWeightKg + index / 10);
-              },
+              onSelectedItemChanged: _handleSelectedItemChanged,
               childDelegate: ListWheelChildBuilderDelegate(
                 childCount: itemCount,
                 builder: (context, index) {
-                  final itemValue = minWeightKg + index / 10;
+                  final itemValue = widget.minWeightKg + index / 10;
                   final isSelected = (itemValue - selected).abs() < 0.049;
                   return Center(
                     child: Text(

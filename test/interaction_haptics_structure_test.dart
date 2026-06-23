@@ -41,6 +41,19 @@ void main() {
         source.contains('UIImpactFeedbackGenerator(style: .medium)'), isTrue);
   });
 
+  test(
+      'iOS native weight picker plugin uses UIPickerView and selection feedback',
+      () {
+    final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(source.contains('PetNoteNativeWeightPickerPlugin'), isTrue);
+    expect(source.contains('petnote/native_weight_picker'), isTrue);
+    expect(source.contains('UIPickerView'), isTrue);
+    expect(source.contains('UISelectionFeedbackGenerator'), isTrue);
+    expect(source.contains('selectionChanged()'), isTrue);
+    expect(source.contains('pickWeight'), isTrue);
+  });
+
   test('Harmony interaction haptics plugin is registered and tracked', () {
     final registrant = File(
       'ohos/entry/src/main/ets/plugins/ProjectPluginRegistrant.ets',

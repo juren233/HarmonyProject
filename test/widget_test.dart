@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,7 @@ import 'package:petnote/app/android_native_dock.dart';
 import 'package:petnote/app/ios_native_dock.dart';
 import 'package:petnote/app/me_page.dart' as settings_page;
 import 'package:petnote/app/native_pet_photo_picker.dart';
+import 'package:petnote/app/native_weight_picker.dart';
 import 'package:petnote/app/pet_first_launch_intro.dart';
 import 'package:petnote/app/pet_photo_widgets.dart';
 import 'package:petnote/app/petnote_app.dart';
@@ -36,6 +38,7 @@ const _firstLaunchIntroAutoEnabledKey = 'first_launch_intro_auto_enabled_v1';
 
 void main() {
   setUp(() {
+    debugDefaultTargetPlatformOverride = null;
     debugDisableAndroidLiquidGlassDock = true;
     SharedPreferences.setMockInitialValues({});
     debugPetPhotoImageBuilder = null;
@@ -43,6 +46,7 @@ void main() {
   });
 
   tearDown(() {
+    debugDefaultTargetPlatformOverride = null;
     debugDisableAndroidLiquidGlassDock = false;
     debugPetPhotoImageBuilder = null;
     debugHasPetPhotoOverride = null;
@@ -2505,6 +2509,95 @@ void main() {
     expect(find.text('80.0 kg'), findsOneWidget);
   });
 
+  testWidgets('iOS weight value button opens native picker and syncs value',
+      (tester) async {
+    final picker = _FakeNativeWeightPicker(
+      const NativeWeightPickerResult.success(value: 7.3),
+    );
+    await _pumpOnboardingOverlayWithNativeWeightPicker(tester, picker);
+    await _enterBirthdayStepInCurrentFlow(tester);
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_weight_value_button')));
+    await tester.pumpAndSettle();
+
+    expect(picker.requests, hasLength(1));
+    expect(picker.requests.single.initialValue, 4.0);
+    expect(find.text('7.3 kg'), findsOneWidget);
+  });
+
+  testWidgets('iOS native weight picker manual input falls back to dialog',
+      (tester) async {
+    final picker = _FakeNativeWeightPicker(
+      const NativeWeightPickerResult.manualInput(),
+    );
+    await _pumpOnboardingOverlayWithNativeWeightPicker(tester, picker);
+    await _enterBirthdayStepInCurrentFlow(tester);
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('onboarding_weight_value_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('onboarding_weight_direct_input_field')),
+        findsOneWidget);
+  });
+
+  testWidgets(
+      'weight wheel emits selection haptic ticks on supported platforms',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final platformCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      platformCalls.add(call);
+      return null;
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+    await _pumpOnboardingOverlayWithNativeWeightPicker(
+      tester,
+      _FakeNativeWeightPicker(const NativeWeightPickerResult.cancelled()),
+    );
+    await _enterBirthdayStepInCurrentFlow(tester);
+    await _selectBirthdayDay(
+      tester,
+      DateTime(DateTime.now().year, DateTime.now().month, 15),
+    );
+    await tester.tap(find.byKey(const ValueKey('onboarding_continue_button')));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('onboarding_weight_wheel')),
+      const Offset(0, -84),
+    );
+    await tester.pumpAndSettle();
+    debugDefaultTargetPlatformOverride = null;
+
+    expect(
+      platformCalls.any(
+        (call) =>
+            call.method == 'HapticFeedback.vibrate' &&
+            call.arguments == 'HapticFeedbackType.selectionClick',
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets('neuter step only shows explicit yes or no options',
       (tester) async {
     await tester.pumpWidget(const PetNoteApp());
@@ -4833,6 +4926,21 @@ class _FakeNativePetPhotoPicker implements NativePetPhotoPicker {
   }
 }
 
+class _FakeNativeWeightPicker implements NativeWeightPicker {
+  _FakeNativeWeightPicker(this.result);
+
+  final NativeWeightPickerResult result;
+  final List<NativeWeightPickerRequest> requests = [];
+
+  @override
+  Future<NativeWeightPickerResult> pickWeight(
+    NativeWeightPickerRequest request,
+  ) async {
+    requests.add(request);
+    return result;
+  }
+}
+
 ValueKey<String> _recordPhotoPreviewKey(String path) {
   return ValueKey<String>('record_photo_preview_$path');
 }
@@ -4951,6 +5059,28 @@ Future<void> _enterBirthdayStep(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await _enterOnboardingFromIntro(tester);
   await _enterBirthdayStepInCurrentFlow(tester);
+}
+
+Future<void> _pumpOnboardingOverlayWithNativeWeightPicker(
+  WidgetTester tester,
+  NativeWeightPicker picker,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildPetNoteTheme(Brightness.light).copyWith(
+        platform: TargetPlatform.iOS,
+      ),
+      home: Scaffold(
+        body: PetOnboardingOverlay(
+          onSubmit: (_) async {},
+          onDefer: () async {},
+          nativeWeightPicker: picker,
+          animateInitialEntry: false,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 Future<void> _enterBirthdayStepInCurrentFlow(WidgetTester tester) async {

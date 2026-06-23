@@ -2449,6 +2449,11 @@ class PetNoteStore extends ChangeNotifier {
         remappedPetIds[pet.id] = existingPet.id;
         continue;
       }
+      final matchingPet = _matchEquivalentImportedPet(pet);
+      if (matchingPet != null) {
+        remappedPetIds[pet.id] = matchingPet.id;
+        continue;
+      }
       final importedPet = _petsById[mergedId];
       if (importedPet != null) {
         final cloned = _petWithId(pet, mergedId);
@@ -3753,6 +3758,45 @@ class PetNoteStore extends ChangeNotifier {
       }
     }
     return idOf(source);
+  }
+
+  Pet? _matchEquivalentImportedPet(Pet source) {
+    final sourceFingerprint = _petProfileFingerprint(source);
+    final sameIdPet = _petsById[source.id];
+    if (sameIdPet != null &&
+        _petProfileFingerprint(sameIdPet) == sourceFingerprint) {
+      return sameIdPet;
+    }
+    final stableId = _decodeStableMergedId('pet', source.id);
+    if (stableId != null) {
+      final localPet = _petsById[stableId.sourceId];
+      if (localPet != null &&
+          _petProfileFingerprint(localPet) == sourceFingerprint) {
+        return localPet;
+      }
+    }
+    return null;
+  }
+
+  String _petProfileFingerprint(Pet pet) {
+    final values = <Object?>[
+      pet.name,
+      pet.type.name,
+      pet.breed,
+      pet.sex,
+      pet.birthday,
+      pet.weightKg.toStringAsFixed(1),
+      pet.neuterStatus.name,
+      pet.feedingPreferences,
+      pet.allergies,
+      pet.note,
+      pet.avatarText,
+    ];
+    return values.map(_normalizedPetProfileValue).join('|');
+  }
+
+  String _normalizedPetProfileValue(Object? value) {
+    return (value?.toString() ?? '').trim().toLowerCase();
   }
 
   String _mergedIdFor<T>({

@@ -1594,6 +1594,73 @@ void main() {
           incomingPet.id);
     });
 
+    test('初始配对合并同一宠物档案时不重复添加并重映射关联数据', () async {
+      final store =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      final incoming =
+          await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+      Future<void> addSamePet(PetNoteStore target) {
+        return target.addPet(
+          name: 'Nori',
+          type: PetType.cat,
+          breed: '英国短毛猫',
+          sex: '母',
+          birthday: '2024-02-12',
+          weightKg: 4.2,
+          neuterStatus: PetNeuterStatus.neutered,
+          feedingPreferences: '少量多餐',
+          allergies: '无',
+          note: '爱晒太阳',
+        );
+      }
+
+      await addSamePet(store);
+      await addSamePet(incoming);
+      final keptPetId = store.pets.single.id;
+      await incoming.addTodo(
+        title: '远端待办',
+        petId: incoming.pets.single.id,
+        dueAt: DateTime.parse('2026-03-29T12:00:00+08:00'),
+        note: '',
+      );
+      await incoming.addReminder(
+        title: '远端提醒',
+        petId: incoming.pets.single.id,
+        scheduledAt: DateTime.parse('2026-03-30T12:00:00+08:00'),
+        kind: ReminderKind.custom,
+        recurrence: '不重复',
+        note: '',
+      );
+      await incoming.addRecord(
+        petId: incoming.pets.single.id,
+        type: PetRecordType.medical,
+        title: '远端记录',
+        recordDate: DateTime.parse('2026-03-31T12:00:00+08:00'),
+        summary: '体检',
+        note: '体检',
+      );
+
+      await store.mergeDataPreservingConflictingIds(
+        incoming.exportDataState(),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+      await store.mergeDataPreservingConflictingIds(
+        incoming.exportDataState(),
+        sourceNamespace: 'device-b',
+        localNamespace: 'device-a',
+      );
+
+      expect(store.pets, hasLength(1));
+      expect(store.pets.single.id, keptPetId);
+      expect(store.todos.singleWhere((item) => item.title == '远端待办').petId,
+          keptPetId);
+      expect(store.reminders.singleWhere((item) => item.title == '远端提醒').petId,
+          keptPetId);
+      expect(store.records.singleWhere((item) => item.title == '远端记录').petId,
+          keptPetId);
+    });
+
     test('初始配对合并后同源修改更新已合并实体', () async {
       final store =
           await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
