@@ -24,8 +24,7 @@ void main() {
 
     expect(
       source,
-      contains(
-          'final storeFuture = (widget.storeLoader ?? PetNoteStore.load)();'),
+      contains('final storeFuture = _loadStore();'),
     );
     expect(
         source, contains('hasExistingLocalData: _hasExistingLocalData(store)'));

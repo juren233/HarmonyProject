@@ -45,7 +45,9 @@ class PetNoteApp extends StatefulWidget {
 class _PetNoteAppState extends State<PetNoteApp> {
   AppSettingsController? _settingsController;
   late AppVersionInfo _appVersionInfo;
-  PetNoteStore? _preloadedStore;
+  PetNoteStore? _appStore;
+  Future<PetNoteStore>? _storeLoadTask;
+  bool _ownsAppStore = false;
   final _ownerNavigatorKey = GlobalKey<NavigatorState>();
   final _petNavigatorKey = GlobalKey<NavigatorState>();
   DeviceRole? _lastAppliedOrientationRole;
@@ -65,7 +67,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
   }
 
   Future<void> _loadControllers() async {
-    final storeFuture = (widget.storeLoader ?? PetNoteStore.load)();
+    final storeFuture = _loadStore();
     final versionFuture = _appVersionInfo == AppVersionInfo.empty
         ? AppVersionInfo.load()
         : Future<AppVersionInfo>.value(_appVersionInfo);
@@ -78,7 +80,6 @@ class _PetNoteAppState extends State<PetNoteApp> {
       return;
     }
     setState(() {
-      _preloadedStore = store;
       _attachSettingsController(controller);
       _appVersionInfo = appVersionInfo;
     });
@@ -97,6 +98,10 @@ class _PetNoteAppState extends State<PetNoteApp> {
   @override
   void dispose() {
     _settingsController?.removeListener(_handleSettingsControllerChanged);
+    if (_ownsAppStore) {
+      _appStore?.dispose();
+    }
+    _appStore = null;
     super.dispose();
   }
 
@@ -160,7 +165,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
         home: PetNoteRoot(
           appVersionInfo: _appVersionInfo,
           nativePetPhotoPicker: widget.nativePetPhotoPicker,
-          storeLoader: widget.storeLoader,
+          storeLoader: _loadStore,
           aiSettingsCoordinator: _settingsController == null
               ? null
               : AiSettingsCoordinator(
@@ -231,12 +236,34 @@ class _PetNoteAppState extends State<PetNoteApp> {
   }
 
   Future<PetNoteStore> _loadStore() async {
-    final preloadedStore = _preloadedStore;
-    if (preloadedStore != null) {
-      _preloadedStore = null;
-      return preloadedStore;
+    final existingStore = _appStore;
+    if (existingStore != null) {
+      return Future<PetNoteStore>.value(existingStore);
     }
-    return (widget.storeLoader ?? PetNoteStore.load)();
+    final existingTask = _storeLoadTask;
+    if (existingTask != null) {
+      return existingTask;
+    }
+    final storeLoader = widget.storeLoader;
+    final ownsStore = storeLoader == null;
+    late final Future<PetNoteStore> task;
+    task = (storeLoader ?? PetNoteStore.load)().then((store) {
+      if (!mounted) {
+        if (ownsStore) {
+          store.dispose();
+        }
+        return store;
+      }
+      _ownsAppStore = ownsStore;
+      _appStore = store;
+      return store;
+    }).whenComplete(() {
+      if (identical(_storeLoadTask, task)) {
+        _storeLoadTask = null;
+      }
+    });
+    _storeLoadTask = task;
+    return task;
   }
 
   bool _hasExistingLocalData(PetNoteStore store) {

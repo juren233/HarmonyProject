@@ -40,6 +40,7 @@ class PetDeviceHome extends StatefulWidget {
 class _PetDeviceHomeState extends State<PetDeviceHome>
     with WidgetsBindingObserver {
   PetNoteStore? _store;
+  bool _storeOwnedByWidget = false;
   SyncService? _syncService;
   late final DeviceKeepAlive _keepAlive;
   RtcSignalingController? _rtcSignalingController;
@@ -72,7 +73,9 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
     WidgetsBinding.instance.removeObserver(this);
     widget.settingsController.removeListener(_handleSettingsChanged);
     unawaited(_disposeIncomingCallController());
-    _store?.dispose();
+    if (_storeOwnedByWidget) {
+      _store?.dispose();
+    }
     unawaited(_stopKeepAlive());
     super.dispose();
   }
@@ -85,11 +88,16 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
   }
 
   Future<void> _loadStore() async {
-    final store = await (widget.storeLoader ?? PetNoteStore.load)();
+    final storeLoader = widget.storeLoader;
+    final ownsStore = storeLoader == null;
+    final store = await (storeLoader ?? PetNoteStore.load)();
     if (!mounted) {
-      store.dispose();
+      if (ownsStore) {
+        store.dispose();
+      }
       return;
     }
+    _storeOwnedByWidget = ownsStore;
     setState(() => _store = store);
     await _restartSync();
   }
@@ -234,7 +242,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
       SyncSessionState.backingOff => '重连中',
       _ => switch (transport?.state.value) {
           SyncConnectionState.connected => '同步中...',
-      SyncConnectionState.connecting => '连接中',
+          SyncConnectionState.connecting => '连接中',
           _ => '重连中',
         },
     };
