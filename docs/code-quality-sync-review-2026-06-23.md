@@ -10,7 +10,7 @@
 
 但如果目标是“极端网络和高频操作后仍稳定高效”，当前自研同步仍未到最终形态。主要剩余风险集中在四处：
 
-1. 客户端持久 outbox 已有数量/字节上限，snapshot 去重缓存也不再长期保存完整 JSON；端侧安全诊断也能输出 snapshot JSON 与宠物头像附件体积统计。但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
+1. 客户端持久 outbox 已有数量/字节上限，snapshot 去重缓存也不再长期保存完整 JSON；端侧安全诊断也能输出 snapshot JSON 与宠物头像附件体积统计；宠物头像附件已经携带 `blobId` / `sha256` / `sizeBytes` 并在接收端校验。但头像附件内容仍随 snapshot/mutation JSON 传输，后续还需要真正的 blob/分片通道。
 2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq`、按 seq 增量补发协议和基于 last pulled 水位的剪枝；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint，服务端诊断已能展示每设备 pulled/ack 水位和滞后值。后续重点转为产品侧诊断展示和更完整的 operation log。
 3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；虽然已具备 `serverSeq` / 设备 ack / 客户端 checkpoint 基础，但统一 operation log 尚未完成。
 4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，端侧也已有不含密钥/URL/token/路径/密文的结构化诊断与 payload 体积统计，并能从同步问题弹窗查看/复制；后续还需要把这些指标与具体冲突归因串成更完整的运维视图。
@@ -67,14 +67,14 @@
 
 ### P2: 大 snapshot / 附件 payload 仍缺少分片策略
 
-`SyncFailureQueue` 持久队列已有消息数与字节数上限，`MultiDeviceSyncController` 的重复 snapshot 去重键也已改为 JSON 长度 + 稳定指纹，避免额外长期保留一份完整 snapshot JSON；端侧诊断新增 snapshot JSON 字节数、宠物头像可同步/缺失/空文件/超限数量、头像原始字节与 base64 估算字节，便于判断是否是大 payload 导致同步卡住。但 snapshot 仍会把完整 `PetNoteDataState` 和头像附件一起 JSON + 加密发送。证据：`lib/sync/sync_failure_queue.dart`、`lib/sync/multi_device_sync_controller.dart`、`lib/sync/sync_service.dart`。
+`SyncFailureQueue` 持久队列已有消息数与字节数上限，`MultiDeviceSyncController` 的重复 snapshot 去重键也已改为 JSON 长度 + 稳定指纹，避免额外长期保留一份完整 snapshot JSON；端侧诊断新增 snapshot JSON 字节数、宠物头像可同步/缺失/空文件/超限数量、头像原始字节与 base64 估算字节，便于判断是否是大 payload 导致同步卡住。宠物头像附件现在也会生成 `blobId=sha256:<hash>`、`sha256` 与 `sizeBytes`，接收端会拒绝 hash 或 size 不匹配的附件，旧 payload 缺少这些字段时仍兼容写入。但 snapshot 仍会把完整 `PetNoteDataState` 和头像附件一起 JSON + 加密发送。证据：`lib/sync/sync_failure_queue.dart`、`lib/sync/multi_device_sync_controller.dart`、`lib/sync/sync_service.dart`、`lib/sync/sync_photo_attachment.dart`。
 
 影响：
 
 - 长期离线或网络抖动下，队列不会无限增长，端侧也能看到本地 snapshot 与头像附件规模；但超大 snapshot / 附件仍可能更快触发容量保护。
-- 大图 base64 仍会进入 WebSocket JSON 帧，弱网下容易造成代理切断、重复重传和 UI 感知“同步卡住”。
+- 大图 base64 仍会进入 WebSocket JSON 帧，弱网下容易造成代理切断、重复重传和 UI 感知“同步卡住”；当前 hash/size 元数据只能提升可校验性和后续迁移基础，不能替代分片传输。
 
-建议：头像改为 content-addressed blob：业务 op 只同步 `photoBlobId/hash/size`，文件内容单独分片上传下载；同时继续保留现有队列容量保护作为最后防线。
+建议：在现有 `blobId/hash/size` 元数据基础上继续推进：业务 op 只同步 `photoBlobId/hash/size`，文件内容单独分片上传下载；同时继续保留现有队列容量保护作为最后防线。
 
 ### P3: 可观测性仍需串联端侧状态
 

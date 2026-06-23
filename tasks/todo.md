@@ -1,5 +1,21 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 宠物头像附件 content metadata
+
+- [x] 宠物头像附件携带稳定 blobId / sha256 / sizeBytes → 验证: codec 单测覆盖元数据生成
+- [x] 接收端校验附件 size/hash，不合格附件不落盘 → 验证: codec 测试覆盖错误 hash/size 不覆盖头像
+- [x] 保持旧 payload 兼容 → 验证: 缺少新字段的旧附件仍可同步
+- [x] 更新同步评估文档中 blob/分片剩余边界 → 验证: 文档说明已具备内容寻址元数据但尚未完成分片传输
+- [x] 跑附件/replica 聚焦测试、analyze、diff 检查并区分有意 lock 变更 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncPhotoAttachment` 新增 `blobId`、`sha256`、`sizeBytes` 字段，发送端按头像文件字节生成 `sha256:<hash>` 内容标识。
+- 接收端写入头像前会校验 `sizeBytes` 与 `sha256`，不匹配的附件不落盘、不覆盖宠物头像；缺少新字段的旧 payload 仍按原逻辑兼容写入。
+- `crypto` 已提升为客户端直接依赖；`pubspec.lock` 仅将既有 `crypto 3.0.7` 从 transitive 标记为 direct main，属于本轮有意依赖变更。
+- 评估文档已更新：当前已具备内容寻址元数据与接收校验，但头像内容仍随 snapshot/mutation JSON 传输，真正 blob/分片通道仍是后续项。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_photo_attachment_test.dart test/pet_replica_controller_test.dart test/multi_device_sync_controller_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_photo_attachment.dart lib/sync/multi_device_sync_controller.dart test/sync_photo_attachment_test.dart test/pet_replica_controller_test.dart`。
+
 ## 2026-06-23 同步问题弹窗安全诊断入口
 
 - [x] 同步问题弹窗新增诊断入口 → 验证: widget 测试从同步状态胶囊打开诊断信息
