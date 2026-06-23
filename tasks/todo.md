@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 端侧同步状态水位诊断
+
+- [x] `SyncStatusSnapshot` 暴露端侧 `lastPulledServerSeq` → 验证: sync service 测试覆盖状态快照字段
+- [x] 保持现有 UI 与同步流程不变 → 验证: 只新增只读状态字段，不改变发送/接收协议
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明端侧 raw 水位已可读，剩余为产品化串联
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `SyncStatusSnapshot` 新增只读 `lastPulledServerSeq` 字段，直接暴露当前设备本地持久 checkpoint 水位。
+- 现有连接状态、outbox 计数、mutation 计数、错误状态、重试时间、发送/接收协议和 UI 入口均未改变。
+- `test/sync_service_test.dart` 已覆盖状态快照在握手前失败队列阶段和握手后正常阶段都能读到同一端侧水位。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/sync_service_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/sync_service.dart test/sync_service_test.dart`。
+
 ## 2026-06-23 Snapshot 去重缓存瘦身
 
 - [x] 将 `_lastPushedSnapshotKey` 从完整 JSON 改为稳定短指纹 → 验证: 同步测试仍覆盖重复 snapshot 不重复发送

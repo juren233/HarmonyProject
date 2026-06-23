@@ -28,6 +28,7 @@ class SyncStatusSnapshot {
     required this.sessionState,
     required this.pendingOutboxCount,
     required this.pendingMutationCount,
+    required this.lastPulledServerSeq,
     required this.lastSyncedAt,
     required this.lastPullAt,
     required this.lastError,
@@ -38,6 +39,7 @@ class SyncStatusSnapshot {
   final SyncSessionState sessionState;
   final int pendingOutboxCount;
   final int pendingMutationCount;
+  final int lastPulledServerSeq;
   final DateTime? lastSyncedAt;
   final DateTime? lastPullAt;
   final Object? lastError;
@@ -101,6 +103,7 @@ class SyncService extends ChangeNotifier {
             petController?.pendingOutboxCount ??
             0,
         pendingMutationCount: _activeStore?.pendingLocalMutations.length ?? 0,
+        lastPulledServerSeq: settings.lastPulledServerSeq,
         lastSyncedAt: ownerEngine?.lastSyncedAt.value ??
             petController?.lastSyncedAt.value,
         lastPullAt: _lastPullAt,

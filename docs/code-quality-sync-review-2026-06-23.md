@@ -13,7 +13,7 @@
 1. 客户端持久 outbox 已有数量/字节上限，snapshot 去重缓存也不再长期保存完整 JSON；但头像附件和全量 snapshot 仍可能形成大 payload，后续需要更细的 blob/分片同步策略。
 2. 服务端事件账本已有 active device TTL、容量上限、`serverSeq`、按 seq 增量补发协议和基于 last pulled 水位的剪枝；客户端也已持久保存 `lastPulledServerSeq` 并在默认 merge 拉取中携带 checkpoint，服务端诊断已能展示每设备 pulled/ack 水位和滞后值。后续重点转为产品侧诊断展示和更完整的 operation log。
 3. 日常同步仍混用 snapshot、mutation、checklist action 三条链路；虽然已具备 `serverSeq` / 设备 ack / 客户端 checkpoint 基础，但统一 operation log 尚未完成。
-4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，后续还需要把这些指标与端侧 outbox、认证错误、附件体积和具体冲突归因串起来。
+4. 诊断能力已有服务端只读入口、per-household 同步统计、每设备 last pulled/ack 水位和事件滞后值，端侧状态快照也能读到本地 last pulled 水位；后续还需要把这些指标与端侧 outbox、认证错误、附件体积和具体冲突归因串起来。
 
 本轮建议：不要在当前轮贸然替换同步底座；先做“上限、压缩、可观测、checkpoint”四类增量加固。`codex/powersync-spike` 分支仍有保留价值，作为中长期迁移验证分支；已合并的 `feature/unified-ohos-flutter` 已在本轮删除。
 
@@ -78,9 +78,9 @@
 
 ### P3: 可观测性仍需串联端侧状态
 
-客户端已有 `SyncStatusSnapshot`，服务端也已新增默认关闭的 household 级只读诊断入口，能够看到 household/device/syncEvents、事件字节数、last pulled、pull lag 和 ack lag；但用户反馈同步失败时，仍难以把服务端指标、客户端队列、认证错误、附件体积和具体冲突归因串成一条可读链路。
+客户端已有 `SyncStatusSnapshot`，并能暴露本地 `lastPulledServerSeq`、outbox 数、mutation 数、最近错误和下次重试时间；服务端也已新增默认关闭的 household 级只读诊断入口，能够看到 household/device/syncEvents、事件字节数、last pulled、pull lag 和 ack lag。但用户反馈同步失败时，仍难以把服务端指标、客户端队列、认证错误、附件体积和具体冲突归因串成一条可读链路。
 
-建议继续扩展只读诊断或本地导出：把每设备 last pulled/last ack 差值与最近错误分类、最近大 payload 来源和客户端 outbox 状态组合成可读报告。生产接口仍必须走诊断 token、内网或管理员访问边界。
+建议继续扩展只读诊断或本地导出：把每设备 last pulled/last ack 差值与最近错误分类、最近大 payload 来源和客户端 outbox 状态组合成可读报告。生产接口仍必须走诊断 token、内网或管理员访问边界；端侧导出也应避免写入密钥、auth token 或密文 payload。
 
 ## 外部资料取证与可借鉴设计
 

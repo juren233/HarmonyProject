@@ -1674,6 +1674,7 @@ void main() {
     await settings.setSyncServerUrl('ws://127.0.0.1/ws');
     await settings.setHouseholdId('house-1');
     await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(23);
     final secretStore = InMemorySyncSecretStore();
     final crypto = await SyncCrypto.deriveFromPairingCode(
       code: '123456',
@@ -1693,11 +1694,13 @@ void main() {
 
     expect(service.failedSyncCount?.value, 3);
     expect(service.statusSnapshot.pendingOutboxCount, 3);
+    expect(service.statusSnapshot.lastPulledServerSeq, 23);
 
     await acknowledgeHello(transport);
 
     expect(service.failedSyncCount?.value, 0);
     expect(service.statusSnapshot.pendingOutboxCount, 0);
+    expect(service.statusSnapshot.lastPulledServerSeq, 23);
 
     await service.stop();
   });
