@@ -295,12 +295,21 @@ Future<void> showSyncIssueDialog(
   required int count,
   required SyncIssueKind issueKind,
 }) {
+  final parentContext = context;
   return showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(_syncIssueDialogTitle(issueKind)),
       content: Text(_syncIssueDialogMessage(issueKind, count)),
       actions: [
+        TextButton(
+          key: const ValueKey('sync_failure_diagnostics_button'),
+          onPressed: () {
+            Navigator.of(context).pop();
+            unawaited(showSyncDiagnosticsDialog(parentContext));
+          },
+          child: const Text('诊断信息'),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('关闭'),
@@ -313,6 +322,51 @@ Future<void> showSyncIssueDialog(
             Navigator.of(context).pop();
           },
           child: const Text('重新同步'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> showSyncDiagnosticsDialog(BuildContext context) async {
+  final service = SyncService.instance;
+  final diagnostics = service == null
+      ? <String, Object?>{'available': false}
+      : await service.buildDiagnosticsSnapshotWithPayloadStats();
+  if (!context.mounted) {
+    return;
+  }
+  final encoded = const JsonEncoder.withIndent('  ').convert(diagnostics);
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('同步诊断信息'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: SelectableText(
+            encoded,
+            key: const ValueKey('sync_diagnostics_payload'),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('sync_diagnostics_copy_button'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: encoded));
+            if (!context.mounted) {
+              return;
+            }
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              const SnackBar(content: Text('诊断信息已复制')),
+            );
+          },
+          child: const Text('复制'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
         ),
       ],
     ),

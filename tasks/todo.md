@@ -1,5 +1,21 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 同步问题弹窗安全诊断入口
+
+- [x] 同步问题弹窗新增诊断入口 → 验证: widget 测试从同步状态胶囊打开诊断信息
+- [x] 诊断信息展示格式化安全 JSON 并支持复制 → 验证: UI 包含诊断字段与复制按钮
+- [x] 诊断入口复用端侧 payload 安全诊断 → 验证: 文案和测试不暴露 URL、token、密钥、路径或密文
+- [x] 更新同步评估文档 P3 剩余边界 → 验证: 文档说明已有用户可见诊断入口
+- [x] 跑聚焦 widget/sync 测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `showSyncIssueDialog()` 新增“诊断信息”入口，用户在同步失败或同步确认中弹窗内可打开安全诊断。
+- 新增 `showSyncDiagnosticsDialog()`，展示格式化 JSON，并提供“复制”按钮；内容来自 `SyncService.buildDiagnosticsSnapshotWithPayloadStats()`。
+- 诊断弹窗只展示安全诊断字段，不展示 householdId 原值、URL、token、密钥、本地路径或密文 payload。
+- 宠物端同步状态胶囊测试已覆盖从“同步确认中”弹窗进入诊断信息，并验证不会显示 `house-1` 原始家庭组值。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/petnote_pages.dart lib/sync/sync_service.dart test/pet_device_dashboard_test.dart`。
+
 ## 2026-06-23 端侧 payload 与照片体积安全诊断
 
 - [x] 新增端侧 payload 体积安全诊断 → 验证: sync service 测试覆盖实体数量、snapshot JSON 字节和照片附件统计

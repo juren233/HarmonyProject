@@ -1045,6 +1045,27 @@ void main() {
       find.byKey(const ValueKey('sync_failure_retry_button')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('sync_failure_diagnostics_button')),
+      findsOneWidget,
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('sync_failure_diagnostics_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('同步诊断信息'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sync_diagnostics_payload')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('connectionState'), findsOneWidget);
+    expect(find.textContaining('hasHouseholdId'), findsOneWidget);
+    expect(find.textContaining('house-1'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('sync_diagnostics_copy_button')),
+      findsOneWidget,
+    );
 
     await service.stop();
     SyncService.instance = null;
