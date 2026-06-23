@@ -409,11 +409,21 @@ class SessionHandler {
         'sentEventCount': batch.sentEventCount,
         'remainingEventCount': batch.remainingEventCount,
         'hasMore': batch.remainingEventCount > 0,
+        if (batch.hasGap) 'hasGap': true,
         if (batch.fromServerSeq != null) 'fromServerSeq': batch.fromServerSeq,
         if (batch.toServerSeq != null) 'toServerSeq': batch.toServerSeq,
       }));
     }
     if (isIncrementalReplay) {
+      if (batch.hasGap) {
+        _broadcastToOtherDevices(
+          household,
+          (_) => SyncMessage(SyncMessageTypes.snapshotRequest, {
+            'dataPolicy': SyncDataPolicy.merge.name,
+            'mergeMode': 'preserveConflictingIds',
+          }),
+        );
+      }
       return;
     }
     _broadcastToOtherDevices(
@@ -880,6 +890,9 @@ class SessionHandler {
       payload: eventPayload,
     );
     household.syncEvents[syncId] = event;
+    if (originDeviceId.isNotEmpty) {
+      _recordDeviceAck(household, originDeviceId, serverSeq);
+    }
     _enforceSyncEventRetention(household);
     return event;
   }
@@ -902,31 +915,41 @@ class SessionHandler {
     int? toServerSeq;
     final events = household.syncEvents.values.toList(growable: false)
       ..sort((a, b) => a.serverSeq.compareTo(b.serverSeq));
+    final hasGap = _hasIncrementalReplayGap(
+      household,
+      events,
+      afterServerSeq: afterServerSeq,
+      currentDeviceId: currentDeviceId,
+    );
+    if (hasGap) {
+      return const _SyncEventBatch(hasGap: true);
+    }
     for (final event in events) {
-      if (event.originDeviceId == currentDeviceId) {
-        continue;
-      }
-      if (event.receivedByDeviceIds.contains(currentDeviceId)) {
-        continue;
-      }
       if (afterServerSeq != null && event.serverSeq <= afterServerSeq) {
         continue;
       }
-      if (_isObsoleteCompletedAction(household, event.payload)) {
-        event.receivedByDeviceIds.add(currentDeviceId);
-        receiptChanged = true;
-        continue;
-      }
-      if (event.messageType == SyncMessageTypes.snapshot) {
-        final completedKeys = _stringSet(event.payload['completedItemKeys']);
-        final missingKeys =
-            household.completedItemKeys.difference(completedKeys);
-        if (missingKeys.isNotEmpty) {
+      final replayDecision = _replayDecisionForDevice(
+        household,
+        event,
+        currentDeviceId: currentDeviceId,
+      );
+      switch (replayDecision) {
+        case _ReplayDecision.send:
+          break;
+        case _ReplayDecision.markReceived:
           event.receivedByDeviceIds.add(currentDeviceId);
           receiptChanged = true;
-          missingCompletedKeys.addAll(missingKeys);
           continue;
-        }
+        case _ReplayDecision.sendCompletedActions:
+          event.receivedByDeviceIds.add(currentDeviceId);
+          receiptChanged = true;
+          final completedKeys = _stringSet(event.payload['completedItemKeys']);
+          missingCompletedKeys.addAll(
+            household.completedItemKeys.difference(completedKeys),
+          );
+          continue;
+        case _ReplayDecision.skip:
+          continue;
       }
       if (eventLimit != null && sentEventCount >= eventLimit) {
         remainingEventCount += 1;
@@ -950,6 +973,78 @@ class SessionHandler {
       fromServerSeq: fromServerSeq,
       toServerSeq: toServerSeq,
     );
+  }
+
+  bool _hasIncrementalReplayGap(
+    Household household,
+    List<SyncEventReceipt> events, {
+    required int? afterServerSeq,
+    required String currentDeviceId,
+  }) {
+    if (afterServerSeq == null) {
+      return false;
+    }
+    final deviceCoverageSeq =
+        household.devices[currentDeviceId]?.lastAckServerSeq ?? 0;
+    var contiguousSeq =
+        deviceCoverageSeq > afterServerSeq ? deviceCoverageSeq : afterServerSeq;
+    for (final event in events) {
+      if (event.serverSeq <= contiguousSeq) {
+        continue;
+      }
+      if (!_shouldReplayEventToDevice(
+        household,
+        event,
+        currentDeviceId: currentDeviceId,
+      )) {
+        contiguousSeq = event.serverSeq;
+        continue;
+      }
+      if (event.serverSeq > contiguousSeq + 1) {
+        return true;
+      }
+      contiguousSeq = event.serverSeq;
+    }
+    final latestAllocatedSeq = household.nextServerSeq - 1;
+    return latestAllocatedSeq > contiguousSeq;
+  }
+
+  bool _shouldReplayEventToDevice(
+    Household household,
+    SyncEventReceipt event, {
+    required String currentDeviceId,
+  }) {
+    return _replayDecisionForDevice(
+          household,
+          event,
+          currentDeviceId: currentDeviceId,
+        ) ==
+        _ReplayDecision.send;
+  }
+
+  _ReplayDecision _replayDecisionForDevice(
+    Household household,
+    SyncEventReceipt event, {
+    required String currentDeviceId,
+  }) {
+    if (event.originDeviceId == currentDeviceId) {
+      return _ReplayDecision.skip;
+    }
+    if (event.receivedByDeviceIds.contains(currentDeviceId)) {
+      return _ReplayDecision.skip;
+    }
+    if (_isObsoleteCompletedAction(household, event.payload)) {
+      return _ReplayDecision.markReceived;
+    }
+    if (event.messageType == SyncMessageTypes.snapshot) {
+      final completedKeys = _stringSet(event.payload['completedItemKeys']);
+      final missingKeys =
+          household.completedItemKeys.difference(completedKeys);
+      return missingKeys.isEmpty
+          ? _ReplayDecision.send
+          : _ReplayDecision.sendCompletedActions;
+    }
+    return _ReplayDecision.send;
   }
 
   void _sendMissingCompletedActions(
@@ -1255,16 +1350,25 @@ class SessionHandler {
   void _send(SyncMessage message) => channel.sink.add(message.encode());
 }
 
+enum _ReplayDecision {
+  send,
+  skip,
+  markReceived,
+  sendCompletedActions,
+}
+
 class _SyncEventBatch {
   const _SyncEventBatch({
     this.sentEventCount = 0,
     this.remainingEventCount = 0,
     this.fromServerSeq,
     this.toServerSeq,
+    this.hasGap = false,
   });
 
   final int sentEventCount;
   final int remainingEventCount;
   final int? fromServerSeq;
   final int? toServerSeq;
+  final bool hasGap;
 }

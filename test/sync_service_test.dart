@@ -453,6 +453,58 @@ void main() {
     await service.stop();
   });
 
+  test('收到断档 checkpoint 时不推进持久 serverSeq 水位', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setLastPulledServerSeq(0);
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(
+      store: PetNoteStore.seeded(),
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.syncCheckpoint, {
+        'afterServerSeq': 0,
+        'toServerSeq': 12,
+        'sentEventCount': 0,
+        'remainingEventCount': 0,
+        'hasMore': false,
+        'hasGap': true,
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(settings.lastPulledServerSeq, 0);
+    final request = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.snapshotRequest,
+    );
+    expect(request.payload['dataPolicy'], SyncDataPolicy.merge.name);
+    expect(request.payload.containsKey('afterServerSeq'), isFalse);
+    expect(request.payload.containsKey('maxEvents'), isFalse);
+
+    final reloaded = await AppSettingsController.load();
+    expect(reloaded.lastPulledServerSeq, 0);
+
+    await service.stop();
+  });
+
   test('清除配对会重置持久 serverSeq checkpoint', () async {
     final settings = await AppSettingsController.load();
     await settings.setHouseholdId('house-1');

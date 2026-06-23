@@ -535,12 +535,17 @@ class MultiDeviceSyncController {
 
   Future<void> _applySyncCheckpoint(SyncMessage message) async {
     final toServerSeq = (message.payload['toServerSeq'] as num?)?.toInt();
-    final canAdvanceCheckpoint = !_inboundApplyFailedSinceCheckpoint;
+    final hasGap = message.payload['hasGap'] == true;
+    final canAdvanceCheckpoint = !hasGap && !_inboundApplyFailedSinceCheckpoint;
     _inboundApplyFailedSinceCheckpoint = false;
     if (canAdvanceCheckpoint &&
         toServerSeq != null &&
         toServerSeq > (settings?.lastPulledServerSeq ?? 0)) {
       await settings?.setLastPulledServerSeq(toServerSeq);
+    }
+    if (hasGap) {
+      requestSnapshot(useCheckpoint: false);
+      return;
     }
     if (message.payload['hasMore'] == true) {
       requestSnapshot();
