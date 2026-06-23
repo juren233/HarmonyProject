@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-23 Snapshot 去重缓存瘦身
+
+- [x] 将 `_lastPushedSnapshotKey` 从完整 JSON 改为稳定短指纹 → 验证: 同步测试仍覆盖重复 snapshot 不重复发送
+- [x] 保持 snapshot 加密 payload 与附件同步协议不变 → 验证: owner/pet replica 测试继续通过
+- [x] 更新同步评估文档，明确大附件分片仍是中期项 → 验证: 文档不夸大本轮优化范围
+- [x] 跑客户端聚焦测试、analyze、diff 检查并排除 lock 噪音 → 验证: 命令通过且无测试残留
+
+### Review 2026-06-23
+
+- `MultiDeviceSyncController` 的 snapshot 去重键现在保存 `dataPolicy`、冲突保留标记和 JSON 长度 + FNV 风格短指纹，不再把完整 snapshot JSON 长期留在 `_lastPushedSnapshotKey`。
+- Snapshot 加密 payload、照片附件字段、失败队列容量保护和入站解析协议保持不变；本轮只减少本地重复缓存的大字符串风险，不宣称已完成 blob/分片同步。
+- 新增控制器测试覆盖相同 snapshot 不重复发送、数据变化后仍重新发送，owner/pet 同步入口回归测试保持通过。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/multi_device_sync_controller_test.dart test/pet_replica_controller_test.dart test/owner_sync_engine_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/sync/multi_device_sync_controller.dart test/multi_device_sync_controller_test.dart`。
+
 ## 2026-06-23 服务端按拉取水位剪枝同步事件
 
 - [x] 用活跃设备 `lastPulledServerSeq` 辅助判断旧事件已收敛 → 验证: 服务端同步流测试覆盖无需显式 `sync_received` 也可剪枝

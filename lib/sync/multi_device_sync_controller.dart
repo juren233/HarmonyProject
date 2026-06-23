@@ -157,7 +157,8 @@ class MultiDeviceSyncController {
               attachments.map((item) => item.toJson()).toList(),
       };
       final json = jsonEncode(snapshotPayload);
-      final snapshotKey = '${dataPolicy.name}:$preserveConflictingIds:$json';
+      final snapshotKey =
+          '${dataPolicy.name}:$preserveConflictingIds:${_snapshotFingerprint(json)}';
       if (!force && snapshotKey == _lastPushedSnapshotKey) {
         return;
       }
@@ -176,6 +177,15 @@ class MultiDeviceSyncController {
     } on Object catch (error) {
       lastError.value = error;
     }
+  }
+
+  String _snapshotFingerprint(String json) {
+    var hash = 0xcbf29ce484222325;
+    for (final byte in utf8.encode(json)) {
+      hash ^= byte;
+      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+    }
+    return '${json.length}:$hash';
   }
 
   Future<void> _onMessage(SyncMessage message) async {
