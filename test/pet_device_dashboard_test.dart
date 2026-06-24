@@ -708,6 +708,43 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('宠物端看板详情页时钟刷新不重建非时间内容', (tester) async {
+    var now = DateTime(2026, 6, 22, 21, 5);
+    final store = PetNoteStore.seeded();
+    addTearDown(store.dispose);
+    final pet = store.pets.first;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: pet.id,
+          syncStatusLabel: '已连接',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () {},
+          nowProvider: () => now,
+        ),
+      ),
+    );
+
+    final contentFinder = find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString() == '_DashboardContent',
+    );
+    expect(contentFinder, findsOneWidget);
+    final contentBeforeTick = tester.widget(contentFinder);
+
+    now = DateTime(2026, 6, 22, 21, 6, 1);
+    await tester.pump(const Duration(minutes: 1));
+
+    expect(find.text('21:06'), findsOneWidget);
+    expect(tester.widget(contentFinder), same(contentBeforeTick));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('宠物端看板详情页恢复前台时立即刷新时钟', (tester) async {
     var now = DateTime(2026, 6, 22, 21, 5);
     final store = PetNoteStore.seeded();

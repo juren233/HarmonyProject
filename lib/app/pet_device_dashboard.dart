@@ -35,81 +35,7 @@ class PetDeviceDashboard extends StatefulWidget {
   State<PetDeviceDashboard> createState() => _PetDeviceDashboardState();
 }
 
-class _PetDeviceDashboardState extends State<PetDeviceDashboard>
-    with WidgetsBindingObserver {
-  Timer? _clockTimer;
-  late DateTime _now;
-
-  DateTime get _currentNow => (widget.nowProvider ?? DateTime.now)();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _now = _currentNow;
-    _scheduleNextClockRefresh();
-  }
-
-  @override
-  void didUpdateWidget(covariant PetDeviceDashboard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.nowProvider, widget.nowProvider)) {
-      _now = _currentNow;
-      _scheduleNextClockRefresh();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _clockTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _refreshClockNow();
-      return;
-    }
-    if (state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused) {
-      _clockTimer?.cancel();
-      _clockTimer = null;
-    }
-  }
-
-  void _scheduleNextClockRefresh() {
-    _clockTimer?.cancel();
-    final now = _currentNow;
-    final nextMinute = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute + 1,
-    );
-    final delay = nextMinute.difference(now);
-    _clockTimer = Timer(
-      delay > Duration.zero ? delay : const Duration(seconds: 1),
-      _handleClockRefresh,
-    );
-  }
-
-  void _handleClockRefresh() {
-    if (!mounted) {
-      return;
-    }
-    _refreshClockNow();
-  }
-
-  void _refreshClockNow() {
-    setState(() {
-      _now = _currentNow;
-    });
-    _scheduleNextClockRefresh();
-  }
-
+class _PetDeviceDashboardState extends State<PetDeviceDashboard> {
   @override
   Widget build(BuildContext context) {
     final pets = widget.store.pets;
@@ -133,19 +59,19 @@ class _PetDeviceDashboardState extends State<PetDeviceDashboard>
             child: selectedPet == null
                 ? hasAssignedPet
                     ? _AssignedPetSyncingState(
-                        now: _now,
+                        nowProvider: widget.nowProvider,
                         syncStatusLabel: widget.syncStatusLabel,
                         onOpenSettings: widget.onOpenSettings,
                       )
                     : _PetSelector(
-                        now: _now,
+                        nowProvider: widget.nowProvider,
                         pets: pets,
                         syncStatusLabel: widget.syncStatusLabel,
                         onSelectServedPet: widget.onSelectServedPet,
                         onOpenSettings: widget.onOpenSettings,
                       )
                 : _DashboardContent(
-                    now: _now,
+                    nowProvider: widget.nowProvider,
                     store: widget.store,
                     pet: selectedPet,
                     syncStatusLabel: widget.syncStatusLabel,
@@ -173,12 +99,12 @@ Pet? _findPet(List<Pet> pets, String? petId) {
 
 class _AssignedPetSyncingState extends StatelessWidget {
   const _AssignedPetSyncingState({
-    required this.now,
+    required this.nowProvider,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
@@ -188,7 +114,7 @@ class _AssignedPetSyncingState extends StatelessWidget {
     return Column(
       children: [
         _PetSelectorTopBar(
-          now: now,
+          nowProvider: nowProvider,
           syncStatusLabel: syncStatusLabel,
           onOpenSettings: onOpenSettings,
         ),
@@ -229,14 +155,14 @@ class _AssignedPetSyncingState extends StatelessWidget {
 
 class _PetSelector extends StatelessWidget {
   const _PetSelector({
-    required this.now,
+    required this.nowProvider,
     required this.pets,
     required this.syncStatusLabel,
     required this.onSelectServedPet,
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final List<Pet> pets;
   final String syncStatusLabel;
   final ValueChanged<String> onSelectServedPet;
@@ -254,7 +180,7 @@ class _PetSelector extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: _PetSelectorSidePanel(
-                  now: now,
+                  nowProvider: nowProvider,
                   syncStatusLabel: syncStatusLabel,
                   onOpenSettings: onOpenSettings,
                 ),
@@ -274,7 +200,7 @@ class _PetSelector extends StatelessWidget {
         return Column(
           children: [
             _PetSelectorTopBar(
-              now: now,
+              nowProvider: nowProvider,
               syncStatusLabel: syncStatusLabel,
               onOpenSettings: onOpenSettings,
             ),
@@ -296,12 +222,12 @@ class _PetSelector extends StatelessWidget {
 
 class _PetSelectorTopBar extends StatelessWidget {
   const _PetSelectorTopBar({
-    required this.now,
+    required this.nowProvider,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
@@ -311,38 +237,22 @@ class _PetSelectorTopBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _formatClock(now),
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: tokens.primaryText,
-                    fontSize: 44,
-                    height: 0.95,
-                    letterSpacing: 0,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${_formatWeekday(now)} · 家中设备',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tokens.secondaryText,
-                  fontSize: 14,
-                  height: 1.35,
-                  letterSpacing: 0,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          child: _LiveClockGroup(
+            nowProvider: nowProvider,
+            timeStyle: TextStyle(
+              color: tokens.primaryText,
+              fontSize: 44,
+              height: 0.95,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w900,
+            ),
+            metaStyle: TextStyle(
+              color: tokens.secondaryText,
+              fontSize: 14,
+              height: 1.35,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         _ConnectionPill(label: syncStatusLabel),
@@ -389,12 +299,12 @@ class _PetSelectorHero extends StatelessWidget {
 
 class _PetSelectorSidePanel extends StatelessWidget {
   const _PetSelectorSidePanel({
-    required this.now,
+    required this.nowProvider,
     required this.syncStatusLabel,
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final String syncStatusLabel;
   final VoidCallback onOpenSettings;
 
@@ -405,7 +315,7 @@ class _PetSelectorSidePanel extends StatelessWidget {
       key: const ValueKey('pet_selector_side_panel'),
       children: [
         _SelectorLandscapeTopBar(
-          now: now,
+          nowProvider: nowProvider,
           onOpenSettings: onOpenSettings,
         ),
         const SizedBox(height: 14),
@@ -534,11 +444,11 @@ class _SelectorAppLogo extends StatelessWidget {
 
 class _SelectorLandscapeTopBar extends StatelessWidget {
   const _SelectorLandscapeTopBar({
-    required this.now,
+    required this.nowProvider,
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final VoidCallback onOpenSettings;
 
   @override
@@ -548,38 +458,22 @@ class _SelectorLandscapeTopBar extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _formatClock(now),
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: tokens.primaryText,
-                    fontSize: 42,
-                    height: 1.0,
-                    letterSpacing: 0,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${_formatWeekday(now)} · 家中设备',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tokens.secondaryText,
-                  fontSize: 13,
-                  height: 1.35,
-                  letterSpacing: 0,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          child: _LiveClockGroup(
+            nowProvider: nowProvider,
+            timeStyle: TextStyle(
+              color: tokens.primaryText,
+              fontSize: 42,
+              height: 1.0,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w900,
+            ),
+            metaStyle: TextStyle(
+              color: tokens.secondaryText,
+              fontSize: 13,
+              height: 1.35,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         _IconSurfaceButton(
@@ -865,7 +759,7 @@ class _SelectorSurface extends StatelessWidget {
 
 class _DashboardContent extends StatelessWidget {
   const _DashboardContent({
-    required this.now,
+    required this.nowProvider,
     required this.store,
     required this.pet,
     required this.syncStatusLabel,
@@ -875,7 +769,7 @@ class _DashboardContent extends StatelessWidget {
     required this.onOpenSettings,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final PetNoteStore store;
   final Pet pet;
   final String syncStatusLabel;
@@ -903,7 +797,7 @@ class _DashboardContent extends StatelessWidget {
                 child: Column(
                   children: [
                     _DashboardTopBar(
-                      now: now,
+                      nowProvider: nowProvider,
                       onOpenSettings: onOpenSettings,
                       isLandscape: true,
                       syncStatusLabel: syncStatusLabel,
@@ -937,7 +831,7 @@ class _DashboardContent extends StatelessWidget {
         return Column(
           children: [
             _DashboardTopBar(
-              now: now,
+              nowProvider: nowProvider,
               onOpenSettings: onOpenSettings,
               isLandscape: false,
               syncStatusLabel: syncStatusLabel,
@@ -975,14 +869,14 @@ class _DashboardContent extends StatelessWidget {
 
 class _DashboardTopBar extends StatelessWidget {
   const _DashboardTopBar({
-    required this.now,
+    required this.nowProvider,
     required this.onOpenSettings,
     required this.isLandscape,
     required this.syncStatusLabel,
     this.showConnectionStatus = true,
   });
 
-  final DateTime now;
+  final DateTime Function()? nowProvider;
   final VoidCallback onOpenSettings;
   final bool isLandscape;
   final String syncStatusLabel;
@@ -994,38 +888,22 @@ class _DashboardTopBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _formatClock(now),
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: tokens.primaryText,
-                    fontSize: isLandscape ? 42 : 44,
-                    height: 0.95,
-                    letterSpacing: 0,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${_formatWeekday(now)} · 家中设备',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tokens.secondaryText,
-                  fontSize: 14,
-                  height: 1.35,
-                  letterSpacing: 0,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          child: _LiveClockGroup(
+            nowProvider: nowProvider,
+            timeStyle: TextStyle(
+              color: tokens.primaryText,
+              fontSize: isLandscape ? 42 : 44,
+              height: 0.95,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w900,
+            ),
+            metaStyle: TextStyle(
+              color: tokens.secondaryText,
+              fontSize: 14,
+              height: 1.35,
+              letterSpacing: 0,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         if (showConnectionStatus) ...[
@@ -1578,6 +1456,122 @@ class _SoftPanel extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+class _LiveClockGroup extends StatefulWidget {
+  const _LiveClockGroup({
+    required this.nowProvider,
+    required this.timeStyle,
+    required this.metaStyle,
+  });
+
+  final DateTime Function()? nowProvider;
+  final TextStyle timeStyle;
+  final TextStyle metaStyle;
+
+  @override
+  State<_LiveClockGroup> createState() => _LiveClockGroupState();
+}
+
+class _LiveClockGroupState extends State<_LiveClockGroup>
+    with WidgetsBindingObserver {
+  Timer? _clockTimer;
+  late DateTime _now;
+
+  DateTime get _currentNow => (widget.nowProvider ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _now = _currentNow;
+    _scheduleNextClockRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveClockGroup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.nowProvider, widget.nowProvider)) {
+      _now = _currentNow;
+      _scheduleNextClockRefresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshClockNow();
+      return;
+    }
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _clockTimer?.cancel();
+      _clockTimer = null;
+    }
+  }
+
+  void _scheduleNextClockRefresh() {
+    _clockTimer?.cancel();
+    final now = _currentNow;
+    final nextMinute = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute + 1,
+    );
+    final delay = nextMinute.difference(now);
+    _clockTimer = Timer(
+      delay > Duration.zero ? delay : const Duration(seconds: 1),
+      _handleClockRefresh,
+    );
+  }
+
+  void _handleClockRefresh() {
+    if (!mounted) {
+      return;
+    }
+    _refreshClockNow();
+  }
+
+  void _refreshClockNow() {
+    setState(() {
+      _now = _currentNow;
+    });
+    _scheduleNextClockRefresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            _formatClock(_now),
+            maxLines: 1,
+            style: widget.timeStyle,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '${_formatWeekday(_now)} · 家中设备',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: widget.metaStyle,
+        ),
+      ],
     );
   }
 }
