@@ -351,48 +351,45 @@ class _PetSelectorSidePanel extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final logoSize =
-                    (constraints.maxHeight * 0.23).clamp(62.0, 82.0).toDouble();
-                final topGap =
-                    (constraints.maxHeight * 0.04).clamp(4.0, 12.0).toDouble();
-                final brandBottomGap =
-                    (constraints.maxHeight * 0.04).clamp(6.0, 14.0).toDouble();
+                final logoSize = (constraints.maxHeight * 0.33)
+                    .clamp(88.0, 116.0)
+                    .toDouble();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(height: topGap),
-                    Center(child: _SelectorBrandHeader(logoSize: logoSize)),
-                    SizedBox(height: brandBottomGap),
                     Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomLeft,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                '这台设备照顾谁？',
-                                maxLines: 1,
-                                style: TextStyle(
-                                  color: tokens.primaryText,
-                                  fontSize: 30,
-                                  height: 1.18,
-                                  letterSpacing: 0,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                      child: Center(
+                        child: _SelectorBrandHeader(logoSize: logoSize),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '这台设备照顾谁？',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: tokens.primaryText,
+                                fontSize: 30,
+                                height: 1.18,
+                                letterSpacing: 0,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                  maxWidth: double.infinity),
-                              child: _ConnectionPill(label: syncStatusLabel),
-                            ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 12),
+                          ConstrainedBox(
+                            constraints:
+                                const BoxConstraints(maxWidth: double.infinity),
+                            child: _ConnectionPill(label: syncStatusLabel),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -413,53 +410,11 @@ class _SelectorBrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = context.petNoteTokens;
-    return Column(
+    return Semantics(
       key: const ValueKey('pet_selector_brand_header'),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _SelectorAppLogo(size: logoSize),
-        const SizedBox(height: 10),
-        Text(
-          '宠记',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tokens.primaryText,
-            fontSize: 20,
-            height: 1.1,
-            letterSpacing: 0,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          'PetNote',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tokens.secondaryText,
-            fontSize: 11,
-            height: 1.1,
-            letterSpacing: 0,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          '宠物日常关怀记录App',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: tokens.secondaryText,
-            fontSize: 10,
-            height: 1.1,
-            letterSpacing: 0,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+      image: true,
+      label: '宠记',
+      child: _SelectorAppLogo(size: logoSize),
     );
   }
 }

@@ -189,21 +189,21 @@ void main() {
         of: find.byKey(const ValueKey('pet_selector_status_card')),
         matching: find.text('宠记'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('pet_selector_status_card')),
         matching: find.text('PetNote'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('pet_selector_status_card')),
         matching: find.text('宠物日常关怀记录App'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('选择服务宠物'), findsNothing);
     expect(find.text('这台设备照顾谁？'), findsOneWidget);
@@ -280,12 +280,6 @@ void main() {
       final brandHeaderRect = tester.getRect(
         find.byKey(const ValueKey('pet_selector_brand_header')),
       );
-      final brandTaglineRect = tester.getRect(
-        find.descendant(
-          of: find.byKey(const ValueKey('pet_selector_brand_header')),
-          matching: find.text('宠物日常关怀记录App'),
-        ),
-      );
       expect(sidePanelRect.left, greaterThanOrEqualTo(0));
       expect(listPanelRect.right, lessThanOrEqualTo(size.width));
       expect(sidePanelRect.right, lessThan(listPanelRect.left));
@@ -304,6 +298,8 @@ void main() {
       expect(logoRect.top, greaterThanOrEqualTo(statusCardRect.top + 8));
       expect(logoRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
       expect(logoRect.bottom, lessThanOrEqualTo(statusCardRect.bottom - 8));
+      expect(logoRect.width, greaterThanOrEqualTo(88));
+      expect(logoRect.width, lessThanOrEqualTo(116));
       final syncPillRect = tester.getRect(find.text('同步中...'));
       expect(syncPillRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
       expect(syncPillRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
@@ -317,11 +313,32 @@ void main() {
       expect(titleRect.left, greaterThanOrEqualTo(statusCardRect.left + 8));
       expect(titleRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
       expect(logoRect.top, greaterThanOrEqualTo(brandHeaderRect.top));
-      expect(logoRect.bottom, lessThan(brandHeaderRect.bottom));
+      expect(logoRect.bottom, lessThanOrEqualTo(brandHeaderRect.bottom));
       expect(
-          brandTaglineRect.right, lessThanOrEqualTo(statusCardRect.right - 8));
+        logoRect.center.dy,
+        closeTo((statusCardRect.top + 16 + titleRect.top) / 2, 4),
+      );
       expect(
-          brandTaglineRect.bottom, lessThanOrEqualTo(brandHeaderRect.bottom));
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_status_card')),
+          matching: find.text('宠记'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_status_card')),
+          matching: find.text('PetNote'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('pet_selector_status_card')),
+          matching: find.text('宠物日常关怀记录App'),
+        ),
+        findsNothing,
+      );
       expect(brandHeaderRect.bottom, lessThan(titleRect.top));
       expect(titleRect.bottom, lessThan(syncPillRect.top));
       expect(find.text('选择服务宠物'), findsNothing);

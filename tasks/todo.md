@@ -1,5 +1,19 @@
 # 数据同步与远程视频故障审查
 
+## 2026-06-24 横屏宠物选择页左侧品牌区去文案
+
+- [x] 拉取合并远端 `main` 最新提交 → 验证: 本地分支与 `origin/main` 对齐且保留既有未提交改动
+- [x] 移除横屏左侧卡片内 `宠记` / `PetNote` / `宠物日常关怀记录App` 文案并放大图标 → 验证: widget 测试确认品牌文案不出现、图标保持卡片视觉中心
+- [x] 跑聚焦测试、analyze 和 diff 检查 → 验证: 受影响文件测试/静态检查通过，无无关格式或 lock 噪音
+
+### Review 2026-06-24
+
+- 已 `git fetch origin` 并 fast-forward 合并到 `origin/main` 的 `e457d37`，保留既有未提交的 `tasks/todo.md` 与 docs 工作区内容。
+- 横屏宠物选择页左侧状态卡删除可见品牌文案，只保留 App 图标；图标尺寸由 `62-82` 提升到 `88-116`，并在标题上方可用区域居中。
+- 横屏测试已改为断言状态卡内不再出现 `宠记` / `PetNote` / `宠物日常关怀记录App`，同时约束图标尺寸和相对位置。
+- 验证通过：`.flutter_ohos_sdk_gitcode/bin/flutter test test/pet_device_dashboard_test.dart`；`.flutter_ohos_sdk_gitcode/bin/flutter analyze lib/app/pet_device_dashboard.dart test/pet_device_dashboard_test.dart`。
+- 测试期间产生的 `pubspec.lock` 依赖版本翻转已恢复，未纳入本轮改动。
+
 ## 2026-06-23 iOS 原生体重滚轮与首次配对宠物去重
 
 - [x] iOS 体重数字入口接入 Swift/UIKit 原生滚轮 → 验证: widget/结构测试覆盖 MethodChannel 与 UIPickerView
