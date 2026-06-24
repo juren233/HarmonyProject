@@ -20,8 +20,11 @@ class SyncFailureQueue {
     this.scopeKey,
     this.maxPendingMessages = 500,
     this.maxPendingBytes = 64 * 1024 * 1024,
+    this.retryPollInterval = const Duration(seconds: 2),
     DateTime Function()? nowProvider,
-  }) : _nowProvider = nowProvider ?? DateTime.now;
+  })  : _nowProvider = nowProvider ?? DateTime.now {
+    _startRetryTimer();
+  }
 
   final SyncTransport transport;
   final ValueNotifier<int> failedCount;
@@ -32,10 +35,12 @@ class SyncFailureQueue {
   final String? scopeKey;
   final int maxPendingMessages;
   final int maxPendingBytes;
+  final Duration retryPollInterval;
   final DateTime Function() _nowProvider;
 
   final List<_QueuedSyncMessage> _messages = <_QueuedSyncMessage>[];
   Future<void> _persistQueue = Future<void>.value();
+  Timer? _retryTimer;
   var _restored = false;
 
   bool get hasFailures => _messages.isNotEmpty;
@@ -133,7 +138,25 @@ class SyncFailureQueue {
     _persist();
   }
 
-  void dispose() {}
+  void dispose() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _startRetryTimer() {
+    _retryTimer?.cancel();
+    _retryTimer = Timer.periodic(retryPollInterval, (_) {
+      if (_messages.isEmpty) {
+        return;
+      }
+      final now = _nowProvider();
+      final nextRetry = this.nextRetryAt;
+      if (nextRetry != null && nextRetry.isAfter(now)) {
+        return;
+      }
+      retry();
+    });
+  }
 
   Future<void> get persistIdle => _persistQueue;
 

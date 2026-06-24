@@ -82,7 +82,8 @@ class MultiDeviceSyncController {
   var _resolveNextMergeSnapshotConflict = false;
   var _pairingRemoved = false;
   var _inboundApplyFailedSinceCheckpoint = false;
-  var _requestedReplayAfterInboundFailure = false;
+  DateTime? _lastReplayRequestAt;
+  int _replayBackoffSeconds = 1;
   String? _lastDeviceConfigReplayServedPetId;
 
   int get pendingOutboxCount => _failureQueue.pendingCount;
@@ -112,10 +113,12 @@ class MultiDeviceSyncController {
       lastError.value = error;
     });
     await _mutationOutbox.flushPendingMutations();
-    if (requestInitialSnapshot) {
+    final isConnected =
+        transport.state.value == SyncConnectionState.connected;
+    if (requestInitialSnapshot && isConnected) {
       requestSnapshot();
     }
-    if (pushInitialSnapshot) {
+    if (pushInitialSnapshot && isConnected) {
       await pushSnapshotNow();
     }
   }
@@ -312,7 +315,7 @@ class MultiDeviceSyncController {
       _sendReceivedIfNeeded(message);
       await _mutationOutbox.markRemoteActionApplied(appliedAction);
       lastSyncedAt.value = DateTime.now();
-      _requestedReplayAfterInboundFailure = false;
+      _resetInboundFailureRecoveryState();
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -343,7 +346,7 @@ class MultiDeviceSyncController {
       );
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
-      _requestedReplayAfterInboundFailure = false;
+      _resetInboundFailureRecoveryState();
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -431,7 +434,7 @@ class MultiDeviceSyncController {
       }
       _sendReceivedIfNeeded(message);
       lastSyncedAt.value = DateTime.now();
-      _requestedReplayAfterInboundFailure = false;
+      _resetInboundFailureRecoveryState();
     } on Object catch (error) {
       _inboundApplyFailedSinceCheckpoint = true;
       lastError.value = error;
@@ -571,8 +574,15 @@ class MultiDeviceSyncController {
     }
     if (hadInboundApplyFailure) {
       // 本地应用失败时不能等用户切宠物或重启来补拉，否则会出现已收到但未落盘的同步空窗。
-      if (!_requestedReplayAfterInboundFailure) {
-        _requestedReplayAfterInboundFailure = true;
+      // 允许在补拉失败后再次触发补拉，但使用指数退避限制频率，避免死循环。
+      // "无 checkpoint 补拉"指不推进 lastPulledServerSeq 也不带 afterServerSeq，
+      // 让服务端做全量回放，避免基于可能不一致的本地水位做增量回放。
+      final now = DateTime.now();
+      final lastRequestAt = _lastReplayRequestAt;
+      final backoff = Duration(seconds: _replayBackoffSeconds);
+      if (lastRequestAt == null || now.difference(lastRequestAt) >= backoff) {
+        _lastReplayRequestAt = now;
+        _replayBackoffSeconds = (_replayBackoffSeconds * 2).clamp(1, 60);
         requestSnapshot(useCheckpoint: false);
       }
       return;
@@ -580,6 +590,11 @@ class MultiDeviceSyncController {
     if (message.payload['hasMore'] == true) {
       requestSnapshot();
     }
+  }
+
+  void _resetInboundFailureRecoveryState() {
+    _lastReplayRequestAt = null;
+    _replayBackoffSeconds = 1;
   }
 
   void _handleStoreChanged() {

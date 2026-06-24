@@ -278,10 +278,13 @@ class SyncService extends ChangeNotifier {
     SyncDataPolicy dataPolicy = SyncDataPolicy.remoteWins,
   }) async {
     await ensureStarted(store: store, pushStartupSnapshot: false);
+    if (_controller == null) {
+      return;
+    }
     final syncId = dataPolicy == SyncDataPolicy.remoteWins
         ? await _ensurePendingResetSnapshotSyncId()
         : null;
-    await _controller?.pushSnapshotNow(
+    await _controller!.pushSnapshotNow(
       dataPolicy: dataPolicy,
       force: true,
       syncId: syncId,
@@ -570,6 +573,7 @@ class SyncService extends ChangeNotifier {
         config == null ||
         role == null ||
         _sessionState == SyncSessionState.authenticated ||
+        _sessionState == SyncSessionState.handshaking ||
         transport.state.value != SyncConnectionState.connected) {
       return false;
     }

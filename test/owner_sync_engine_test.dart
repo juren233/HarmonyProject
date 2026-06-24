@@ -1525,7 +1525,10 @@ void main() {
     final request = transport.sent.lastWhere(
       (message) => message.type == SyncMessageTypes.snapshotRequest,
     );
-    expect(request.payload['afterServerSeq'], 4);
+    // README 同步架构约定：入站事件应用失败后必须触发无 checkpoint 补拉，
+    // 不携带 afterServerSeq / maxEvents，由服务端做全量回放。
+    expect(request.payload.containsKey('afterServerSeq'), isFalse);
+    expect(request.payload.containsKey('maxEvents'), isFalse);
 
     engine.dispose();
   });
