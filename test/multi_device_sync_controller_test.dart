@@ -86,6 +86,97 @@ void main() async {
 
     controller.dispose();
   });
+
+  test('启动时积压增量不会阻塞初始补拉和快照推送', () async {
+    final store = PetNoteStore.seeded();
+    await store.addTodo(
+      petId: store.pets.first.id,
+      title: '离线积压待办',
+      dueAt: DateTime.now().add(const Duration(hours: 1)),
+      notificationLeadTime: NotificationLeadTime.none,
+      note: '',
+    );
+    expect(store.pendingLocalMutations, hasLength(1));
+    final transport = FakeSyncTransport();
+    final blockingCrypto = BlockingMutationCrypto(crypto);
+    final controller = MultiDeviceSyncController(
+      store: store,
+      transport: transport,
+      crypto: blockingCrypto,
+    );
+    addTearDown(() async {
+      blockingCrypto.releaseBlockedMutations();
+      controller.dispose();
+      await Future<void>.delayed(Duration.zero);
+    });
+
+    var startCompleted = false;
+    final startFuture = controller.start().then((_) {
+      startCompleted = true;
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(startCompleted, isTrue);
+    expect(
+      transport.sent.map((message) => message.type).take(2),
+      [
+        SyncMessageTypes.snapshotRequest,
+        SyncMessageTypes.snapshotPush,
+      ],
+    );
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.mutationPush),
+      isEmpty,
+    );
+
+    blockingCrypto.releaseBlockedMutations();
+    await startFuture;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      transport.sent
+          .where((message) => message.type == SyncMessageTypes.mutationPush),
+      hasLength(1),
+    );
+  });
+}
+
+class BlockingMutationCrypto implements SyncCrypto {
+  BlockingMutationCrypto(this._delegate);
+
+  final SyncCrypto _delegate;
+  final List<Completer<void>> _blockedMutationEncryptions = <Completer<void>>[];
+
+  void releaseBlockedMutations() {
+    final blocked = List<Completer<void>>.from(_blockedMutationEncryptions);
+    _blockedMutationEncryptions.clear();
+    for (final completer in blocked) {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    }
+  }
+
+  @override
+  Future<String> encryptString(String plaintext) async {
+    if (plaintext.contains('"entityType"') && plaintext.contains('"kind"')) {
+      final completer = Completer<void>();
+      _blockedMutationEncryptions.add(completer);
+      await completer.future;
+    }
+    return _delegate.encryptString(plaintext);
+  }
+
+  @override
+  Future<String> decryptString(String payloadBase64) {
+    return _delegate.decryptString(payloadBase64);
+  }
+
+  @override
+  Future<String> exportKeyBase64() {
+    return _delegate.exportKeyBase64();
+  }
 }
 
 class FakeSyncTransport implements SyncTransport {

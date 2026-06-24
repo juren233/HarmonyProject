@@ -12,7 +12,7 @@ import 'package:petnote/sync/sync_transport.dart';
 import 'package:petnote_sync_protocol/petnote_sync_protocol.dart';
 
 class MultiDeviceSyncController {
-  static const int defaultSnapshotPullBatchSize = 50;
+  static const int defaultSnapshotPullBatchSize = 100;
 
   MultiDeviceSyncController({
     required this.store,
@@ -112,9 +112,12 @@ class MultiDeviceSyncController {
     }, onError: (Object error) {
       lastError.value = error;
     });
-    await _mutationOutbox.flushPendingMutations();
-    final isConnected =
-        transport.state.value == SyncConnectionState.connected;
+    unawaited(_mutationOutbox.flushPendingMutations().catchError(
+      (Object error) {
+        lastError.value = error;
+      },
+    ));
+    final isConnected = transport.state.value == SyncConnectionState.connected;
     if (requestInitialSnapshot && isConnected) {
       requestSnapshot();
     }
