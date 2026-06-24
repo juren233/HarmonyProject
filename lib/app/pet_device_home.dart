@@ -48,6 +48,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
   SyncTransport? _incomingCallTransport;
   String? _incomingCallDeviceId;
   bool _keepAliveStarted = false;
+  bool _disposed = false;
 
   @override
   void initState() {
@@ -70,6 +71,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     widget.settingsController.removeListener(_handleSettingsChanged);
     unawaited(_disposeIncomingCallController());
@@ -91,7 +93,7 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
     final storeLoader = widget.storeLoader;
     final ownsStore = storeLoader == null;
     final store = await (storeLoader ?? PetNoteStore.load)();
-    if (!mounted) {
+    if (_disposed || !mounted) {
       if (ownsStore) {
         store.dispose();
       }
@@ -103,11 +105,17 @@ class _PetDeviceHomeState extends State<PetDeviceHome>
   }
 
   Future<void> _restartSync() async {
+    if (_disposed || !mounted) {
+      return;
+    }
     final store = _store;
     if (store == null) {
       return;
     }
     final service = await _syncServiceForCurrentSettings();
+    if (_disposed || !mounted) {
+      return;
+    }
     SyncService.instance = service;
     _syncService = service;
     service.resolveMergeConflict = (conflict) async {

@@ -15,6 +15,7 @@ import 'package:petnote/app/petnote_root.dart';
 import 'package:petnote/app/system_ui_policy.dart';
 import 'package:petnote/state/app_settings_controller.dart';
 import 'package:petnote/state/petnote_store.dart';
+import 'package:petnote/sync/sync_service.dart';
 
 const String _appTaskTitle = '宠记';
 
@@ -98,11 +99,28 @@ class _PetNoteAppState extends State<PetNoteApp> {
   @override
   void dispose() {
     _settingsController?.removeListener(_handleSettingsControllerChanged);
+    unawaited(_stopSyncServiceForSettings(_settingsController));
     if (_ownsAppStore) {
       _appStore?.dispose();
     }
     _appStore = null;
     super.dispose();
+  }
+
+  Future<void> _stopSyncServiceForSettings(
+    AppSettingsController? settingsController,
+  ) async {
+    final existing = SyncService.instance;
+    if (existing == null ||
+        settingsController == null ||
+        !identical(existing.settings, settingsController)) {
+      return;
+    }
+    if (identical(SyncService.instance, existing)) {
+      SyncService.instance = null;
+    }
+    await existing.stop();
+    existing.dispose();
   }
 
   void _attachSettingsController(AppSettingsController controller) {
@@ -166,6 +184,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
           appVersionInfo: _appVersionInfo,
           nativePetPhotoPicker: widget.nativePetPhotoPicker,
           storeLoader: _loadStore,
+          stopSyncServiceOnDispose: false,
           aiSettingsCoordinator: _settingsController == null
               ? null
               : AiSettingsCoordinator(
@@ -220,6 +239,7 @@ class _PetNoteAppState extends State<PetNoteApp> {
       settingsController: settingsController,
       nativePetPhotoPicker: widget.nativePetPhotoPicker,
       storeLoader: _loadStore,
+      stopSyncServiceOnDispose: false,
       aiSettingsCoordinator: AiSettingsCoordinator(
         settingsController: settingsController,
         secretStore: secretStore,

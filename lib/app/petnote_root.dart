@@ -47,6 +47,7 @@ class PetNoteRoot extends StatefulWidget {
     this.storeLoader,
     this.notificationAdapter,
     this.nativePetPhotoPicker,
+    this.stopSyncServiceOnDispose = true,
   });
 
   final AppSettingsController? settingsController;
@@ -59,6 +60,7 @@ class PetNoteRoot extends StatefulWidget {
   final Future<PetNoteStore> Function()? storeLoader;
   final NotificationPlatformAdapter? notificationAdapter;
   final NativePetPhotoPicker? nativePetPhotoPicker;
+  final bool stopSyncServiceOnDispose;
 
   @override
   State<PetNoteRoot> createState() => _PetNoteRootState();
@@ -926,7 +928,9 @@ class _PetNoteRootState extends State<PetNoteRoot>
     _store?.stopTimeDerivedDataRefresh();
     _notificationCoordinator?.dispose();
     _detachSettingsListener();
-    unawaited(_stopSyncServiceForSettings(widget.settingsController));
+    if (widget.stopSyncServiceOnDispose) {
+      unawaited(_stopSyncServiceForSettings(widget.settingsController));
+    }
     _overviewBottomCtaController.dispose();
     _overlayTransitionController.dispose();
     super.dispose();

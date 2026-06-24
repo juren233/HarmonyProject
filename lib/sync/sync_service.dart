@@ -481,16 +481,15 @@ class SyncService extends ChangeNotifier {
   Future<void> stop() async {
     final shouldNotify = _controller != null || _transport != null;
     final listener = _transportStateListener;
+    final transport = _transport;
+    final controller = _controller;
+    final helloAckSubscription = _helloAckSubscription;
     if (listener != null) {
-      _transport?.state.removeListener(listener);
+      transport?.state.removeListener(listener);
       _transportStateListener = null;
     }
-    await _helloAckSubscription?.cancel();
     _helloAckSubscription = null;
-    _attachEngineFailedCount(null);
-    _controller?.dispose();
     _controller = null;
-    await _transport?.disconnect();
     _transport = null;
     _activeConfig = null;
     _activeRole = null;
@@ -503,6 +502,12 @@ class SyncService extends ChangeNotifier {
     _lastSessionError = null;
     _setSessionState(SyncSessionState.disconnected);
     settings.removeListener(_handlePetSettingsChanged);
+
+    await helloAckSubscription?.cancel();
+    _helloAckSubscription = null;
+    _attachEngineFailedCount(null);
+    controller?.dispose();
+    await transport?.disconnect();
     if (shouldNotify) {
       _refreshFailedSyncCount();
       notifyListeners();

@@ -2866,6 +2866,143 @@ void main() {
     expect(SyncService.instance?.settings, same(rootSettings));
   });
 
+  testWidgets('已配对设备在主人和宠物模式之间切换时同步服务仍然存活', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('role-switch-house');
+    await settings.setHouseholdAuthToken('role-switch-auth');
+    await settings.setSharedKeyBase64(_testSharedKeyBase64);
+    final transport = _WidgetFakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 64));
+      final activeService = SyncService.instance;
+      if (activeService != null) {
+        await activeService.stop();
+        activeService.dispose();
+      }
+      SyncService.instance = null;
+      settings.dispose();
+      store.dispose();
+    });
+
+    SyncService.instance = service;
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settings,
+        storeLoader: () async => store,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+    expect(service.isActive, isTrue);
+    expect(transport.sent.last.payload['role'], 'owner');
+    transport.acknowledgeHello();
+    await tester.pump();
+
+    transport.sent.clear();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+
+    expect(SyncService.instance, same(service));
+    expect(service.isActive, isTrue);
+    expect(
+      transport.sent.where(
+        (message) =>
+            message.type == SyncMessageTypes.hello &&
+            message.payload['role'] == 'pet',
+      ),
+      isNotEmpty,
+    );
+    transport.acknowledgeHello();
+    await tester.pump();
+
+    transport.sent.clear();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+
+    expect(SyncService.instance, same(service));
+    expect(service.isActive, isTrue);
+    expect(
+      transport.sent.where(
+        (message) =>
+            message.type == SyncMessageTypes.hello &&
+            message.payload['role'] == 'owner',
+      ),
+      isNotEmpty,
+    );
+    transport.acknowledgeHello();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+  });
+
+  testWidgets('宠物模式下卸载 PetNoteApp 会释放全局同步服务', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('pet-teardown-house');
+    await settings.setHouseholdAuthToken('pet-teardown-auth');
+    await settings.setSharedKeyBase64(_testSharedKeyBase64);
+    final transport = _WidgetFakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: InMemorySyncSecretStore(),
+      transportFactory: (_) => transport,
+    );
+    final store = await PetNoteStore.load(
+      storage: PetNoteLocalStorage.memory(
+        initialValues: _persistedSinglePetPreferences(),
+      ),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 64));
+      final activeService = SyncService.instance;
+      if (activeService != null) {
+        await activeService.stop();
+        activeService.dispose();
+      }
+      SyncService.instance = null;
+      settings.dispose();
+      store.dispose();
+    });
+
+    SyncService.instance = service;
+    await tester.pumpWidget(
+      PetNoteApp(
+        settingsController: settings,
+        storeLoader: () async => store,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+    expect(service.isActive, isTrue);
+    expect(SyncService.instance, same(service));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 64));
+
+    expect(service.isActive, isFalse);
+    expect(SyncService.instance, isNull);
+  });
+
   testWidgets('PetNoteRoot 在宠物角色也启动同一套同步服务', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final settings = await AppSettingsController.load();
