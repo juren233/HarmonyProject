@@ -422,12 +422,18 @@ class SessionHandler {
     if (household == null) return;
     final afterServerSeq = _optionalInt(message.payload['afterServerSeq']);
     final maxEvents = _optionalInt(message.payload['maxEvents']);
-    final batch = _sendMissingSyncEvents(
-      household,
-      afterServerSeq: afterServerSeq,
-      maxEvents: maxEvents,
-    );
     final isIncrementalReplay = afterServerSeq != null || maxEvents != null;
+    final dataPolicy =
+        _normalizedDataPolicy(_optionalString(message.payload['dataPolicy']));
+    final shouldReplayMissingEvents =
+        isIncrementalReplay || dataPolicy != SyncDataPolicy.remoteWins;
+    final batch = shouldReplayMissingEvents
+        ? _sendMissingSyncEvents(
+            household,
+            afterServerSeq: afterServerSeq,
+            maxEvents: maxEvents,
+          )
+        : const _SyncEventBatch();
     if (isIncrementalReplay) {
       _send(SyncMessage(SyncMessageTypes.syncCheckpoint, {
         'afterServerSeq': afterServerSeq,

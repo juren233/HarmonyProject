@@ -292,6 +292,63 @@ void main() {
     expect(persisted, contains('"syncEvents":{'));
   });
 
+  test('远端覆盖请求不会先回放历史 merge 快照', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+    owner.send(SyncMessageTypes.snapshotPush, {
+      'version': 1,
+      'ciphertext': 'old-startup-merge-snapshot',
+      'dataPolicy': SyncDataPolicy.merge.name,
+      'mergeMode': 'preserveConflictingIds',
+    });
+    await owner.expectType(SyncMessageTypes.syncReceived);
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+      'dataPolicy': SyncDataPolicy.remoteWins.name,
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    final peerJoined =
+        await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+    expect(peerJoined.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+    pet.send(SyncMessageTypes.snapshotRequest, {
+      'dataPolicy': SyncDataPolicy.remoteWins.name,
+    });
+
+    await pet.expectNoType(SyncMessageTypes.snapshot);
+    final request = await owner.expectType(SyncMessageTypes.snapshotRequest);
+    expect(request.payload['dataPolicy'], SyncDataPolicy.remoteWins.name);
+  });
+
   test('移除设备后其他在线设备会收到更新后的设备列表', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {
