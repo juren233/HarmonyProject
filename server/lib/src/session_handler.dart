@@ -245,6 +245,14 @@ class SessionHandler {
           SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
       return;
     }
+    final requestedServedPetId = message.payload['servedPetId'];
+    if (requestedServedPetId != null && requestedServedPetId is! String) {
+      _send(
+          SyncMessage(SyncMessageTypes.pairError, {'message': 'bad message'}));
+      return;
+    }
+    final shouldUpdateServedPetId =
+        requestedRole == 'pet' && requestedServedPetId is String;
     final household =
         app.store.household(rawHouseholdId is String ? rawHouseholdId : null);
     if (household == null) {
@@ -276,6 +284,9 @@ class SessionHandler {
           ..lastPulledServerSeq =
               _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
                   restoredDevice.lastPulledServerSeq;
+        if (shouldUpdateServedPetId) {
+          restoredDevice.servedPetId = requestedServedPetId;
+        }
         _pruneReceivedSyncEvents(restoredHousehold);
         app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
         _send(SyncMessage(SyncMessageTypes.helloAck, {
@@ -283,6 +294,7 @@ class SessionHandler {
           'restoredHousehold': true,
           'restoredDevice': true,
         }));
+        _sendServedPetConfigIfNeeded(restoredDevice);
         unawaited(app.store.flush());
         return;
       }
@@ -326,6 +338,9 @@ class SessionHandler {
       ..lastPulledServerSeq =
           _optionalPositiveInt(message.payload['lastPulledServerSeq']) ??
               device.lastPulledServerSeq;
+    if (shouldUpdateServedPetId) {
+      device.servedPetId = requestedServedPetId;
+    }
     _pruneReceivedSyncEvents(household);
     app.hub.register(householdId!, deviceId!, channel, role: _sessionRole);
     _send(SyncMessage(SyncMessageTypes.helloAck, {
@@ -333,10 +348,21 @@ class SessionHandler {
       if (needsLegacyAuthTokenRestore) 'authToken': household.authToken,
       if (restoredDevice) 'restoredDevice': true,
     }));
+    _sendServedPetConfigIfNeeded(device);
     unawaited(app.store.flush());
   }
 
   Household? get _household => app.store.household(householdId);
+
+  void _sendServedPetConfigIfNeeded(HouseholdDevice device) {
+    if (_sessionRole != 'pet' || device.servedPetId == null) {
+      return;
+    }
+    _send(SyncMessage(
+      SyncMessageTypes.deviceConfig,
+      {'servedPetId': device.servedPetId},
+    ));
+  }
 
   Future<void> _handleSnapshotPush(SyncMessage message) async {
     final household = _registeredHousehold();

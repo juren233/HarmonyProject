@@ -129,6 +129,7 @@ void main() {
     await settings.setSyncServerUrl('ws://127.0.0.1/ws');
     await settings.setHouseholdId('house-1');
     await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setServedPetId('pet-1');
     final secretStore = InMemorySyncSecretStore();
     final crypto = await SyncCrypto.deriveFromPairingCode(
       code: '123456',
@@ -150,6 +151,7 @@ void main() {
     expect(transport.sent.first.type, SyncMessageTypes.hello);
     expect(transport.sent.first.payload['role'], 'pet');
     expect(transport.sent.first.payload['authToken'], 'auth-token-1');
+    expect(transport.sent.first.payload['servedPetId'], 'pet-1');
     expect(transport.sent.map((message) => message.type),
         isNot(contains(SyncMessageTypes.snapshotRequest)));
 
@@ -184,6 +186,42 @@ void main() {
           message.payload['role'] == 'pet'),
       isTrue,
     );
+
+    await service.stop();
+  });
+
+  test('宠物端服务宠物变更会通过统一同步控制器上报', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.pet);
+    await settings.setSyncServerMode(SyncServerMode.custom);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    await settings.setServedPetId('pet-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    await settings.setServedPetId('pet-2');
+    await Future<void>.delayed(Duration.zero);
+
+    final update = transport.sent.singleWhere(
+      (message) => message.type == SyncMessageTypes.deviceUpdate,
+    );
+    expect(update.payload['servedPetId'], 'pet-2');
 
     await service.stop();
   });

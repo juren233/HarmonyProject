@@ -641,6 +641,155 @@ void main() {
     expect(device?.lastPulledServerSeq, 7);
   });
 
+  test('hello 会持久化宠物端服务宠物并在设备列表回显', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+      'servedPetId': 'pet-a',
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    final storedPetDevice = app.store.household(householdId)?.devices['pet-1'];
+    expect(storedPetDevice?.servedPetId, 'pet-a');
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+    owner.send(SyncMessageTypes.devicesRequest, {});
+    final devices = await owner.expectType(SyncMessageTypes.devices);
+    final petDevice = (devices.payload['devices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((device) => device['deviceId'] == 'pet-1');
+    expect(petDevice['servedPetId'], 'pet-a');
+  });
+
+  test('hello 不会用空服务宠物覆盖服务端已有分配', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+    owner.send(SyncMessageTypes.deviceUpdate, {
+      'deviceId': 'pet-1',
+      'servedPetId': 'pet-a',
+    });
+    await owner.expectType(SyncMessageTypes.devices);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+      'servedPetId': null,
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+
+    final storedPetDevice = app.store.household(householdId)?.devices['pet-1'];
+    expect(storedPetDevice?.servedPetId, 'pet-a');
+  });
+
+  test('宠物端 hello 会回灌服务端已保存的服务宠物配置', () async {
+    final ownerPair = connect();
+    ownerPair.send(SyncMessageTypes.pairCreate, {
+      'deviceId': 'owner-1',
+      'deviceName': '主人手机',
+    });
+    final created = await ownerPair.expectType(SyncMessageTypes.pairCreated);
+    final householdId = created.payload['householdId'] as String;
+    final authToken = created.payload['authToken'] as String;
+
+    final petPair = connect();
+    petPair.send(SyncMessageTypes.pairJoin, {
+      'code': created.payload['code'],
+      'deviceId': 'pet-1',
+      'deviceName': '客厅平板',
+    });
+    await petPair.expectType(SyncMessageTypes.pairJoined);
+    await ownerPair.expectType(SyncMessageTypes.pairPeerJoined);
+    await petPair.close();
+    clients.remove(petPair);
+
+    final owner = connect();
+    owner.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'owner-1',
+      'role': 'owner',
+      'authToken': authToken,
+      'deviceName': '主人手机',
+    });
+    await owner.expectType(SyncMessageTypes.helloAck);
+    owner.send(SyncMessageTypes.deviceUpdate, {
+      'deviceId': 'pet-1',
+      'servedPetId': 'pet-a',
+    });
+    await owner.expectType(SyncMessageTypes.devices);
+
+    final pet = connect();
+    pet.send(SyncMessageTypes.hello, {
+      'householdId': householdId,
+      'deviceId': 'pet-1',
+      'role': 'pet',
+      'authToken': authToken,
+      'deviceName': '客厅平板',
+      'servedPetId': null,
+    });
+    await pet.expectType(SyncMessageTypes.helloAck);
+    final config = await pet.expectType(SyncMessageTypes.deviceConfig);
+    expect(config.payload['servedPetId'], 'pet-a');
+  });
+
   test('服务端同步事件分配 serverSeq 并记录设备 ack 水位', () async {
     final ownerPair = connect();
     ownerPair.send(SyncMessageTypes.pairCreate, {

@@ -1482,14 +1482,22 @@ void main() {
       transport: transport,
       crypto: crypto,
       settings: settings,
-    )..start();
+    );
+    await controller.start();
 
+    transport.sent.clear();
     transport.incoming.add(
       const SyncMessage(
           SyncMessageTypes.deviceConfig, {'servedPetId': 'pet-2'}),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(settings.servedPetId, 'pet-2');
+    final recoveryRequests = transport.sent
+        .where((message) => message.type == SyncMessageTypes.snapshotRequest)
+        .toList(growable: false);
+    expect(recoveryRequests, hasLength(1));
+    expect(recoveryRequests.single.payload['afterServerSeq'], isNull);
+    expect(recoveryRequests.single.payload['maxEvents'], isNull);
 
     transport.incoming.add(
       const SyncMessage(SyncMessageTypes.deviceConfig, {'removed': true}),

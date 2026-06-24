@@ -114,6 +114,8 @@ class _PetDeviceDashboardState extends State<PetDeviceDashboard>
   Widget build(BuildContext context) {
     final pets = widget.store.pets;
     final selectedPet = _findPet(pets, widget.servedPetId);
+    final hasAssignedPet =
+        widget.servedPetId != null && widget.servedPetId!.isNotEmpty;
     final tokens = context.petNoteTokens;
     return Scaffold(
       backgroundColor: tokens.pageGradientTop,
@@ -129,13 +131,19 @@ class _PetDeviceDashboardState extends State<PetDeviceDashboard>
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
             child: selectedPet == null
-                ? _PetSelector(
-                    now: _now,
-                    pets: pets,
-                    syncStatusLabel: widget.syncStatusLabel,
-                    onSelectServedPet: widget.onSelectServedPet,
-                    onOpenSettings: widget.onOpenSettings,
-                  )
+                ? hasAssignedPet
+                    ? _AssignedPetSyncingState(
+                        now: _now,
+                        syncStatusLabel: widget.syncStatusLabel,
+                        onOpenSettings: widget.onOpenSettings,
+                      )
+                    : _PetSelector(
+                        now: _now,
+                        pets: pets,
+                        syncStatusLabel: widget.syncStatusLabel,
+                        onSelectServedPet: widget.onSelectServedPet,
+                        onOpenSettings: widget.onOpenSettings,
+                      )
                 : _DashboardContent(
                     now: _now,
                     store: widget.store,
@@ -161,6 +169,62 @@ Pet? _findPet(List<Pet> pets, String? petId) {
     }
   }
   return null;
+}
+
+class _AssignedPetSyncingState extends StatelessWidget {
+  const _AssignedPetSyncingState({
+    required this.now,
+    required this.syncStatusLabel,
+    required this.onOpenSettings,
+  });
+
+  final DateTime now;
+  final String syncStatusLabel;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.petNoteTokens;
+    return Column(
+      children: [
+        _PetSelectorTopBar(
+          now: now,
+          syncStatusLabel: syncStatusLabel,
+          onOpenSettings: onOpenSettings,
+        ),
+        const SizedBox(height: 14),
+        Expanded(
+          child: _SelectorSurface(
+            key: const ValueKey('pet_assigned_syncing_panel'),
+            padding: const EdgeInsets.all(24),
+            strong: true,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.pets_rounded,
+                    color: tokens.emptyStateForeground,
+                    size: 46,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '同步宠物资料中',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: tokens.primaryText,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _PetSelector extends StatelessWidget {

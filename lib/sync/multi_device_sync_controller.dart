@@ -83,6 +83,7 @@ class MultiDeviceSyncController {
   var _pairingRemoved = false;
   var _inboundApplyFailedSinceCheckpoint = false;
   var _requestedReplayAfterInboundFailure = false;
+  String? _lastDeviceConfigReplayServedPetId;
 
   int get pendingOutboxCount => _failureQueue.pendingCount;
   DateTime? get nextOutboxRetryAt => _failureQueue.nextRetryAt;
@@ -245,6 +246,7 @@ class MultiDeviceSyncController {
   Future<void> _applyDeviceConfig(SyncMessage message) async {
     if (message.payload['removed'] == true) {
       _pairingRemoved = true;
+      _lastDeviceConfigReplayServedPetId = null;
       removedByOwner.value = true;
       await settings?.clearSyncPairing();
       _pushTimer?.cancel();
@@ -260,6 +262,14 @@ class MultiDeviceSyncController {
       final servedPetId = message.payload['servedPetId'] as String?;
       servedPetIdOverride.value = servedPetId;
       await settings?.setServedPetId(servedPetId);
+      if (servedPetId == null || servedPetId.isEmpty) {
+        _lastDeviceConfigReplayServedPetId = null;
+        return;
+      }
+      if (_lastDeviceConfigReplayServedPetId != servedPetId) {
+        _lastDeviceConfigReplayServedPetId = servedPetId;
+        requestSnapshot(useCheckpoint: false);
+      }
     }
   }
 

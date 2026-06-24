@@ -37,7 +37,7 @@ class SyncMessageTypes {
   static const pairError = 'pair_error'; // srv→client {message}
   // 会话
   static const hello =
-      'hello'; // client→srv {householdId, deviceId, role, authToken?, deviceName, lastPulledServerSeq?}
+      'hello'; // client→srv {householdId, deviceId, role, authToken?, deviceName, lastPulledServerSeq?, servedPetId?}
   static const helloAck =
       'hello_ack'; // srv→client {snapshotVersion, authToken?, restoredHousehold?, restoredDevice?}
   // 快照同步

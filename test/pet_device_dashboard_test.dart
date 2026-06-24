@@ -82,6 +82,42 @@ void main() {
     expect(openedSettings, isTrue);
   });
 
+  testWidgets('已有服务宠物但资料未到达时保持同步等待态', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store =
+        await PetNoteStore.load(storage: PetNoteLocalStorage.memory());
+    addTearDown(store.dispose);
+    var openedSettings = false;
+
+    await tester.pumpWidget(
+      _wrapDashboard(
+        PetDeviceDashboard(
+          store: store,
+          servedPetId: 'pet-from-server',
+          syncStatusLabel: '同步中...',
+          pendingItemKeys: const <String>{},
+          onSelectServedPet: (_) {},
+          onMarkDone: (_) {},
+          onOpenSettings: () => openedSettings = true,
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('pet_assigned_syncing_panel')),
+      findsOneWidget,
+    );
+    expect(find.text('同步宠物资料中'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pet_selector_list_panel')), findsNothing);
+    expect(find.text('这台设备照顾谁？'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('pet_dashboard_settings')));
+    await tester.pump();
+    expect(openedSettings, isTrue);
+  });
+
   testWidgets('宠物端选择列表页时钟保持分钟刷新', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
