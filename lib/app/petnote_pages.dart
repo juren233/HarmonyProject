@@ -103,7 +103,7 @@ class ChecklistPage extends StatelessWidget {
                 foreground: const Color(0xFF335FCA),
               ),
               MetricItem(
-                label: '即将到期',
+                label: '未来待办',
                 value: '${upcoming.items.length}',
                 background: const Color(0xFFFFF3D8),
                 foreground: const Color(0xFF976A00),
@@ -120,7 +120,7 @@ class ChecklistPage extends StatelessWidget {
         HyperSegmentedControl(
           items: [
             SegmentItem(key: 'today', label: '今日 ${today.summary}'),
-            SegmentItem(key: 'upcoming', label: '即将到期 ${upcoming.summary}'),
+            SegmentItem(key: 'upcoming', label: '未来待办 ${upcoming.summary}'),
             SegmentItem(key: 'overdue', label: '已逾期 ${overdue.summary}'),
             SegmentItem(key: 'postponed', label: '已延后 ${postponed.summary}'),
             SegmentItem(key: 'skipped', label: '已跳过 ${skipped.summary}'),

@@ -564,6 +564,16 @@ class ChecklistSection {
   final List<ChecklistItemViewModel> items;
 }
 
+class _ChecklistTimelineEntry {
+  const _ChecklistTimelineEntry({
+    required this.item,
+    required this.timelineAt,
+  });
+
+  final ChecklistItemViewModel item;
+  final DateTime timelineAt;
+}
+
 class OverviewSection {
   OverviewSection({
     required this.title,
@@ -1089,28 +1099,31 @@ class PetNoteStore extends ChangeNotifier {
 
     final todayEnd = DateTime(
         referenceNow.year, referenceNow.month, referenceNow.day, 23, 59, 59);
-    final today = <ChecklistItemViewModel>[];
-    final upcoming = <ChecklistItemViewModel>[];
-    final overdue = <ChecklistItemViewModel>[];
-    final postponed = <ChecklistItemViewModel>[];
-    final skipped = <ChecklistItemViewModel>[];
+    final today = <_ChecklistTimelineEntry>[];
+    final upcoming = <_ChecklistTimelineEntry>[];
+    final overdue = <_ChecklistTimelineEntry>[];
+    final postponed = <_ChecklistTimelineEntry>[];
+    final skipped = <_ChecklistTimelineEntry>[];
 
     for (final todo in _todos) {
       if (todo.status == TodoStatus.done) {
         continue;
       }
-      final item = _todoToChecklistItem(todo);
+      final entry = _ChecklistTimelineEntry(
+        item: _todoToChecklistItem(todo),
+        timelineAt: todo.dueAt,
+      );
       if (todo.status == TodoStatus.skipped) {
-        skipped.add(item);
+        skipped.add(entry);
       } else if (todo.status == TodoStatus.postponed) {
-        postponed.add(item);
+        postponed.add(entry);
       } else if (_effectiveTodoStatus(todo, referenceNow) ==
           TodoStatus.overdue) {
-        overdue.add(item);
+        overdue.add(entry);
       } else if (!todo.dueAt.isAfter(todayEnd)) {
-        today.add(item);
+        today.add(entry);
       } else {
-        upcoming.add(item);
+        upcoming.add(entry);
       }
     }
 
@@ -1118,18 +1131,21 @@ class PetNoteStore extends ChangeNotifier {
       if (reminder.status == ReminderStatus.done) {
         continue;
       }
-      final item = _reminderToChecklistItem(reminder);
+      final entry = _ChecklistTimelineEntry(
+        item: _reminderToChecklistItem(reminder),
+        timelineAt: reminder.scheduledAt,
+      );
       if (reminder.status == ReminderStatus.skipped) {
-        skipped.add(item);
+        skipped.add(entry);
       } else if (reminder.status == ReminderStatus.postponed) {
-        postponed.add(item);
+        postponed.add(entry);
       } else if (_effectiveReminderStatus(reminder, referenceNow) ==
           ReminderStatus.overdue) {
-        overdue.add(item);
+        overdue.add(entry);
       } else if (!reminder.scheduledAt.isAfter(todayEnd)) {
-        today.add(item);
+        today.add(entry);
       } else {
-        upcoming.add(item);
+        upcoming.add(entry);
       }
     }
 
@@ -1138,27 +1154,27 @@ class PetNoteStore extends ChangeNotifier {
           key: 'today',
           title: '今日待办',
           summary: '${today.length} 项',
-          items: today),
+          items: _checklistItemsInTimelineOrder(today)),
       ChecklistSection(
           key: 'upcoming',
-          title: '即将到期',
+          title: '未来待办',
           summary: '${upcoming.length} 项',
-          items: upcoming),
+          items: _checklistItemsInTimelineOrder(upcoming)),
       ChecklistSection(
           key: 'overdue',
           title: '已逾期',
           summary: '${overdue.length} 项',
-          items: overdue),
+          items: _checklistItemsInTimelineOrder(overdue)),
       ChecklistSection(
           key: 'postponed',
           title: '已延后',
           summary: '${postponed.length} 项',
-          items: postponed),
+          items: _checklistItemsInTimelineOrder(postponed)),
       ChecklistSection(
           key: 'skipped',
           title: '已跳过',
           summary: '${skipped.length} 项',
-          items: skipped),
+          items: _checklistItemsInTimelineOrder(skipped)),
     ]);
     _checklistSectionsCache = sections;
     _checklistSectionsCacheMinuteStamp = minuteStamp;
@@ -1266,6 +1282,7 @@ class PetNoteStore extends ChangeNotifier {
       rangeLabel: _overviewRangeLabel(_overviewRange),
       rangeStart: range.start,
       rangeEnd: range.end,
+      referenceNow: now,
       languageTag: 'zh-CN',
       pets: selectedPets,
       todos: slice.todos,
@@ -3106,6 +3123,29 @@ class PetNoteStore extends ChangeNotifier {
       statusLabel: _reminderStatusLabel(effectiveStatus),
       kindLabel: '提醒',
       note: item.note,
+    );
+  }
+
+  List<ChecklistItemViewModel> _checklistItemsInTimelineOrder(
+    List<_ChecklistTimelineEntry> entries,
+  ) {
+    entries.sort((a, b) {
+      final byTime = a.timelineAt.compareTo(b.timelineAt);
+      if (byTime != 0) {
+        return byTime;
+      }
+      final byTitle = a.item.title.compareTo(b.item.title);
+      if (byTitle != 0) {
+        return byTitle;
+      }
+      final bySourceType = a.item.sourceType.compareTo(b.item.sourceType);
+      if (bySourceType != 0) {
+        return bySourceType;
+      }
+      return a.item.id.compareTo(b.item.id);
+    });
+    return List<ChecklistItemViewModel>.unmodifiable(
+      entries.map((entry) => entry.item),
     );
   }
 

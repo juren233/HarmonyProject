@@ -1,6 +1,6 @@
 enabled: true
 build_if_not_enabled: true
-pre_release: true
+pre_release: false
 
 android:
   enabled: true

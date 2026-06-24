@@ -960,8 +960,59 @@ void main() {
 
       expect(store.checklistSections.length, 5);
       expect(store.checklistSections.first.title, '今日待办');
+      expect(store.checklistSections[1].title, '未来待办');
       expect(store.checklistSections[3].title, '已延后');
       expect(store.checklistSections[4].title, '已跳过');
+    });
+
+    test('checklist sections sort todos and reminders together by timeline',
+        () async {
+      final store = await PetNoteStore.load(
+        nowProvider: () => DateTime.parse('2026-03-27T10:00:00+08:00'),
+      );
+      await store.addPet(
+        name: 'Mochi',
+        type: PetType.cat,
+        breed: '英短',
+        sex: '母',
+        birthday: '2024-02-12',
+        weightKg: 4.2,
+        neuterStatus: PetNeuterStatus.neutered,
+        feedingPreferences: '未填写',
+        allergies: '未填写',
+        note: '未填写',
+      );
+      final petId = store.pets.single.id;
+
+      await store.addTodo(
+        title: '下午补粮',
+        petId: petId,
+        dueAt: DateTime.parse('2026-03-27T17:00:00+08:00'),
+        note: '',
+      );
+      await store.addReminder(
+        title: '午后驱虫',
+        petId: petId,
+        scheduledAt: DateTime.parse('2026-03-27T15:00:00+08:00'),
+        kind: ReminderKind.deworming,
+        recurrence: '单次',
+        note: '',
+      );
+      await store.addTodo(
+        title: '傍晚换水',
+        petId: petId,
+        dueAt: DateTime.parse('2026-03-27T16:00:00+08:00'),
+        note: '',
+      );
+
+      final todayItems = store.checklistSections
+          .firstWhere((section) => section.key == 'today')
+          .items;
+
+      expect(
+        todayItems.map((item) => '${item.sourceType}:${item.title}'),
+        ['reminder:午后驱虫', 'todo:傍晚换水', 'todo:下午补粮'],
+      );
     });
 
     test(

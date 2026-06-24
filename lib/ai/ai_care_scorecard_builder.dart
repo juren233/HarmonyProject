@@ -104,16 +104,22 @@ class AiCareScorecardBuilder {
       ..sort((a, b) => b.recordDate.compareTo(a.recordDate));
 
     final dimensions = <AiScoreDimension>[
-      _taskDimension(todos),
-      _reminderDimension(reminders),
+      _taskDimension(todos, context.referenceNow),
+      _reminderDimension(reminders, context.referenceNow),
       _recordDimension(context, records),
-      _stabilityDimension(todos, reminders, records),
+      _stabilityDimension(todos, reminders, records, context.referenceNow),
     ];
     final overallScore =
         dimensions.fold<int>(0, (sum, item) => sum + item.score);
     final eventCount = todos.length + reminders.length + records.length;
     final confidence = _confidenceForSample(eventCount, 1);
-    final riskCandidates = _petRiskCandidates(pet, todos, reminders, records);
+    final riskCandidates = _petRiskCandidates(
+      pet,
+      todos,
+      reminders,
+      records,
+      context.referenceNow,
+    );
     final dataQualityNotes = _petDataQualityNotes(
       pet: pet,
       records: records,
@@ -143,7 +149,10 @@ class AiCareScorecardBuilder {
     );
   }
 
-  AiScoreDimension _taskDimension(List<TodoItem> todos) {
+  AiScoreDimension _taskDimension(
+    List<TodoItem> todos,
+    DateTime referenceNow,
+  ) {
     if (todos.isEmpty) {
       return const AiScoreDimension(
         key: 'taskExecution',
@@ -154,20 +163,28 @@ class AiCareScorecardBuilder {
     }
     final done = todos.where((item) => item.status == TodoStatus.done).length;
     final overdue =
-        todos.where((item) => item.status == TodoStatus.overdue).length;
+        todos.where((item) => _isTodoOverdue(item, referenceNow)).length;
     final skipped =
         todos.where((item) => item.status == TodoStatus.skipped).length;
     final postponed =
         todos.where((item) => item.status == TodoStatus.postponed).length;
-    final open = todos.where((item) => item.status == TodoStatus.open).length;
+    final futureOpen = todos
+        .where(
+          (item) =>
+              item.status == TodoStatus.open &&
+              item.dueAt.isAfter(referenceNow),
+        )
+        .length;
 
-    var score = 25 - overdue * 7 - skipped * 6 - postponed * 3 - open;
+    var score = 25 - overdue * 7 - skipped * 6 - postponed * 3;
     score += math.min(done * 2, 4);
     score = score.clamp(0, 25);
 
     final reason = overdue > 0 || skipped > 0
         ? '当前仍有$overdue条逾期、$skipped条跳过和$postponed条延后待办，执行闭环需要加强。'
-        : '待办整体执行顺畅，已完成$done条，当前没有明显逾期。';
+        : futureOpen > 0
+            ? '待办整体执行顺畅，未来待办$futureOpen条已排入时间线，当前没有明显逾期。'
+            : '待办整体执行顺畅，已完成$done条，当前没有明显逾期。';
     return AiScoreDimension(
       key: 'taskExecution',
       label: '执行完成度',
@@ -176,7 +193,10 @@ class AiCareScorecardBuilder {
     );
   }
 
-  AiScoreDimension _reminderDimension(List<ReminderItem> reminders) {
+  AiScoreDimension _reminderDimension(
+    List<ReminderItem> reminders,
+    DateTime referenceNow,
+  ) {
     if (reminders.isEmpty) {
       return const AiScoreDimension(
         key: 'reminderFollowThrough',
@@ -188,23 +208,31 @@ class AiCareScorecardBuilder {
 
     final done =
         reminders.where((item) => item.status == ReminderStatus.done).length;
-    final overdue =
-        reminders.where((item) => item.status == ReminderStatus.overdue).length;
+    final overdue = reminders
+        .where((item) => _isReminderOverdue(item, referenceNow))
+        .length;
     final skipped =
         reminders.where((item) => item.status == ReminderStatus.skipped).length;
     final postponed = reminders
         .where((item) => item.status == ReminderStatus.postponed)
         .length;
-    final pending =
-        reminders.where((item) => item.status == ReminderStatus.pending).length;
+    final futurePending = reminders
+        .where(
+          (item) =>
+              item.status == ReminderStatus.pending &&
+              item.scheduledAt.isAfter(referenceNow),
+        )
+        .length;
 
-    var score = 25 - overdue * 7 - skipped * 5 - postponed * 3 - pending;
+    var score = 25 - overdue * 7 - skipped * 5 - postponed * 3;
     score += math.min(done * 2, 4);
     score = score.clamp(0, 25);
 
-    final reason = overdue > 0 || pending > 0
-        ? '提醒侧仍有$overdue条逾期和$pending条待处理，关键节点需要更及时跟进。'
-        : '提醒跟进整体稳定，已完成$done条，关键节点处理较及时。';
+    final reason = overdue > 0
+        ? '提醒侧仍有$overdue条逾期，关键节点需要更及时跟进。'
+        : futurePending > 0
+            ? '提醒跟进整体稳定，未来提醒$futurePending条已排入时间线。'
+            : '提醒跟进整体稳定，已完成$done条，关键节点处理较及时。';
     return AiScoreDimension(
       key: 'reminderFollowThrough',
       label: '提醒跟进度',
@@ -254,11 +282,13 @@ class AiCareScorecardBuilder {
     List<TodoItem> todos,
     List<ReminderItem> reminders,
     List<PetRecord> records,
+    DateTime referenceNow,
   ) {
     final overdueTodos =
-        todos.where((item) => item.status == TodoStatus.overdue).length;
-    final overdueReminders =
-        reminders.where((item) => item.status == ReminderStatus.overdue).length;
+        todos.where((item) => _isTodoOverdue(item, referenceNow)).length;
+    final overdueReminders = reminders
+        .where((item) => _isReminderOverdue(item, referenceNow))
+        .length;
     final skippedTodos =
         todos.where((item) => item.status == TodoStatus.skipped).length;
     final clinicalRecords = records
@@ -301,12 +331,14 @@ class AiCareScorecardBuilder {
     List<TodoItem> todos,
     List<ReminderItem> reminders,
     List<PetRecord> records,
+    DateTime referenceNow,
   ) {
     final items = <String>[];
     final overdueTodos =
-        todos.where((item) => item.status == TodoStatus.overdue).length;
-    final overdueReminders =
-        reminders.where((item) => item.status == ReminderStatus.overdue).length;
+        todos.where((item) => _isTodoOverdue(item, referenceNow)).length;
+    final overdueReminders = reminders
+        .where((item) => _isReminderOverdue(item, referenceNow))
+        .length;
     final skippedTodos =
         todos.where((item) => item.status == TodoStatus.skipped).length;
     final clinicalRecords = records
@@ -336,6 +368,21 @@ class AiCareScorecardBuilder {
       items.add('${pet.name} 当前没有明显集中风险信号。');
     }
     return items;
+  }
+
+  bool _isTodoOverdue(TodoItem item, DateTime referenceNow) {
+    if (item.status == TodoStatus.overdue) {
+      return true;
+    }
+    return item.status == TodoStatus.open && item.dueAt.isBefore(referenceNow);
+  }
+
+  bool _isReminderOverdue(ReminderItem item, DateTime referenceNow) {
+    if (item.status == ReminderStatus.overdue) {
+      return true;
+    }
+    return item.status == ReminderStatus.pending &&
+        item.scheduledAt.isBefore(referenceNow);
   }
 
   List<String> _petDataQualityNotes({

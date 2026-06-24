@@ -13,6 +13,22 @@ void main() {
         scorecard.petScorecards.single.overallScore, greaterThanOrEqualTo(75));
   });
 
+  test('scorecard builder treats future todos and reminders as planned items',
+      () {
+    final scorecard =
+        const AiCareScorecardBuilder().build(_futureTimelineContext());
+    final taskDimension = scorecard.scoreBreakdown
+        .firstWhere((item) => item.key == 'taskExecution');
+    final reminderDimension = scorecard.scoreBreakdown
+        .firstWhere((item) => item.key == 'reminderFollowThrough');
+
+    expect(taskDimension.score, 25);
+    expect(taskDimension.reason, contains('未来待办1条'));
+    expect(reminderDimension.score, 25);
+    expect(reminderDimension.reason, contains('未来提醒1条'));
+    expect(scorecard.riskCandidates.join(' '), isNot(contains('逾期')));
+  });
+
   test('scorecard builder penalizes overdue skipped and missing-record periods',
       () {
     final scorecard = const AiCareScorecardBuilder().build(_highRiskContext());
@@ -95,6 +111,53 @@ AiGenerationContext _stableContext() {
         title: '饮食记录',
         recordDate: DateTime.parse('2026-04-05T20:00:00+08:00'),
         summary: '食欲稳定',
+        note: '',
+      ),
+    ],
+  );
+}
+
+AiGenerationContext _futureTimelineContext() {
+  return AiGenerationContext(
+    title: '未来 7 天的总结',
+    rangeLabel: '未来 7 天',
+    rangeStart: DateTime.parse('2026-04-09T00:00:00+08:00'),
+    rangeEnd: DateTime.parse('2026-04-16T23:59:59+08:00'),
+    referenceNow: DateTime.parse('2026-04-09T10:00:00+08:00'),
+    languageTag: 'zh-CN',
+    pets: [_pet()],
+    todos: [
+      TodoItem(
+        id: 'todo-future',
+        petId: 'pet-1',
+        title: '补充主粮',
+        dueAt: DateTime.parse('2026-04-10T09:00:00+08:00'),
+        notificationLeadTime: NotificationLeadTime.none,
+        status: TodoStatus.open,
+        note: '',
+      ),
+    ],
+    reminders: [
+      ReminderItem(
+        id: 'reminder-future',
+        petId: 'pet-1',
+        kind: ReminderKind.vaccine,
+        title: '疫苗复查',
+        scheduledAt: DateTime.parse('2026-04-11T09:00:00+08:00'),
+        notificationLeadTime: NotificationLeadTime.none,
+        recurrence: '单次',
+        status: ReminderStatus.pending,
+        note: '',
+      ),
+    ],
+    records: [
+      PetRecord(
+        id: 'record-1',
+        petId: 'pet-1',
+        type: PetRecordType.other,
+        title: '近期观察',
+        recordDate: DateTime.parse('2026-04-09T08:00:00+08:00'),
+        summary: '状态稳定',
         note: '',
       ),
     ],

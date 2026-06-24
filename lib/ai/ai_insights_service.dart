@@ -1135,6 +1135,7 @@ Map<String, dynamic> _buildCareReportPayload(
       'rangeLabel': context.rangeLabel,
       'rangeStart': context.rangeStart.toIso8601String(),
       'rangeEnd': context.rangeEnd.toIso8601String(),
+      'referenceNow': context.referenceNow.toIso8601String(),
       'rangeDays': context.rangeEnd.difference(context.rangeStart).inDays,
       'selectedPetCount': context.pets.length,
       'languageTag': context.languageTag,

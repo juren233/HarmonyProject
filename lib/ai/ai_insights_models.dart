@@ -8,17 +8,19 @@ class AiGenerationContext {
     required this.rangeLabel,
     required this.rangeStart,
     required this.rangeEnd,
+    DateTime? referenceNow,
     required this.languageTag,
     required this.pets,
     required this.todos,
     required this.reminders,
     required this.records,
-  });
+  }) : referenceNow = referenceNow ?? rangeEnd;
 
   final String title;
   final String rangeLabel;
   final DateTime rangeStart;
   final DateTime rangeEnd;
+  final DateTime referenceNow;
   final String languageTag;
   final List<Pet> pets;
   final List<TodoItem> todos;
@@ -33,6 +35,7 @@ class AiGenerationContext {
       'rangeLabel': rangeLabel,
       'rangeStart': rangeStart.toIso8601String(),
       'rangeEnd': rangeEnd.toIso8601String(),
+      'referenceNow': referenceNow.toIso8601String(),
       'languageTag': languageTag,
       'pets': pets
           .map(
