@@ -290,6 +290,7 @@ class SyncService extends ChangeNotifier {
   }
 
   void retrySyncIssues() {
+    _restartHandshakeIfConnected();
     _controller?.retryFailedSync();
     if (settings.pendingResetSnapshotSyncId != null && _activeRole != null) {
       unawaited(_pushPendingResetSnapshotIfAny());
@@ -526,7 +527,9 @@ class SyncService extends ChangeNotifier {
     if (_sessionState == SyncSessionState.authenticated) {
       _retryActiveEngine();
       _requestSnapshotWithCooldown(force: true);
+      return;
     }
+    _restartHandshakeIfConnected();
   }
 
   Future<void> _connectTransport({required SyncTransport transport}) async {
@@ -557,6 +560,31 @@ class SyncService extends ChangeNotifier {
   void _retryActiveEngine() {
     _controller?.retryFailedSync();
     _refreshFailedSyncCount();
+  }
+
+  bool _restartHandshakeIfConnected() {
+    final transport = _transport;
+    final config = _activeConfig;
+    final role = _activeRole;
+    if (transport == null ||
+        config == null ||
+        role == null ||
+        _sessionState == SyncSessionState.authenticated ||
+        transport.state.value != SyncConnectionState.connected) {
+      return false;
+    }
+    _handshakeFailed = false;
+    _lastSessionError = null;
+    _setSessionState(SyncSessionState.handshaking);
+    _sendHello(
+      transport: transport,
+      config: config,
+      role: role,
+    );
+    _startHandshakeTimer();
+    _queuePostHandshakeRecovery();
+    _refreshFailedSyncCount();
+    return true;
   }
 
   void _requestSnapshotWithCooldown({bool force = false}) {
@@ -738,19 +766,23 @@ class SyncService extends ChangeNotifier {
         role: activeRole,
       );
       _startHandshakeTimer();
-      if (settings.pendingResetSnapshotSyncId != null) {
-        unawaited(_pushPendingResetSnapshotIfAny());
-      }
-
-      // 只在重连时（非首次连接）主动请求快照
-      if (_initialConnectionCompleted) {
-        _retryActiveEngine();
-        _requestSnapshotWithCooldown();
-      }
+      _queuePostHandshakeRecovery();
     }
 
     transport.state.addListener(listener);
     _transportStateListener = listener;
+  }
+
+  void _queuePostHandshakeRecovery() {
+    if (settings.pendingResetSnapshotSyncId != null) {
+      unawaited(_pushPendingResetSnapshotIfAny());
+    }
+
+    // 只在重连或重新握手时（非首次连接）主动请求快照。
+    if (_initialConnectionCompleted) {
+      _retryActiveEngine();
+      _requestSnapshotWithCooldown();
+    }
   }
 
   void _attachHelloAckHandler(SyncTransport transport, _SyncConfig config) {

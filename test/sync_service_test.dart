@@ -2566,6 +2566,138 @@ void main() {
 
     await service.stop();
   });
+
+  test('同步重试在握手失败但连接仍存活时会重新 hello', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'temporary auth failed',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(service.sessionState, SyncSessionState.blocked);
+    expect(service.failedSyncCount?.value, 1);
+
+    transport.sent.clear();
+    service.retrySyncIssues();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.sent.single.type, SyncMessageTypes.hello);
+
+    await acknowledgeHello(transport);
+
+    expect(service.sessionState, SyncSessionState.authenticated);
+    expect(service.failedSyncCount?.value, 0);
+
+    await service.stop();
+  });
+
+  test('前台恢复在握手超时但连接仍存活时会重新 hello', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+      handshakeTimeout: const Duration(milliseconds: 10),
+    );
+
+    await service.ensureStarted(store: PetNoteStore.seeded());
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    expect(service.sessionState, SyncSessionState.blocked);
+    expect(service.failedSyncCount?.value, 1);
+
+    transport.sent.clear();
+    await service.recoverSync();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.sent.single.type, SyncMessageTypes.hello);
+
+    await acknowledgeHello(transport);
+
+    expect(service.sessionState, SyncSessionState.authenticated);
+    expect(service.failedSyncCount?.value, 0);
+
+    await service.stop();
+  });
+
+  test('前台恢复在已完成初始同步后重新握手会补拉快照', () async {
+    final settings = await AppSettingsController.load();
+    await settings.setDeviceRole(DeviceRole.owner);
+    await settings.setSyncServerUrl('ws://127.0.0.1/ws');
+    await settings.setHouseholdId('house-1');
+    await settings.setHouseholdAuthToken('auth-token-1');
+    final secretStore = InMemorySyncSecretStore();
+    final crypto = await SyncCrypto.deriveFromPairingCode(
+      code: '123456',
+      saltBase64: SyncCrypto.generateSaltBase64(),
+    );
+    await secretStore.saveSharedKey(await crypto.exportKeyBase64());
+    final transport = FakeSyncTransport();
+    final service = SyncService(
+      settings: settings,
+      secretStore: secretStore,
+      transportFactory: (_) => transport,
+    );
+
+    await service.ensureStarted(
+      store: PetNoteStore.seeded(),
+      pushStartupSnapshot: false,
+    );
+    await acknowledgeHello(transport);
+    transport.sent.clear();
+
+    transport.incoming.add(
+      const SyncMessage(SyncMessageTypes.pairError, {
+        'message': 'temporary auth failed',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(service.sessionState, SyncSessionState.blocked);
+
+    await service.recoverSync();
+    expect(transport.sent.single.type, SyncMessageTypes.hello);
+
+    await acknowledgeHello(transport);
+
+    expect(
+      transport.sent.map((message) => message.type),
+      contains(SyncMessageTypes.snapshotRequest),
+    );
+
+    await service.stop();
+  });
 }
 
 Future<void> acknowledgeHello(dynamic transport) async {
